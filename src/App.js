@@ -474,8 +474,8 @@ function App() {
             </motion.div>
 
             <motion.h1 className="hero-title" variants={fadeUp} custom={1}>
-              <span className="hero-title-line">GoldBot</span>
-              <span className="hero-title-line">Copy Trading.</span>
+              <span className="hero-title-line">Smart Trading</span>
+              <span className="hero-title-line">Club.</span>
               <span className="hero-title-accent">
                 <span className="text-gold-gradient">Kopieer & Verdien.</span>
                 <Sparkles className="hero-sparkle" size={28} />
