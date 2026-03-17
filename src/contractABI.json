@@ -1,0 +1,171 @@
+[
+  {
+    "inputs": [
+      { "internalType": "address", "name": "_usdc", "type": "address" },
+      { "internalType": "address", "name": "_diamond", "type": "address" }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "signalId", "type": "uint256" }, { "indexed": false, "internalType": "bool", "name": "long", "type": "bool" }, { "indexed": false, "internalType": "uint64", "name": "entryPrice", "type": "uint64" }, { "indexed": false, "internalType": "uint64", "name": "tp", "type": "uint64" }, { "indexed": false, "internalType": "uint64", "name": "sl", "type": "uint64" }, { "indexed": false, "internalType": "uint24", "name": "leverage", "type": "uint24" }], "name": "SignalPosted", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "uint256", "name": "signalId", "type": "uint256" }, { "indexed": false, "internalType": "int256", "name": "resultPct", "type": "int256" }], "name": "SignalClosed", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "address", "name": "user", "type": "address" }, { "indexed": true, "internalType": "uint256", "name": "signalId", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "TradeCopied", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": true, "internalType": "address", "name": "user", "type": "address" }, { "indexed": true, "internalType": "uint256", "name": "signalId", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "payout", "type": "uint256" }, { "indexed": false, "internalType": "uint256", "name": "fee", "type": "uint256" }], "name": "ProceedsClaimed", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "uint256", "name": "newFeePercent", "type": "uint256" }], "name": "FeeUpdated", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "uint256", "name": "amount", "type": "uint256" }], "name": "FeesWithdrawn", "type": "event" },
+  { "anonymous": false, "inputs": [{ "indexed": false, "internalType": "bool", "name": "isPaused", "type": "bool" }], "name": "Paused", "type": "event" },
+  {
+    "inputs": [], "name": "admin",
+    "outputs": [{ "internalType": "address", "name": "", "type": "address" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [], "name": "paused",
+    "outputs": [{ "internalType": "bool", "name": "", "type": "bool" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [], "name": "signalCount",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [], "name": "activeSignalId",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [], "name": "feePercent",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [], "name": "totalFeesCollected",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "name": "signalCore",
+    "outputs": [
+      { "internalType": "bool", "name": "long", "type": "bool" },
+      { "internalType": "bool", "name": "active", "type": "bool" },
+      { "internalType": "bool", "name": "closed", "type": "bool" },
+      { "internalType": "uint64", "name": "entryPrice", "type": "uint64" },
+      { "internalType": "uint64", "name": "tp", "type": "uint64" },
+      { "internalType": "uint64", "name": "sl", "type": "uint64" },
+      { "internalType": "uint24", "name": "leverage", "type": "uint24" },
+      { "internalType": "int256", "name": "resultPct", "type": "int256" }
+    ],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "name": "signalMeta",
+    "outputs": [
+      { "internalType": "uint256", "name": "timestamp", "type": "uint256" },
+      { "internalType": "uint256", "name": "closedAt", "type": "uint256" },
+      { "internalType": "uint256", "name": "totalCopied", "type": "uint256" },
+      { "internalType": "uint256", "name": "copierCount", "type": "uint256" }
+    ],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "", "type": "address" },
+      { "internalType": "uint256", "name": "", "type": "uint256" }
+    ],
+    "name": "positions",
+    "outputs": [
+      { "internalType": "uint256", "name": "collateral", "type": "uint256" },
+      { "internalType": "uint32", "name": "gTradeIndex", "type": "uint32" },
+      { "internalType": "bool", "name": "claimed", "type": "bool" }
+    ],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "bool", "name": "_long", "type": "bool" },
+      { "internalType": "uint64", "name": "_entry", "type": "uint64" },
+      { "internalType": "uint64", "name": "_tp", "type": "uint64" },
+      { "internalType": "uint64", "name": "_sl", "type": "uint64" },
+      { "internalType": "uint24", "name": "_lev", "type": "uint24" }
+    ],
+    "name": "postSignal",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "_id", "type": "uint256" },
+      { "internalType": "int256", "name": "_result", "type": "int256" }
+    ],
+    "name": "closeSignal",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }],
+    "name": "cancelSignal",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "uint256", "name": "_id", "type": "uint256" },
+      { "internalType": "uint256", "name": "_amount", "type": "uint256" }
+    ],
+    "name": "copyTrade",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "_id", "type": "uint256" }],
+    "name": "claimProceeds",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "_fee", "type": "uint256" }],
+    "name": "setFeePercent",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "bool", "name": "_paused", "type": "bool" }],
+    "name": "setPaused",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "_newAdmin", "type": "address" }],
+    "name": "transferAdmin",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [], "name": "acceptAdmin",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [], "name": "withdrawFees",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "uint256", "name": "_amount", "type": "uint256" }],
+    "name": "adminDeposit",
+    "outputs": [], "stateMutability": "nonpayable", "type": "function"
+  },
+  {
+    "inputs": [], "name": "getActiveSignalId",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [{ "internalType": "address", "name": "_user", "type": "address" }],
+    "name": "getUserSignalIds",
+    "outputs": [{ "internalType": "uint256[]", "name": "", "type": "uint256[]" }],
+    "stateMutability": "view", "type": "function"
+  },
+  {
+    "inputs": [
+      { "internalType": "address", "name": "_user", "type": "address" },
+      { "internalType": "uint256", "name": "_id", "type": "uint256" }
+    ],
+    "name": "getExpectedPayout",
+    "outputs": [{ "internalType": "uint256", "name": "", "type": "uint256" }],
+    "stateMutability": "view", "type": "function"
+  }
+]

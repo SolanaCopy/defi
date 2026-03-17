@@ -1,68 +1,27 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <defs>
-    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#F5D060"/>
-      <stop offset="50%" style="stop-color:#C9A84C"/>
-      <stop offset="100%" style="stop-color:#A07C30"/>
+    <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#F7E5A0"/>
+      <stop offset="50%" stop-color="#D4A843"/>
+      <stop offset="100%" stop-color="#A07C30"/>
     </linearGradient>
     <linearGradient id="goldLight" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#FFE8A0"/>
-      <stop offset="100%" style="stop-color:#C9A84C"/>
+      <stop offset="0%" stop-color="#FFF1C9"/>
+      <stop offset="100%" stop-color="#D4A843"/>
     </linearGradient>
-    <linearGradient id="darkBg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" style="stop-color:#1a1d25"/>
-      <stop offset="100%" style="stop-color:#0d0f14"/>
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#141620"/>
+      <stop offset="100%" stop-color="#0a0b10"/>
     </linearGradient>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
-      <feMerge>
-        <feMergeNode in="coloredBlur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-    <filter id="innerShadow">
-      <feOffset dx="0" dy="2"/>
-      <feGaussianBlur stdDeviation="3"/>
-      <feComposite in2="SourceAlpha" operator="arithmetic" k2="-1" k3="1"/>
-      <feFlood flood-color="#000" flood-opacity="0.3"/>
-      <feComposite in2="SourceAlpha" operator="in"/>
-      <feMerge>
-        <feMergeNode/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
   </defs>
 
-  <!-- Outer hexagon shield -->
-  <polygon points="256,28 460,148 460,364 256,484 52,364 52,148"
-    fill="none" stroke="url(#goldGrad)" stroke-width="8" stroke-linejoin="round"
-    opacity="0.3"/>
+  <!-- Background circle -->
+  <circle cx="100" cy="100" r="96" fill="url(#bg)" stroke="url(#gold)" stroke-width="2.5" opacity="0.9"/>
 
-  <!-- Inner hexagon shield -->
-  <polygon points="256,56 432,162 432,350 256,456 80,350 80,162"
-    fill="url(#darkBg)" stroke="url(#goldGrad)" stroke-width="4" stroke-linejoin="round"
-    filter="url(#innerShadow)"/>
+  <!-- Inner ring -->
+  <circle cx="100" cy="100" r="82" fill="none" stroke="#D4A843" stroke-width="0.8" opacity="0.2"/>
 
-  <!-- Stylized "G" letterform made of gold bars -->
-  <g filter="url(#glow)">
-    <!-- Main G arc -->
-    <path d="M310,190 A90,90 0 1,0 310,322" fill="none" stroke="url(#goldGrad)" stroke-width="22" stroke-linecap="round"/>
-    <!-- G horizontal bar -->
-    <line x1="256" y1="260" x2="310" y2="260" stroke="url(#goldLight)" stroke-width="22" stroke-linecap="round"/>
-    <!-- G vertical stub -->
-    <line x1="310" y1="260" x2="310" y2="322" stroke="url(#goldLight)" stroke-width="22" stroke-linecap="round"/>
-  </g>
-
-  <!-- Rising chart arrow overlaying the G -->
-  <g filter="url(#glow)">
-    <polyline points="200,310 240,270 275,290 330,210"
-      fill="none" stroke="url(#goldLight)" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-    <!-- Arrow head -->
-    <polygon points="330,210 312,215 325,228" fill="url(#goldLight)"/>
-  </g>
-
-  <!-- Small decorative dots -->
-  <circle cx="200" cy="310" r="5" fill="#F5D060" opacity="0.8"/>
-  <circle cx="240" cy="270" r="5" fill="#F5D060" opacity="0.8"/>
-  <circle cx="275" cy="290" r="5" fill="#F5D060" opacity="0.8"/>
+  <!-- Bold G lettermark -->
+  <path d="M118,72 A42,42 0 1,0 118,128 L118,104 L100,104"
+    fill="none" stroke="url(#goldLight)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
 </svg>

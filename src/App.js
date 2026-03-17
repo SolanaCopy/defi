@@ -1,13 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react';
+/* global BigInt */
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import CountUp from 'react-countup';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
-import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, Activity, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, Timer, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Globe, Eye, Users } from 'lucide-react';
+import { ethers } from 'ethers';
+import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings } from 'lucide-react';
+import CONTRACT_ABI from './contractABI.json';
 import './index.css';
 
-const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000";
-const USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
+// ===== ARBITRUM CONFIG =====
+const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000"; // Deploy and fill in
+const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC on Arbitrum
+const ARBITRUM_CHAIN_ID = "0xa4b1"; // 42161
+
+const ERC20_ABI = [
+  "function balanceOf(address owner) view returns (uint256)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function approve(address spender, uint256 amount) returns (bool)",
+  "function decimals() view returns (uint8)"
+];
+
+const USDC_DECIMALS = 6;
+const PRICE_PRECISION = 1e10; // gTrade uses 1e10 for prices
+const LEVERAGE_PRECISION = 1000; // gTrade uses 1e3 for leverage
 
 // Animation variants
 const fadeUp = {
@@ -89,37 +105,68 @@ function FloatingBadge({ icon, text, className = "" }) {
   );
 }
 
+// Helper: format gTrade price (1e10 precision) to readable
+function formatGTradePrice(price) {
+  return (Number(price) / PRICE_PRECISION).toFixed(2);
+}
+
+// Helper: format leverage (1e3 precision)
+function formatLeverage(lev) {
+  return (Number(lev) / LEVERAGE_PRECISION).toFixed(0);
+}
+
+// Helper: time ago
+function timeAgo(timestamp) {
+  const seconds = Math.floor(Date.now() / 1000) - Number(timestamp);
+  if (seconds < 60) return 'Zojuist';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m geleden`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}u geleden`;
+  return `${Math.floor(seconds / 86400)}d geleden`;
+}
+
 function App() {
   const [account, setAccount] = useState("");
   const [activeTab, setActiveTab] = useState("invest");
-  const [depositAmount, setDepositAmount] = useState("");
-  const [withdrawAmount, setWithdrawAmount] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [particlesReady, setParticlesReady] = useState(false);
   const [scrolled, setScrolled] = useState(false);
 
-  // Simulated User State
-  const [balance, setBalance] = useState(2500.00);
-  const [yieldEarned, setYieldEarned] = useState(72.50);
-  const [walletUSDT, setWalletUSDT] = useState(10000.00);
-  const [totalYieldClaimed, setTotalYieldClaimed] = useState(840.20);
+  // Blockchain State
+  const [walletUSDC, setWalletUSDC] = useState(0);
+  const [isAdmin, setIsAdmin] = useState(false);
 
-  // 24h Claim Timer
-  const [lastDepositTime, setLastDepositTime] = useState(null);
-  const [claimTimeLeft, setClaimTimeLeft] = useState(0);
-  const canClaim = lastDepositTime !== null && claimTimeLeft <= 0 && yieldEarned > 0;
+  // Signal State
+  const [activeSignal, setActiveSignal] = useState(null);
+  const [signalHistory, setSignalHistory] = useState([]);
+  const [userPositions, setUserPositions] = useState({});
+  const [signalCount, setSignalCount] = useState(0);
+  const [feePercent, setFeePercent] = useState(0);
 
-  // Simulated Global State
-  const [activeUsers] = useState(2451);
-  const [tvl] = useState(2850420.00);
+  // Copy Trade Form
+  const [copyAmount, setCopyAmount] = useState("");
+  const [showCopyModal, setShowCopyModal] = useState(false);
 
-  const [transactions, setTransactions] = useState([
-    { id: '0x8f...2a', type: 'claim', amount: 45.00, date: 'Vandaag, 14:12' },
-    { id: '0x1a...4b', type: 'deposit', amount: 1500.00, date: 'Gisteren, 10:42' },
-    { id: '0x3c...2d', type: 'claim', amount: 80.50, date: '26 Feb, 15:30' },
-    { id: '0x9f...8e', type: 'withdraw', amount: 500.00, date: '25 Feb, 09:15' },
-    { id: '0x7a...1c', type: 'deposit', amount: 1500.00, date: '21 Feb, 18:20' },
-  ]);
+  // Admin Signal Form
+  const [showAdminPanel, setShowAdminPanel] = useState(false);
+  const [signalForm, setSignalForm] = useState({
+    long: true,
+    entryPrice: '',
+    tp: '',
+    sl: '',
+    leverage: '50'
+  });
+  const [closeSignalId, setCloseSignalId] = useState('');
+  const [closeResultPct, setCloseResultPct] = useState('');
+
+  // Transaction history
+  const [transactions, setTransactions] = useState([]);
+
+  // Contract refs
+  const providerRef = useRef(null);
+  const signerRef = useRef(null);
+  const contractRef = useRef(null);
+  const usdcRef = useRef(null);
 
   // Init particles
   useEffect(() => {
@@ -138,99 +185,269 @@ function App() {
   const { scrollYProgress } = useScroll();
   const heroOpacity = useTransform(scrollYProgress, [0, 0.15], [1, 0]);
 
-  const connectWallet = async () => {
-    if (window.ethereum) {
-      try {
-        setIsConnecting(true);
-        const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-        setAccount(accounts[0]);
-      } catch (error) {
-        console.error("Connection error", error);
-      } finally {
-        setIsConnecting(false);
+  // Switch to Arbitrum network
+  const switchToArbitrum = async () => {
+    try {
+      await window.ethereum.request({
+        method: 'wallet_switchEthereumChain',
+        params: [{ chainId: ARBITRUM_CHAIN_ID }],
+      });
+    } catch (switchError) {
+      if (switchError.code === 4902) {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [{
+            chainId: ARBITRUM_CHAIN_ID,
+            chainName: 'Arbitrum One',
+            nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
+            rpcUrls: ['https://arb1.arbitrum.io/rpc'],
+            blockExplorerUrls: ['https://arbiscan.io/'],
+          }],
+        });
       }
-    } else {
-      alert("Please install MetaMask or a Web3 wallet browser extension!");
     }
   };
 
-  const handleDeposit = (e) => {
-    e.preventDefault();
-    if (!depositAmount || isNaN(depositAmount) || Number(depositAmount) <= 0) return;
-    setBalance(prev => prev + Number(depositAmount));
-    setWalletUSDT(prev => prev - Number(depositAmount));
-    setTransactions(prev => [
-      { id: `0x${Math.floor(Math.random() * 16777215).toString(16)}...`, type: 'deposit', amount: Number(depositAmount), date: 'Nu net' },
-      ...prev
-    ]);
-    setLastDepositTime(Date.now());
-    setDepositAmount("");
-    alert(`Succesvol gestort: ${depositAmount} USDT — de AI Gold Bot gaat nu voor je traden (Simulatie)`);
-  };
+  // Load data from contract
+  const loadData = useCallback(async (contract, usdcContract, userAddress) => {
+    try {
+      // Wallet USDC balance
+      const walletBal = await usdcContract.balanceOf(userAddress);
+      setWalletUSDC(parseFloat(ethers.formatUnits(walletBal, USDC_DECIMALS)));
 
-  const handleWithdraw = (e) => {
-    e.preventDefault();
-    if (!withdrawAmount || isNaN(withdrawAmount) || Number(withdrawAmount) <= 0) return;
-    if (Number(withdrawAmount) > balance) { alert("Onvoldoende balans"); return; }
-    setBalance(prev => prev - Number(withdrawAmount));
-    setWalletUSDT(prev => prev + Number(withdrawAmount));
-    setTransactions(prev => [
-      { id: `0x${Math.floor(Math.random() * 16777215).toString(16)}...`, type: 'withdraw', amount: Number(withdrawAmount), date: 'Nu net' },
-      ...prev
-    ]);
-    setWithdrawAmount("");
-    alert(`Succesvol opgenomen: ${withdrawAmount} USDT`);
-  };
+      // Check if admin
+      const adminAddr = await contract.admin();
+      setIsAdmin(adminAddr.toLowerCase() === userAddress.toLowerCase());
 
-  const formatTimeLeft = (ms) => {
-    const totalSec = Math.floor(ms / 1000);
-    const h = Math.floor(totalSec / 3600);
-    const m = Math.floor((totalSec % 3600) / 60);
-    const s = totalSec % 60;
-    return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
+      // Signal count & fee
+      const count = await contract.signalCount();
+      setSignalCount(Number(count));
+      const fee = await contract.feePercent();
+      setFeePercent(Number(fee));
 
-  const claimProgress = lastDepositTime
-    ? Math.min(100, ((24 * 60 * 60 * 1000 - claimTimeLeft) / (24 * 60 * 60 * 1000)) * 100)
-    : 0;
-
-  const submitClaim = () => {
-    if (!canClaim) return;
-    setWalletUSDT(prev => prev + yieldEarned);
-    setTotalYieldClaimed(prev => prev + yieldEarned);
-    setTransactions(prev => [
-      { id: `0x${Math.floor(Math.random() * 16777215).toString(16)}...`, type: 'claim', amount: Number(yieldEarned), date: 'Nu net' },
-      ...prev
-    ]);
-    alert(`Winst geclaimd: ${yieldEarned.toFixed(2)} USDT`);
-    setYieldEarned(0);
-    setLastDepositTime(null);
-    setClaimTimeLeft(0);
-  };
-
-  // Yield accumulation
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const dayOfWeek = new Date().getDay();
-      if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-        setYieldEarned(prev => prev + (balance * 0.02 / 28800));
+      // Active signal
+      try {
+        const activeId = await contract.getActiveSignalId();
+        if (Number(activeId) > 0) {
+          const core = await contract.signalCore(activeId);
+          const meta = await contract.signalMeta(activeId);
+          setActiveSignal({ id: Number(activeId), ...core, ...meta });
+        } else {
+          setActiveSignal(null);
+        }
+      } catch {
+        setActiveSignal(null);
       }
-    }, 2000);
-    return () => clearInterval(interval);
-  }, [balance]);
 
-  // 24h claim countdown
+      // Signal history (load last 20)
+      try {
+        const total = Number(count);
+        const histArr = [];
+        const start = Math.max(1, total - 19);
+        for (let i = total; i >= start; i--) {
+          const core = await contract.signalCore(i);
+          const meta = await contract.signalMeta(i);
+          histArr.push({ id: i, ...core, ...meta });
+        }
+        setSignalHistory(histArr);
+      } catch {
+        setSignalHistory([]);
+      }
+
+      // User positions
+      try {
+        const sids = await contract.getUserSignalIds(userAddress);
+        const posMap = {};
+        for (const sid of sids) {
+          const pos = await contract.positions(userAddress, sid);
+          if (Number(pos.collateral) > 0) {
+            posMap[Number(sid)] = pos;
+          }
+        }
+        setUserPositions(posMap);
+      } catch {
+        setUserPositions({});
+      }
+    } catch (err) {
+      console.error("Error loading data:", err);
+    }
+  }, []);
+
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      alert("Installeer MetaMask of een andere Web3 wallet!");
+      return;
+    }
+    try {
+      setIsConnecting(true);
+      await switchToArbitrum();
+
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+
+      const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+      const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
+
+      providerRef.current = provider;
+      signerRef.current = signer;
+      contractRef.current = contract;
+      usdcRef.current = usdcContract;
+
+      setAccount(address);
+      await loadData(contract, usdcContract, address);
+    } catch (error) {
+      console.error("Connection error:", error);
+    } finally {
+      setIsConnecting(false);
+    }
+  };
+
+  // Listen for account/chain changes
   useEffect(() => {
-    if (!lastDepositTime) return;
-    const tick = () => {
-      const elapsed = Date.now() - lastDepositTime;
-      const remaining = Math.max(0, 24 * 60 * 60 * 1000 - elapsed);
-      setClaimTimeLeft(remaining);
+    if (!window.ethereum) return;
+    const handleAccountsChanged = (accounts) => {
+      if (accounts.length === 0) {
+        setAccount("");
+        setWalletUSDC(0);
+        setIsAdmin(false);
+      } else {
+        setAccount(accounts[0]);
+        if (contractRef.current && usdcRef.current) {
+          loadData(contractRef.current, usdcRef.current, accounts[0]);
+        }
+      }
     };
-    tick();
-    const interval = setInterval(tick, 1000);
+    window.ethereum.on('accountsChanged', handleAccountsChanged);
+    window.ethereum.on('chainChanged', () => window.location.reload());
+    return () => {
+      window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
+      window.ethereum.removeListener('chainChanged', () => {});
+    };
+  }, [loadData]);
+
+  // Refresh data periodically
+  useEffect(() => {
+    if (!account || !contractRef.current || !usdcRef.current) return;
+    const interval = setInterval(() => {
+      loadData(contractRef.current, usdcRef.current, account);
+    }, 15000);
     return () => clearInterval(interval);
-  }, [lastDepositTime]);
+  }, [account, loadData]);
+
+  // ===== ADMIN: Post Signal =====
+  const handlePostSignal = async (e) => {
+    e.preventDefault();
+    if (!isAdmin || !account) return;
+
+    try {
+      setIsLoading(true);
+      const entryPrice = BigInt(Math.round(parseFloat(signalForm.entryPrice) * PRICE_PRECISION));
+      const tp = BigInt(Math.round(parseFloat(signalForm.tp) * PRICE_PRECISION));
+      const sl = BigInt(Math.round(parseFloat(signalForm.sl) * PRICE_PRECISION));
+      const leverage = Math.round(parseFloat(signalForm.leverage) * LEVERAGE_PRECISION);
+
+      const tx = await contractRef.current.postSignal(
+        signalForm.long,
+        entryPrice,
+        tp,
+        sl,
+        leverage
+      );
+      await tx.wait();
+
+      setSignalForm({ long: true, entryPrice: '', tp: '', sl: '', leverage: '50' });
+      await loadData(contractRef.current, usdcRef.current, account);
+    } catch (err) {
+      console.error("Post signal error:", err);
+      alert(err.reason || err.message || "Signaal posten mislukt");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ===== ADMIN: Close Signal =====
+  const handleCloseSignal = async (e) => {
+    e.preventDefault();
+    if (!isAdmin || !account) return;
+
+    try {
+      setIsLoading(true);
+      const resultBps = Math.round(parseFloat(closeResultPct) * 100); // convert % to basis points
+
+      const tx = await contractRef.current.closeSignal(
+        BigInt(closeSignalId),
+        BigInt(resultBps)
+      );
+      await tx.wait();
+
+      setCloseSignalId('');
+      setCloseResultPct('');
+      await loadData(contractRef.current, usdcRef.current, account);
+    } catch (err) {
+      console.error("Close signal error:", err);
+      alert(err.reason || err.message || "Signaal sluiten mislukt");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ===== USER: Copy Trade =====
+  const handleCopyTrade = async (e) => {
+    e.preventDefault();
+    if (!account || !activeSignal) return;
+    if (!copyAmount || isNaN(copyAmount) || Number(copyAmount) <= 0) return;
+
+    try {
+      setIsLoading(true);
+      const amount = ethers.parseUnits(copyAmount, USDC_DECIMALS);
+
+      // Check allowance and approve if needed
+      const allowance = await usdcRef.current.allowance(account, CONTRACT_ADDRESS);
+      if (allowance < amount) {
+        const approveTx = await usdcRef.current.approve(CONTRACT_ADDRESS, ethers.MaxUint256);
+        await approveTx.wait();
+      }
+
+      const tx = await contractRef.current.copyTrade(activeSignal.id, amount);
+      const receipt = await tx.wait();
+
+      setTransactions(prev => [
+        { id: `${receipt.hash.substring(0, 6)}...${receipt.hash.substring(62)}`, type: 'copy', amount: Number(copyAmount), signalId: Number(activeSignal.id), date: 'Nu net' },
+        ...prev
+      ]);
+      setCopyAmount("");
+      setShowCopyModal(false);
+      await loadData(contractRef.current, usdcRef.current, account);
+    } catch (err) {
+      console.error("Copy trade error:", err);
+      alert(err.reason || err.message || "Copy trade mislukt");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // ===== USER: Claim Proceeds =====
+  const handleClaimProceeds = async (signalId) => {
+    if (!account) return;
+
+    try {
+      setIsLoading(true);
+      const tx = await contractRef.current.claimProceeds(BigInt(signalId));
+      const receipt = await tx.wait();
+
+      setTransactions(prev => [
+        { id: `${receipt.hash.substring(0, 6)}...${receipt.hash.substring(62)}`, type: 'claim', amount: 0, signalId, date: 'Nu net' },
+        ...prev
+      ]);
+      await loadData(contractRef.current, usdcRef.current, account);
+    } catch (err) {
+      console.error("Claim error:", err);
+      alert(err.reason || err.message || "Claim mislukt");
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Yield calculator state
   const [calcAmount, setCalcAmount] = useState(1000);
@@ -252,22 +469,22 @@ function App() {
           <motion.div className="hero-left" variants={staggerContainer} initial="hidden" animate="visible">
             <motion.div className="hero-tag" variants={fadeUp} custom={0}>
               <span className="pulse-dot" />
-              <span>Live op BSC Mainnet</span>
-              <span className="hero-tag-badge">v2.0</span>
+              <span>Live op Arbitrum</span>
+              <span className="hero-tag-badge">v3.0</span>
             </motion.div>
 
             <motion.h1 className="hero-title" variants={fadeUp} custom={1}>
-              <span className="hero-title-line">AI-Powered</span>
-              <span className="hero-title-line">Gold Trading.</span>
+              <span className="hero-title-line">Gold Copy</span>
+              <span className="hero-title-line">Trading.</span>
               <span className="hero-title-accent">
-                <span className="text-gold-gradient">2% Per Werkdag.</span>
+                <span className="text-gold-gradient">Kopieer & Verdien.</span>
                 <Sparkles className="hero-sparkle" size={28} />
               </span>
             </motion.h1>
 
             <motion.p className="hero-subtitle" variants={fadeUp} custom={2}>
-              Stort USDT en onze AI tradeert automatisch op de goudmarkt (XAU/USD).
-              Rendement is dagelijks claimbaar na 24 uur. Geen lock-ups, volledig transparant.
+              Kopieer onze live gold trades direct vanuit je wallet.
+              Geen storting nodig — je betaalt per trade via MetaMask. Powered by gTrade op Arbitrum.
             </motion.p>
 
             {/* Trust indicators */}
@@ -277,15 +494,19 @@ function App() {
                 <span>Verified Contract</span>
               </div>
               <div className="trust-item">
-                <Users size={14} />
-                <span>{activeUsers.toLocaleString()}+ Users</span>
+                <Network size={14} />
+                <span>Arbitrum L2</span>
+              </div>
+              <div className="trust-item">
+                <Copy size={14} />
+                <span>Copy Trading</span>
               </div>
             </motion.div>
 
             <motion.div className="hero-cta-row" variants={fadeUp} custom={4}>
               <button className="btn btn-primary btn-lg btn-glow" onClick={() => setActiveTab('dashboard')}>
                 <Zap size={18} />
-                Start Investeren
+                Start Copy Trading
                 <ArrowRight size={18} />
               </button>
               <button className="btn btn-glass btn-lg" onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}>
@@ -303,15 +524,15 @@ function App() {
                 <div className="hero-card-header">
                   <div className="hero-card-header-left">
                     <span className="pulse-dot" />
-                    <span className="hero-card-label">Protocol Stats</span>
+                    <span className="hero-card-label">Copy Trading Stats</span>
                   </div>
                   <span className="hero-card-live">LIVE</span>
                 </div>
 
                 <div className="hero-card-tvl">
-                  <span className="hero-card-tvl-label">Total Value Locked</span>
+                  <span className="hero-card-tvl-label">Totaal Gekopieerd</span>
                   <span className="hero-card-tvl-amount">
-                    $<CountUp end={tvl} duration={2.5} separator="," decimals={0} />
+                    $<CountUp end={signalCount} duration={2.5} separator="," decimals={0} suffix=" signals" />
                   </span>
                 </div>
 
@@ -320,32 +541,30 @@ function App() {
                     <div className="hero-card-stat-icon">
                       <TrendingUp size={16} />
                     </div>
-                    <span className="hero-card-stat-value gold">2%</span>
-                    <span className="hero-card-stat-label">Dagelijks</span>
+                    <span className="hero-card-stat-value gold">XAU/USD</span>
+                    <span className="hero-card-stat-label">Pair</span>
                   </div>
                   <div className="hero-card-stat">
                     <div className="hero-card-stat-icon">
-                      <Users size={16} />
+                      <ShieldCheck size={16} />
                     </div>
-                    <span className="hero-card-stat-value">
-                      <CountUp end={activeUsers} duration={2} separator="," />
-                    </span>
-                    <span className="hero-card-stat-label">Investeerders</span>
+                    <span className="hero-card-stat-value">Arbitrum</span>
+                    <span className="hero-card-stat-label">Netwerk</span>
                   </div>
                   <div className="hero-card-stat">
                     <div className="hero-card-stat-icon">
-                      <Clock size={16} />
+                      <Coins size={16} />
                     </div>
-                    <span className="hero-card-stat-value">24u</span>
-                    <span className="hero-card-stat-label">Claim Cyclus</span>
+                    <span className="hero-card-stat-value">{(feePercent / 100).toFixed(0)}%</span>
+                    <span className="hero-card-stat-label">Fee</span>
                   </div>
                 </div>
 
                 {/* Mini chart visualization */}
                 <div className="hero-card-chart">
                   <div className="hero-card-chart-label">
-                    <span>Rendement afgelopen 7 dagen</span>
-                    <span className="gold">+14%</span>
+                    <span>Recente signalen</span>
+                    <span className="gold">{signalCount} totaal</span>
                   </div>
                   <div className="mini-chart">
                     {[35, 45, 40, 60, 55, 70, 85].map((h, i) => (
@@ -382,40 +601,34 @@ function App() {
             <div className="marquee-content" key={idx}>
               <div className="marquee-item">
                 <span className="marquee-dot green" />
-                <span className="marquee-label">TVL</span>
-                <span className="marquee-value">${tvl.toLocaleString('en-US')}</span>
+                <span className="marquee-label">Signalen</span>
+                <span className="marquee-value">{signalCount}</span>
               </div>
-              <div className="marquee-divider">•</div>
+              <div className="marquee-divider">&bull;</div>
               <div className="marquee-item">
                 <span className="marquee-dot gold" />
-                <span className="marquee-label">Uitbetaald</span>
-                <span className="marquee-value gold">+${totalYieldClaimed.toLocaleString('en-US', { minimumFractionDigits: 2 })}</span>
+                <span className="marquee-label">Pair</span>
+                <span className="marquee-value gold">XAU/USD</span>
               </div>
-              <div className="marquee-divider">•</div>
+              <div className="marquee-divider">&bull;</div>
               <div className="marquee-item">
                 <span className="marquee-dot gold" />
-                <span className="marquee-label">Dagelijks</span>
-                <span className="marquee-value gold">2.0%</span>
+                <span className="marquee-label">Fee</span>
+                <span className="marquee-value gold">{(feePercent / 100).toFixed(0)}% per trade</span>
               </div>
-              <div className="marquee-divider">•</div>
+              <div className="marquee-divider">&bull;</div>
               <div className="marquee-item">
                 <span className="marquee-dot green" />
-                <span className="marquee-label">Investeerders</span>
-                <span className="marquee-value">{activeUsers.toLocaleString()}</span>
+                <span className="marquee-label">Netwerk</span>
+                <span className="marquee-value green">Arbitrum One</span>
               </div>
-              <div className="marquee-divider">•</div>
-              <div className="marquee-item">
-                <span className="marquee-dot green" />
-                <span className="marquee-label">Status</span>
-                <span className="marquee-value green">Operationeel</span>
-              </div>
-              <div className="marquee-divider">•</div>
+              <div className="marquee-divider">&bull;</div>
             </div>
           ))}
         </div>
       </div>
 
-      {/* ===== HOW IT WORKS — VERTICAL TIMELINE ===== */}
+      {/* ===== HOW IT WORKS ===== */}
       <section className="section" id="how-it-works">
         <motion.div
           className="section-header"
@@ -431,10 +644,10 @@ function App() {
 
         <div className="timeline">
           {[
-            { num: '01', icon: <Wallet size={22} />, title: 'Verbind Wallet', desc: 'Verbind MetaMask of Trust Wallet met het BSC netwerk. Binnen een paar klikken klaar.', color: 'var(--blue)' },
-            { num: '02', icon: <ArrowDownRight size={22} />, title: 'Stort USDT', desc: 'Kies je gewenste inleg en stort USDT naar het smart contract. Geen minimale inleg vereist.', color: 'var(--emerald)' },
-            { num: '03', icon: <BrainCircuit size={22} />, title: 'AI Tradeert', desc: 'De bot analyseert de goudmarkt en voert automatisch trades uit op XAU/USD. Volledig hands-off.', color: 'var(--accent)' },
-            { num: '04', icon: <Zap size={22} />, title: 'Claim Winst', desc: 'Na 24 uur claim je je rendement direct naar je wallet. Herhaal elke dag voor compound growth.', color: 'var(--violet)' },
+            { num: '01', icon: <Wallet size={22} />, title: 'Verbind Wallet', desc: 'Verbind MetaMask met Arbitrum. Je hebt USDC en een beetje ETH voor gas nodig.', color: 'var(--blue)' },
+            { num: '02', icon: <Eye size={22} />, title: 'Bekijk Signalen', desc: 'Onze trader opent posities op XAU/USD. Je ziet live signalen met entry, TP en SL.', color: 'var(--emerald)' },
+            { num: '03', icon: <Copy size={22} />, title: 'Kopieer Trade', desc: 'Klik op "Copy Trade", kies je bedrag in USDC. MetaMask opent, bevestig en je bent erin.', color: 'var(--accent)' },
+            { num: '04', icon: <Zap size={22} />, title: 'Claim Winst', desc: 'Trade sluit automatisch op TP/SL. Claim je winst direct terug naar je wallet.', color: 'var(--violet)' },
           ].map((step, i) => (
             <motion.div
               className={`timeline-item ${i % 2 === 1 ? 'timeline-item-right' : ''}`}
@@ -460,7 +673,7 @@ function App() {
         </div>
       </section>
 
-      {/* ===== FEATURES — BENTO GRID ===== */}
+      {/* ===== FEATURES ===== */}
       <section className="section">
         <motion.div
           className="section-header"
@@ -470,12 +683,12 @@ function App() {
           viewport={{ once: true }}
         >
           <span className="section-badge">Voordelen</span>
-          <h2 className="section-title">Waarom Smart GoldBot</h2>
+          <h2 className="section-title">Waarom Gold Copy Trading</h2>
           <p className="section-subtitle">Gebouwd voor maximale performance en veiligheid.</p>
         </motion.div>
 
         <div className="bento-grid">
-          {/* Large hero feature — spans 2 cols + 2 rows */}
+          {/* Large hero feature */}
           <motion.div
             className="bento-hero"
             variants={slideInLeft}
@@ -486,23 +699,23 @@ function App() {
             <div className="bento-hero-glow" />
             <div className="bento-hero-content">
               <div className="bento-hero-icon"><BrainCircuit size={32} /></div>
-              <h3>AI Gold Trading<br /><span className="text-gold-gradient">Engine</span></h3>
-              <p>LSTM neural networks getraind op 10+ jaar gouddata. Scalping en swing trading gecombineerd voor consistente winsten.</p>
+              <h3>Copy Trading<br /><span className="text-gold-gradient">Engine</span></h3>
+              <p>Kopieer trades van ervaren gold traders. Elke trade wordt via gTrade on-chain uitgevoerd met echte leverage op XAU/USD.</p>
               <div className="bento-hero-bottom">
                 <div className="bento-hero-stat">
-                  <span className="bento-hero-stat-num">~520%</span>
-                  <span className="bento-hero-stat-label">per jaar</span>
+                  <span className="bento-hero-stat-num">150x</span>
+                  <span className="bento-hero-stat-label">max leverage</span>
                 </div>
                 <div className="bento-hero-tags">
-                  <span>Neural Network</span>
-                  <span>10+ Jaar Data</span>
-                  <span>24/5 Live</span>
+                  <span>gTrade</span>
+                  <span>XAU/USD</span>
+                  <span>On-Chain</span>
                 </div>
               </div>
             </div>
           </motion.div>
 
-          {/* Stat tile — XAU/USD */}
+          {/* Stat tile */}
           <motion.div className="bento-stat-tile" variants={fadeUp} custom={1} initial="hidden" whileInView="visible" viewport={{ once: true }}>
             <TrendingUp size={20} className="bento-stat-icon" />
             <span className="bento-stat-number">$197B</span>
@@ -512,7 +725,7 @@ function App() {
             </div>
           </motion.div>
 
-          {/* Stat tile — Uptime */}
+          {/* Stat tile */}
           <motion.div className="bento-stat-tile bento-stat-dark" variants={fadeUp} custom={2} initial="hidden" whileInView="visible" viewport={{ once: true }}>
             <Cpu size={20} className="bento-stat-icon" />
             <span className="bento-stat-number">24/5</span>
@@ -531,13 +744,13 @@ function App() {
             </div>
           </motion.div>
 
-          {/* Wide row — Smart Contract info */}
+          {/* Wide row */}
           <motion.div className="bento-wide" variants={fadeUp} custom={3} initial="hidden" whileInView="visible" viewport={{ once: true }}>
             <div className="bento-wide-left">
               <ShieldCheck size={22} className="bento-wide-icon" />
               <div>
-                <h4>Verified Smart Contract</h4>
-                <p>Fondsen beheerd op BSC. Geen tussenpartij, volledig transparant en auditbaar.</p>
+                <h4>On-Chain Copy Trading</h4>
+                <p>Trades worden via gTrade uitgevoerd op Arbitrum. Volledig transparant en verifieerbaar.</p>
               </div>
             </div>
             <div className="bento-wide-stats">
@@ -547,12 +760,12 @@ function App() {
               </div>
               <div className="bento-wide-stat-divider" />
               <div className="bento-wide-stat">
-                <span className="bento-wide-stat-val green">{'<'}$0.10</span>
+                <span className="bento-wide-stat-val green">{'<'}$0.05</span>
                 <span className="bento-wide-stat-label">Gas fee</span>
               </div>
               <div className="bento-wide-stat-divider" />
               <div className="bento-wide-stat">
-                <span className="bento-wide-stat-val gold">BSC</span>
+                <span className="bento-wide-stat-val gold">Arbitrum</span>
                 <span className="bento-wide-stat-label">Network</span>
               </div>
             </div>
@@ -561,96 +774,25 @@ function App() {
           {/* Two small inline cards */}
           <motion.div className="bento-inline" variants={fadeUp} custom={4} initial="hidden" whileInView="visible" viewport={{ once: true }}>
             <div className="bento-inline-icon" style={{ color: 'var(--emerald)', borderColor: 'rgba(52,211,153,0.2)', background: 'rgba(52,211,153,0.06)' }}>
-              <Lock size={20} />
+              <Wallet size={20} />
             </div>
-            <h4>Altijd Opneembaar</h4>
-            <p>Neem je inleg op elk moment op. Geen lock-ups of verborgen voorwaarden.</p>
-            <span className="bento-inline-badge green">Geen lock-up</span>
+            <h4>Geen Storting Nodig</h4>
+            <p>Je betaalt per trade direct vanuit je eigen wallet. Geen lock-ups, geen deposit.</p>
+            <span className="bento-inline-badge green">Direct vanuit wallet</span>
           </motion.div>
 
           <motion.div className="bento-inline" variants={fadeUp} custom={5} initial="hidden" whileInView="visible" viewport={{ once: true }}>
             <div className="bento-inline-icon" style={{ color: 'var(--violet)', borderColor: 'rgba(139,92,246,0.2)', background: 'rgba(139,92,246,0.06)' }}>
-              <Clock size={20} />
+              <Copy size={20} />
             </div>
-            <h4>24u Claim Cyclus</h4>
-            <p>Na elke storting start een timer. Na 24 uur claim je direct naar je wallet.</p>
-            <span className="bento-inline-badge purple">Dagelijks claimbaar</span>
+            <h4>1-Click Copy</h4>
+            <p>Zie een signaal, klik copy, bevestig in MetaMask. Zo simpel is het.</p>
+            <span className="bento-inline-badge purple">Instant copy</span>
           </motion.div>
         </div>
       </section>
 
-      {/* ===== CALCULATOR ===== */}
-      <section className="section">
-        <motion.div
-          className="section-header"
-          variants={fadeUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-        >
-          <span className="section-badge">Rekentool</span>
-          <h2 className="section-title">Rendement Calculator</h2>
-          <p className="section-subtitle">Bereken je potentiële winst op basis van je investering.</p>
-        </motion.div>
-
-        <motion.div
-          className="calc-card"
-          variants={scaleIn}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-        >
-          <div className="calc-card-glow" />
-          <div className="calc-inner">
-            <div className="calc-left">
-              <label className="calc-label">Investering (USDT)</label>
-              <div className="calc-input-wrap">
-                <span className="calc-input-prefix">$</span>
-                <input type="number" className="calc-input" value={calcAmount} onChange={(e) => setCalcAmount(Math.max(0, Number(e.target.value)))} />
-              </div>
-              <div className="calc-presets">
-                {[500, 1000, 5000, 10000, 25000].map(val => (
-                  <button key={val} className={`calc-preset ${calcAmount === val ? 'active' : ''}`} onClick={() => setCalcAmount(val)}>
-                    ${val.toLocaleString()}
-                  </button>
-                ))}
-              </div>
-              <div className="calc-rate-info">
-                <Eye size={14} />
-                <span>Rendement: 2% per werkdag (ma-vr)</span>
-              </div>
-            </div>
-            <div className="calc-right">
-              <div className="calc-result-row">
-                <span className="calc-result-period">Per dag</span>
-                <span className="calc-result-amount">
-                  $<CountUp end={calcAmount * 0.02} duration={0.5} decimals={2} key={`d-${calcAmount}`} />
-                </span>
-              </div>
-              <div className="calc-result-row">
-                <span className="calc-result-period">Per week</span>
-                <span className="calc-result-amount">
-                  $<CountUp end={calcAmount * 0.02 * 5} duration={0.5} decimals={2} key={`w-${calcAmount}`} />
-                </span>
-              </div>
-              <div className="calc-result-row highlight">
-                <span className="calc-result-period">Per maand</span>
-                <span className="calc-result-amount gold">
-                  $<CountUp end={calcAmount * 0.02 * 22} duration={0.5} decimals={2} key={`m-${calcAmount}`} />
-                </span>
-              </div>
-              <div className="calc-result-row total">
-                <span className="calc-result-period">Per jaar</span>
-                <span className="calc-result-amount gold big">
-                  $<CountUp end={calcAmount * 0.02 * 260} duration={0.8} decimals={2} separator="," key={`y-${calcAmount}`} />
-                </span>
-              </div>
-            </div>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* ===== STRATEGY — SIDE BY SIDE SHOWCASE ===== */}
+      {/* ===== STRATEGY ===== */}
       <section className="section" id="strategy">
         <div className="strat-showcase">
           <motion.div
@@ -662,20 +804,20 @@ function App() {
           >
             <span className="section-badge">Technologie</span>
             <h2 className="strat-showcase-title">
-              Scalping & Swing op<br />
+              Copy Trading op<br />
               <span className="text-gold-gradient">XAU/USD Goud</span>
             </h2>
             <p className="strat-showcase-desc">
-              De bot combineert korte scalping trades (1-15 min) met swing trading op grotere trends.
-              Een LSTM neural network berekent realtime entry- en exitpunten.
+              Onze trader opent posities op MT5 en spiegelt ze via gTrade on-chain.
+              Jij kopieert met je eigen wallet en verdient mee aan elke winstgevende trade.
             </p>
             <div className="strat-indicators">
-              {['RSI', 'MACD', 'Bollinger Bands', 'Fibonacci', 'LSTM AI', 'Volume'].map(tag => (
+              {['gTrade', 'Arbitrum', 'USDC', 'Leverage', 'XAU/USD', 'On-Chain'].map(tag => (
                 <span key={tag} className="strat-indicator-tag">{tag}</span>
               ))}
             </div>
             <button className="btn btn-glass" onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}>
-              Meer over de strategie <ArrowRight size={16} />
+              Meer over copy trading <ArrowRight size={16} />
             </button>
           </motion.div>
 
@@ -687,10 +829,10 @@ function App() {
             viewport={{ once: true }}
           >
             {[
-              { icon: <BarChart3 size={18} />, title: 'Realtime Data', desc: 'Live XAU/USD prijsdata elke seconde.', value: '<1s', color: 'var(--cyan)' },
-              { icon: <BrainCircuit size={18} />, title: 'Machine Learning', desc: 'LSTM op 10+ jaar gouddata.', value: '10yr+', color: 'var(--accent)' },
-              { icon: <Shield size={18} />, title: 'Risicobeheer', desc: 'Auto stop-loss & take-profit.', value: '2% max', color: 'var(--emerald)' },
-              { icon: <Network size={18} />, title: 'Infrastructuur', desc: 'Dedicated servers met failover.', value: '<50ms', color: 'var(--violet)' },
+              { icon: <BarChart3 size={18} />, title: 'Live Signalen', desc: 'Zie trades zodra ze geopend worden.', value: 'Real-time', color: 'var(--cyan)' },
+              { icon: <Copy size={18} />, title: '1-Click Copy', desc: 'Kopieer direct vanuit je wallet.', value: 'Instant', color: 'var(--accent)' },
+              { icon: <Shield size={18} />, title: 'Auto TP/SL', desc: 'Take-profit en stop-loss ingebouwd.', value: 'Altijd', color: 'var(--emerald)' },
+              { icon: <Coins size={18} />, title: 'Lage Fees', desc: `Slechts ${(feePercent / 100).toFixed(0)}% fee op winst.`, value: `${(feePercent / 100).toFixed(0)}%`, color: 'var(--violet)' },
             ].map((item, i) => (
               <motion.div
                 className="strat-list-item"
@@ -726,8 +868,8 @@ function App() {
       >
         <div className="bottom-cta-glow" />
         <span className="section-badge">Start Vandaag</span>
-        <h2>Klaar om te <span className="text-gold-gradient">verdienen</span>?</h2>
-        <p>Sluit je aan bij <strong>{activeUsers.toLocaleString()}+</strong> investeerders die al profiteren van AI gold trading.</p>
+        <h2>Klaar om te <span className="text-gold-gradient">copy traden</span>?</h2>
+        <p>Kopieer live gold trades direct vanuit je wallet op Arbitrum.</p>
         <div className="bottom-cta-buttons">
           <button className="btn btn-primary btn-lg btn-glow" onClick={() => setActiveTab('dashboard')}>
             <Zap size={18} />
@@ -749,16 +891,7 @@ function App() {
     </>
   );
 
-  // Dashboard tab state
-  const [dashTab, setDashTab] = useState('deposit'); // 'deposit' or 'withdraw'
-
-  // Portfolio allocation percentage
-  const allocPct = balance + walletUSDT > 0 ? (balance / (balance + walletUSDT)) * 100 : 0;
-
-  // SVG ring for claim timer
-  const ringRadius = 54;
-  const ringCircumference = 2 * Math.PI * ringRadius;
-  const ringOffset = ringCircumference - (claimProgress / 100) * ringCircumference;
+  // ===== DASHBOARD =====
 
   const renderDashboard = () => (
     <motion.div
@@ -767,227 +900,228 @@ function App() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
-      {/* ===== TOP BENTO: Portfolio Overview ===== */}
+      {/* ===== TOP: Wallet + Stats ===== */}
       <motion.div className="dash-bento-top" variants={staggerContainer} initial="hidden" animate="visible">
 
-        {/* Big total value card */}
+        {/* Wallet overview card */}
         <motion.div className="dash-total-card" variants={fadeUp} custom={0}>
           <div className="dash-total-card-glow" />
           <div className="dash-total-card-inner">
             <div className="dash-total-header">
               <span className="pulse-dot" />
-              <span className="dash-total-tag">Portfolio Actief</span>
+              <span className="dash-total-tag">Wallet</span>
             </div>
             <div className="dash-total-amount">
-              $<CountUp end={balance + yieldEarned + walletUSDT} duration={1.5} decimals={2} separator="," />
+              $<CountUp end={walletUSDC} duration={1.5} decimals={2} separator="," />
             </div>
-            <span className="dash-total-sub">Totale waarde in USDT</span>
-
-            {/* Mini allocation bar */}
-            <div className="dash-alloc-bar">
-              <motion.div
-                className="dash-alloc-fill"
-                initial={{ width: 0 }}
-                animate={{ width: `${allocPct}%` }}
-                transition={{ duration: 1, delay: 0.5, ease: "easeOut" }}
-              />
-            </div>
-            <div className="dash-alloc-legend">
-              <span><span className="dash-alloc-dot gold" /> Belegd {allocPct.toFixed(0)}%</span>
-              <span><span className="dash-alloc-dot gray" /> Wallet {(100 - allocPct).toFixed(0)}%</span>
-            </div>
+            <span className="dash-total-sub">USDC beschikbaar in wallet</span>
           </div>
         </motion.div>
 
-        {/* Stat cards row */}
+        {/* Stat cards */}
         <motion.div className="dash-stat-card" variants={fadeUp} custom={1}>
-          <Coins size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">Belegd</span>
+          <BarChart3 size={18} className="dash-stat-card-icon" />
+          <span className="dash-stat-card-label">Totaal Signalen</span>
           <span className="dash-stat-card-value">
-            <CountUp end={balance} duration={1} decimals={2} separator="," />
+            <CountUp end={signalCount} duration={1} decimals={0} />
           </span>
-          <span className="dash-stat-card-unit">USDT</span>
+          <span className="dash-stat-card-unit">signals</span>
         </motion.div>
 
         <motion.div className="dash-stat-card dash-stat-card-accent" variants={fadeUp} custom={2}>
-          <TrendingUp size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">Beschikbare Rente</span>
-          <span className="dash-stat-card-value accent">+{yieldEarned.toFixed(4)}</span>
-          <span className="dash-stat-card-unit">USDT</span>
+          <Copy size={18} className="dash-stat-card-icon" />
+          <span className="dash-stat-card-label">Mijn Posities</span>
+          <span className="dash-stat-card-value accent">{Object.keys(userPositions).length}</span>
+          <span className="dash-stat-card-unit">trades</span>
         </motion.div>
 
         <motion.div className="dash-stat-card" variants={fadeUp} custom={3}>
-          <Wallet size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">Wallet Balans</span>
-          <span className="dash-stat-card-value">
-            <CountUp end={walletUSDT} duration={1} decimals={2} separator="," />
-          </span>
-          <span className="dash-stat-card-unit">USDT</span>
+          <Coins size={18} className="dash-stat-card-icon" />
+          <span className="dash-stat-card-label">Fee</span>
+          <span className="dash-stat-card-value">{(feePercent / 100).toFixed(1)}%</span>
+          <span className="dash-stat-card-unit">op winst</span>
         </motion.div>
       </motion.div>
 
-      {/* ===== MIDDLE: Claim + Actions side by side ===== */}
+      {/* ===== MIDDLE: Active Signal + Positions ===== */}
       <div className="dash-mid-grid">
 
-        {/* LEFT: Claim with radial timer */}
+        {/* LEFT: Active Signal */}
         <motion.div className="dash-claim-panel" variants={slideInLeft} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-          <div className="dash-claim-ring-area">
-            <svg className="dash-claim-svg" viewBox="0 0 120 120">
-              {/* bg ring */}
-              <circle cx="60" cy="60" r={ringRadius} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="8" />
-              {/* progress ring */}
-              <circle
-                cx="60" cy="60" r={ringRadius} fill="none"
-                stroke="url(#goldGrad)"
-                strokeWidth="8"
-                strokeLinecap="round"
-                strokeDasharray={ringCircumference}
-                strokeDashoffset={ringOffset}
-                transform="rotate(-90 60 60)"
-                style={{ transition: 'stroke-dashoffset 1s ease' }}
-              />
-              <defs>
-                <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                  <stop offset="0%" stopColor="var(--accent-light)" />
-                  <stop offset="100%" stopColor="var(--accent-dark)" />
-                </linearGradient>
-              </defs>
-            </svg>
-            <div className="dash-claim-ring-center">
-              {lastDepositTime === null ? (
-                <>
-                  <Clock size={22} color="var(--text-secondary)" />
-                  <span className="dash-ring-label">Geen timer</span>
-                </>
-              ) : claimTimeLeft > 0 ? (
-                <>
-                  <span className="dash-ring-time">{formatTimeLeft(claimTimeLeft)}</span>
-                  <span className="dash-ring-label">{claimProgress.toFixed(0)}%</span>
-                </>
+          <div className="dash-claim-info" style={{ width: '100%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>Actief Signaal</h3>
+              {activeSignal && <span className="pulse-dot" style={{ width: 8, height: 8 }} />}
+            </div>
+
+            {activeSignal ? (
+              <div className="signal-card-active">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <span style={{
+                    padding: '4px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    letterSpacing: '0.05em',
+                    background: activeSignal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                    color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
+                    border: `1px solid ${activeSignal.long ? 'rgba(52, 211, 153, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`
+                  }}>
+                    {activeSignal.long ? 'LONG' : 'SHORT'}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    #{Number(activeSignal.id)} &middot; {timeAgo(activeSignal.timestamp)}
+                  </span>
+                </div>
+
+                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px' }}>
+                  XAU/USD
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+                  {formatLeverage(activeSignal.leverage)}x Leverage
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
+                  <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Entry</div>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.9rem' }}>${formatGTradePrice(activeSignal.entryPrice)}</div>
+                  </div>
+                  <div style={{ background: 'rgba(52, 211, 153, 0.05)', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--success)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>TP</div>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.9rem', color: 'var(--success)' }}>${formatGTradePrice(activeSignal.tp)}</div>
+                  </div>
+                  <div style={{ background: 'rgba(248, 113, 113, 0.05)', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--danger)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>SL</div>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.9rem', color: 'var(--danger)' }}>${formatGTradePrice(activeSignal.sl)}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                  <span>{Number(activeSignal.copierCount)} copiers</span>
+                  <span>&middot;</span>
+                  <span>${parseFloat(ethers.formatUnits(activeSignal.totalCopied, USDC_DECIMALS)).toLocaleString()} USDC gekopieerd</span>
+                </div>
+
+                {userPositions[Number(activeSignal.id)] ? (
+                  <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.2)', textAlign: 'center' }}>
+                    <CheckCircle2 size={16} style={{ color: 'var(--accent)', marginBottom: '4px' }} />
+                    <div style={{ fontSize: '0.8rem', color: 'var(--accent)' }}>
+                      Je hebt deze trade gekopieerd ({parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC)
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    className="btn btn-primary btn-glow"
+                    style={{ width: '100%' }}
+                    onClick={() => setShowCopyModal(true)}
+                    disabled={!account || isLoading}
+                  >
+                    <Copy size={16} /> Copy Trade
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
+                <Clock size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
+                <div style={{ fontSize: '0.9rem' }}>Geen actief signaal</div>
+                <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Wacht op het volgende signaal van de trader</div>
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* RIGHT: My Positions & History */}
+        <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }}>
+          <div style={{ padding: '20px' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>Mijn Posities</h3>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {signalHistory.filter(s => userPositions[Number(s.id)]).length > 0 ? (
+                signalHistory.filter(s => userPositions[Number(s.id)]).map((signal) => {
+                  const pos = userPositions[Number(signal.id)];
+                  const isClosed = signal.closed;
+                  const result = Number(signal.resultPct) / 100;
+
+                  return (
+                    <div key={Number(signal.id)} style={{
+                      background: 'rgba(255,255,255,0.02)',
+                      borderRadius: '10px',
+                      padding: '14px',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            background: signal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                            color: signal.long ? 'var(--success)' : 'var(--danger)',
+                          }}>
+                            {signal.long ? 'LONG' : 'SHORT'}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', fontWeight: 600 }}>XAU/USD</span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>#{Number(signal.id)}</span>
+                        </div>
+                        <span style={{
+                          fontSize: '0.7rem',
+                          padding: '2px 8px',
+                          borderRadius: '12px',
+                          background: isClosed ? (result >= 0 ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)') : 'rgba(212, 168, 67, 0.1)',
+                          color: isClosed ? (result >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
+                        }}>
+                          {isClosed ? `${result >= 0 ? '+' : ''}${result.toFixed(2)}%` : 'OPEN'}
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        <span>Inzet: {parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS)).toFixed(2)} USDC</span>
+                        <span>{formatLeverage(signal.leverage)}x</span>
+                      </div>
+
+                      {isClosed && !pos.claimed && (
+                        <button
+                          className="btn btn-primary"
+                          style={{ width: '100%', marginTop: '10px', padding: '8px', fontSize: '0.8rem' }}
+                          onClick={() => handleClaimProceeds(Number(signal.id))}
+                          disabled={isLoading}
+                        >
+                          <Zap size={14} /> Claim Winst
+                        </button>
+                      )}
+                      {pos.claimed && (
+                        <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.7rem', color: 'var(--success)' }}>
+                          <CheckCircle2 size={12} style={{ marginRight: '4px' }} /> Geclaimed
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
               ) : (
-                <>
-                  <CheckCircle2 size={24} color="var(--success)" />
-                  <span className="dash-ring-label green">Klaar!</span>
-                </>
+                <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-secondary)' }}>
+                  <Copy size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                  <div style={{ fontSize: '0.85rem' }}>Nog geen posities</div>
+                  <div style={{ fontSize: '0.7rem', marginTop: '4px' }}>Kopieer een signaal om te beginnen</div>
+                </div>
               )}
             </div>
           </div>
-
-          <div className="dash-claim-info">
-            <span className="dash-claim-amount">+{yieldEarned.toFixed(4)} <span>USDT</span></span>
-            <span className="dash-claim-sub">Beschikbare rente uit AI Gold Trading</span>
-
-            <button
-              className={`btn ${canClaim ? 'btn-primary btn-glow' : 'btn-outline'} dash-claim-btn`}
-              onClick={submitClaim}
-              disabled={!canClaim}
-            >
-              {claimTimeLeft > 0 && lastDepositTime !== null ? (
-                <><Lock size={16} /> Wacht op timer...</>
-              ) : (
-                <><Zap size={16} /> Claim Rente</>
-              )}
-            </button>
-
-            <span className="dash-claim-note">
-              <Lock size={10} /> 24 uur interval na storting
-            </span>
-          </div>
-        </motion.div>
-
-        {/* RIGHT: Deposit / Withdraw with tabs */}
-        <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-          <div className="dash-action-tabs">
-            <button className={`dash-action-tab ${dashTab === 'deposit' ? 'active' : ''}`} onClick={() => setDashTab('deposit')}>
-              <ArrowDownRight size={15} /> Storten
-            </button>
-            <button className={`dash-action-tab ${dashTab === 'withdraw' ? 'active' : ''}`} onClick={() => setDashTab('withdraw')}>
-              <ArrowUpRight size={15} /> Opnemen
-            </button>
-          </div>
-
-          <AnimatePresence mode="wait">
-            {dashTab === 'deposit' ? (
-              <motion.div key="dep" className="dash-action-body" initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: 10 }} transition={{ duration: 0.2 }}>
-                <div className="dash-action-balance">
-                  <Wallet size={14} />
-                  <span>Beschikbaar:</span>
-                  <span className="mono">{walletUSDT.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} USDT</span>
-                </div>
-                <form onSubmit={handleDeposit}>
-                  <div className="input-container">
-                    <Coins className="input-icon" size={18} />
-                    <input type="number" step="0.01" className="input-field" placeholder="0.00" value={depositAmount} onChange={(e) => setDepositAmount(e.target.value)} />
-                    <button type="button" className="input-max-btn" onClick={() => setDepositAmount(walletUSDT)}>MAX</button>
-                    <div className="input-suffix">USDT</div>
-                  </div>
-                  <div className="dash-action-quick">
-                    {[25, 50, 75, 100].map(pct => (
-                      <button key={pct} type="button" className="dash-quick-btn" onClick={() => setDepositAmount((walletUSDT * pct / 100).toFixed(2))}>
-                        {pct}%
-                      </button>
-                    ))}
-                  </div>
-                  <button type="submit" className="btn btn-primary btn-glow dash-submit-btn">
-                    <ArrowDownRight size={16} /> Stort USDT
-                  </button>
-                </form>
-                <div className="dash-action-info-row">
-                  <span>Dagelijks rendement</span><span className="gold">2%</span>
-                </div>
-                <div className="dash-action-info-row">
-                  <span>Claim na</span><span>24 uur</span>
-                </div>
-              </motion.div>
-            ) : (
-              <motion.div key="wth" className="dash-action-body" initial={{ opacity: 0, x: 10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -10 }} transition={{ duration: 0.2 }}>
-                <div className="dash-action-balance">
-                  <Coins size={14} />
-                  <span>Belegd:</span>
-                  <span className="mono">{balance.toLocaleString('nl-NL', { minimumFractionDigits: 2 })} USDT</span>
-                </div>
-                <form onSubmit={handleWithdraw}>
-                  <div className="input-container">
-                    <Lock className="input-icon" size={18} color="var(--text-secondary)" />
-                    <input type="number" step="0.01" className="input-field" placeholder="0.00" value={withdrawAmount} onChange={(e) => setWithdrawAmount(e.target.value)} />
-                    <button type="button" className="input-max-btn" onClick={() => setWithdrawAmount(balance)}>MAX</button>
-                    <div className="input-suffix">USDT</div>
-                  </div>
-                  <div className="dash-action-quick">
-                    {[25, 50, 75, 100].map(pct => (
-                      <button key={pct} type="button" className="dash-quick-btn" onClick={() => setWithdrawAmount((balance * pct / 100).toFixed(2))}>
-                        {pct}%
-                      </button>
-                    ))}
-                  </div>
-                  <button type="submit" className="btn btn-outline dash-submit-btn">
-                    <ArrowUpRight size={16} /> Opnemen
-                  </button>
-                </form>
-                <div className="dash-action-info-row">
-                  <span>Opname fee</span><span className="green">0%</span>
-                </div>
-                <div className="dash-action-info-row">
-                  <span>Minimaal</span><span>Geen limiet</span>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
         </motion.div>
       </div>
 
-      {/* ===== BOTTOM: Protocol + Transaction Timeline ===== */}
+      {/* ===== BOTTOM: Protocol info + Signal History + Transactions ===== */}
       <div className="dash-bottom-grid">
 
-        {/* Protocol info — horizontal */}
+        {/* Protocol bar */}
         <motion.div className="dash-protocol-bar" variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           {[
-            { label: 'Rendement', value: '2%', color: 'var(--accent-light)' },
-            { label: 'Actief', value: 'Ma-Vr', color: 'var(--text-primary)' },
-            { label: 'Claim', value: '24 uur', color: 'var(--text-primary)' },
-            { label: 'Netwerk', value: 'BSC', color: '#F0B90B' },
-            { label: 'Opnemen', value: 'Altijd', color: 'var(--success)' },
-            { label: 'Totaal geclaimd', value: `$${totalYieldClaimed.toFixed(2)}`, color: 'var(--accent-light)' },
+            { label: 'Pair', value: 'XAU/USD', color: 'var(--accent-light)' },
+            { label: 'Platform', value: 'gTrade', color: 'var(--text-primary)' },
+            { label: 'Fee', value: `${(feePercent / 100).toFixed(0)}% op winst`, color: 'var(--text-primary)' },
+            { label: 'Netwerk', value: 'Arbitrum', color: '#28A0F0' },
+            { label: 'Collateral', value: 'USDC', color: 'var(--blue)' },
+            { label: 'Signalen', value: `${signalCount}`, color: 'var(--accent-light)' },
           ].map((item, i) => (
             <React.Fragment key={item.label}>
               {i > 0 && <div className="dash-protocol-divider" />}
@@ -999,54 +1133,266 @@ function App() {
           ))}
         </motion.div>
 
-        {/* Transaction timeline */}
+        {/* Signal History */}
         <motion.div className="dash-tx-panel" variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div className="dash-tx-header">
             <div className="dash-tx-header-left">
-              <History size={16} />
-              <h3>Activiteit</h3>
+              <BarChart3 size={16} />
+              <h3>Signaal Geschiedenis</h3>
             </div>
-            <span className="dash-tx-count">{transactions.length} transacties</span>
+            <span className="dash-tx-count">{signalHistory.length} signalen</span>
           </div>
 
           <div className="dash-tx-list">
-            {transactions.map((tx, index) => (
+            {signalHistory.map((signal, index) => (
               <motion.div
                 className="dash-tx-item"
-                key={index}
+                key={Number(signal.id)}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: index * 0.06 }}
               >
-                <div className={`dash-tx-icon-wrap dash-tx-icon-${tx.type}`}>
-                  {tx.type === 'deposit' ? <ArrowDownRight size={16} /> :
-                   tx.type === 'withdraw' ? <ArrowUpRight size={16} /> :
-                   <Zap size={16} />}
+                <div className={`dash-tx-icon-wrap ${signal.long ? 'dash-tx-icon-deposit' : 'dash-tx-icon-withdraw'}`}>
+                  {signal.long ? <TrendingUp size={16} /> : <ArrowDownRight size={16} />}
                 </div>
                 <div className="dash-tx-details">
                   <span className="dash-tx-type">
-                    {tx.type === 'deposit' ? 'Storting' : tx.type === 'withdraw' ? 'Opname' : 'Rente Claim'}
+                    XAU/USD {signal.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(signal.leverage)}x
                   </span>
-                  <span className="dash-tx-date">{tx.date}</span>
+                  <span className="dash-tx-date">
+                    Entry: ${formatGTradePrice(signal.entryPrice)} &middot; {timeAgo(signal.timestamp)}
+                  </span>
                 </div>
                 <div className="dash-tx-amount-col">
-                  <span className={`dash-tx-amount ${tx.type === 'withdraw' ? 'red' : tx.type === 'claim' ? 'gold' : 'green'}`}>
-                    {tx.type === 'withdraw' ? '-' : '+'}{tx.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                  </span>
-                  <span className="dash-tx-unit">USDT</span>
+                  {signal.closed ? (
+                    <>
+                      <span className={`dash-tx-amount ${Number(signal.resultPct) >= 0 ? 'green' : 'red'}`}>
+                        {Number(signal.resultPct) >= 0 ? '+' : ''}{(Number(signal.resultPct) / 100).toFixed(2)}%
+                      </span>
+                      <span className="dash-tx-unit">gesloten</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="dash-tx-amount gold">OPEN</span>
+                      <span className="dash-tx-unit">{Number(signal.copierCount)} copiers</span>
+                    </>
+                  )}
                 </div>
-                <CheckCircle2 size={14} className="dash-tx-check" />
               </motion.div>
             ))}
-            {transactions.length === 0 && (
+            {signalHistory.length === 0 && (
               <div className="dash-tx-empty">
-                <History size={24} />
-                <span>Geen transacties gevonden</span>
+                <BarChart3 size={24} />
+                <span>Nog geen signalen</span>
               </div>
             )}
           </div>
         </motion.div>
       </div>
+
+      {/* ===== ADMIN PANEL ===== */}
+      {isAdmin && (
+        <motion.div
+          style={{ marginTop: '24px' }}
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+        >
+          <button
+            className="btn btn-glass"
+            onClick={() => setShowAdminPanel(!showAdminPanel)}
+            style={{ marginBottom: '16px' }}
+          >
+            <Settings size={16} />
+            {showAdminPanel ? 'Verberg Admin Panel' : 'Admin Panel'}
+          </button>
+
+          <AnimatePresence>
+            {showAdminPanel && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                style={{ overflow: 'hidden' }}
+              >
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                  {/* Post Signal */}
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Post Signaal</h3>
+                    <form onSubmit={handlePostSignal}>
+                      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                        <button
+                          type="button"
+                          className={`btn ${signalForm.long ? 'btn-primary' : 'btn-outline'}`}
+                          style={{ flex: 1, padding: '8px' }}
+                          onClick={() => setSignalForm(prev => ({ ...prev, long: true }))}
+                        >
+                          LONG
+                        </button>
+                        <button
+                          type="button"
+                          className={`btn ${!signalForm.long ? 'btn-primary' : 'btn-outline'}`}
+                          style={{ flex: 1, padding: '8px', borderColor: 'var(--danger)', color: !signalForm.long ? '#fff' : 'var(--danger)', background: !signalForm.long ? 'var(--danger)' : 'transparent' }}
+                          onClick={() => setSignalForm(prev => ({ ...prev, long: false }))}
+                        >
+                          SHORT
+                        </button>
+                      </div>
+                      <div className="input-container" style={{ marginBottom: '8px' }}>
+                        <input type="number" step="0.01" className="input-field" placeholder="Entry Price (bijv. 2340.50)" value={signalForm.entryPrice} onChange={(e) => setSignalForm(prev => ({ ...prev, entryPrice: e.target.value }))} />
+                      </div>
+                      <div className="input-container" style={{ marginBottom: '8px' }}>
+                        <input type="number" step="0.01" className="input-field" placeholder="Take Profit" value={signalForm.tp} onChange={(e) => setSignalForm(prev => ({ ...prev, tp: e.target.value }))} />
+                      </div>
+                      <div className="input-container" style={{ marginBottom: '8px' }}>
+                        <input type="number" step="0.01" className="input-field" placeholder="Stop Loss" value={signalForm.sl} onChange={(e) => setSignalForm(prev => ({ ...prev, sl: e.target.value }))} />
+                      </div>
+                      <div className="input-container" style={{ marginBottom: '12px' }}>
+                        <input type="number" step="1" className="input-field" placeholder="Leverage (bijv. 50)" value={signalForm.leverage} onChange={(e) => setSignalForm(prev => ({ ...prev, leverage: e.target.value }))} />
+                        <div className="input-suffix">{signalForm.leverage}x</div>
+                      </div>
+                      <button type="submit" className="btn btn-primary btn-glow" style={{ width: '100%' }} disabled={isLoading}>
+                        <Zap size={16} /> {isLoading ? 'Bezig...' : 'Post Signaal'}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Close Signal */}
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Sluit Signaal</h3>
+                    <form onSubmit={handleCloseSignal}>
+                      <div className="input-container" style={{ marginBottom: '8px' }}>
+                        <input type="number" className="input-field" placeholder="Signal ID" value={closeSignalId} onChange={(e) => setCloseSignalId(e.target.value)} />
+                      </div>
+                      <div className="input-container" style={{ marginBottom: '12px' }}>
+                        <input type="number" step="0.01" className="input-field" placeholder="Resultaat % (bijv. 2.5 of -1.0)" value={closeResultPct} onChange={(e) => setCloseResultPct(e.target.value)} />
+                        <div className="input-suffix">%</div>
+                      </div>
+                      <button type="submit" className="btn btn-outline" style={{ width: '100%', borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={isLoading}>
+                        <X size={16} /> {isLoading ? 'Bezig...' : 'Sluit Signaal'}
+                      </button>
+                    </form>
+
+                    <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
+                      <h4 style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>Fees Opnemen</h4>
+                      <button
+                        className="btn btn-glass"
+                        style={{ width: '100%' }}
+                        onClick={async () => {
+                          try {
+                            setIsLoading(true);
+                            const tx = await contractRef.current.withdrawFees();
+                            await tx.wait();
+                            await loadData(contractRef.current, usdcRef.current, account);
+                          } catch (err) {
+                            alert(err.reason || err.message || "Fees opnemen mislukt");
+                          } finally {
+                            setIsLoading(false);
+                          }
+                        }}
+                        disabled={isLoading}
+                      >
+                        <Coins size={16} /> Withdraw Fees
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      )}
+
+      {/* ===== COPY TRADE MODAL ===== */}
+      <AnimatePresence>
+        {showCopyModal && activeSignal && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowCopyModal(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px'
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'var(--bg-secondary)', borderRadius: '20px',
+                padding: '28px', maxWidth: '420px', width: '100%',
+                border: '1px solid var(--border)'
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Copy Trade</h3>
+                <button onClick={() => setShowCopyModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              {/* Signal summary */}
+              <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '14px', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontWeight: 600 }}>XAU/USD</span>
+                  <span style={{
+                    padding: '2px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700,
+                    background: activeSignal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                    color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
+                  }}>
+                    {activeSignal.long ? 'LONG' : 'SHORT'} {formatLeverage(activeSignal.leverage)}x
+                  </span>
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', fontSize: '0.75rem' }}>
+                  <div><span style={{ color: 'var(--text-secondary)' }}>Entry</span><br/>${formatGTradePrice(activeSignal.entryPrice)}</div>
+                  <div><span style={{ color: 'var(--success)' }}>TP</span><br/>${formatGTradePrice(activeSignal.tp)}</div>
+                  <div><span style={{ color: 'var(--danger)' }}>SL</span><br/>${formatGTradePrice(activeSignal.sl)}</div>
+                </div>
+              </div>
+
+              {/* Amount input */}
+              <form onSubmit={handleCopyTrade}>
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                    <span>Bedrag</span>
+                    <span>Beschikbaar: {walletUSDC.toFixed(2)} USDC</span>
+                  </div>
+                  <div className="input-container">
+                    <Coins className="input-icon" size={18} />
+                    <input type="number" step="0.01" className="input-field" placeholder="0.00" value={copyAmount} onChange={(e) => setCopyAmount(e.target.value)} />
+                    <button type="button" className="input-max-btn" onClick={() => setCopyAmount(walletUSDC.toFixed(2))}>MAX</button>
+                    <div className="input-suffix">USDC</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
+                  {[25, 50, 75, 100].map(pct => (
+                    <button key={pct} type="button" className="dash-quick-btn" onClick={() => setCopyAmount((walletUSDC * pct / 100).toFixed(2))}>
+                      {pct}%
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <AlertTriangle size={12} />
+                  Fee: {(feePercent / 100).toFixed(0)}% op winst. USDC gaat direct vanuit je wallet naar gTrade.
+                </div>
+
+                <button type="submit" className="btn btn-primary btn-glow" style={{ width: '100%' }} disabled={isLoading || !account}>
+                  <Copy size={16} /> {isLoading ? 'Bezig...' : 'Bevestig Copy Trade'}
+                </button>
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 
@@ -1076,7 +1422,7 @@ function App() {
 
           <div className="nav-links">
             <button className={`nav-link ${activeTab === 'invest' ? 'active' : ''}`} onClick={() => setActiveTab('invest')}>
-              Investeren
+              Copy Trading
             </button>
             <button className={`nav-link ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
               Dashboard
