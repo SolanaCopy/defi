@@ -682,9 +682,9 @@ function App() {
           whileInView="visible"
           viewport={{ once: true }}
         >
-          <span className="section-badge">Voordelen</span>
-          <h2 className="section-title">Waarom Gold Copy Trading</h2>
-          <p className="section-subtitle">Gebouwd voor maximale performance en veiligheid.</p>
+          <span className="section-badge">Benefits</span>
+          <h2 className="section-title">Why Gold Copy Trading</h2>
+          <p className="section-subtitle">Built for maximum performance and security.</p>
         </motion.div>
 
         <div className="bento-grid">
@@ -1118,7 +1118,7 @@ function App() {
           {[
             { label: 'Pair', value: 'XAU/USD', color: 'var(--accent-light)' },
             { label: 'Platform', value: 'gTrade', color: 'var(--text-primary)' },
-            { label: 'Fee', value: `${(feePercent / 100).toFixed(0)}% op winst`, color: 'var(--text-primary)' },
+            { label: 'Fee', value: `${(feePercent / 100).toFixed(0)}% on profit`, color: 'var(--text-primary)' },
             { label: 'Netwerk', value: 'Arbitrum', color: '#28A0F0' },
             { label: 'Collateral', value: 'USDC', color: 'var(--blue)' },
             { label: 'Signalen', value: `${signalCount}`, color: 'var(--accent-light)' },
@@ -1240,7 +1240,7 @@ function App() {
                         </button>
                       </div>
                       <div className="input-container" style={{ marginBottom: '8px' }}>
-                        <input type="number" step="0.01" className="input-field" placeholder="Entry Price (bijv. 2340.50)" value={signalForm.entryPrice} onChange={(e) => setSignalForm(prev => ({ ...prev, entryPrice: e.target.value }))} />
+                        <input type="number" step="0.01" className="input-field" placeholder="Entry Price (e.g. 2340.50)" value={signalForm.entryPrice} onChange={(e) => setSignalForm(prev => ({ ...prev, entryPrice: e.target.value }))} />
                       </div>
                       <div className="input-container" style={{ marginBottom: '8px' }}>
                         <input type="number" step="0.01" className="input-field" placeholder="Take Profit" value={signalForm.tp} onChange={(e) => setSignalForm(prev => ({ ...prev, tp: e.target.value }))} />
