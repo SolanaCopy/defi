@@ -118,10 +118,10 @@ function formatLeverage(lev) {
 // Helper: time ago
 function timeAgo(timestamp) {
   const seconds = Math.floor(Date.now() / 1000) - Number(timestamp);
-  if (seconds < 60) return 'Zojuist';
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m geleden`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}u geleden`;
-  return `${Math.floor(seconds / 86400)}d geleden`;
+  if (seconds < 60) return 'Just now';
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+  return `${Math.floor(seconds / 86400)}d ago`;
 }
 
 function App() {
@@ -275,7 +275,7 @@ function App() {
 
   const connectWallet = async () => {
     if (!window.ethereum) {
-      alert("Installeer MetaMask of een andere Web3 wallet!");
+      alert("Please install MetaMask or another Web3 wallet!");
       return;
     }
     try {
@@ -360,7 +360,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Post signal error:", err);
-      alert(err.reason || err.message || "Signaal posten mislukt");
+      alert(err.reason || err.message || "Failed to post signal");
     } finally {
       setIsLoading(false);
     }
@@ -386,7 +386,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Close signal error:", err);
-      alert(err.reason || err.message || "Signaal sluiten mislukt");
+      alert(err.reason || err.message || "Failed to close signal");
     } finally {
       setIsLoading(false);
     }
@@ -421,7 +421,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Copy trade error:", err);
-      alert(err.reason || err.message || "Copy trade mislukt");
+      alert(err.reason || err.message || "Copy trade failed");
     } finally {
       setIsLoading(false);
     }
@@ -443,7 +443,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Claim error:", err);
-      alert(err.reason || err.message || "Claim mislukt");
+      alert(err.reason || err.message || "Claim failed");
     } finally {
       setIsLoading(false);
     }
@@ -477,14 +477,14 @@ function App() {
               <span className="hero-title-line">Smart Trading</span>
               <span className="hero-title-line">Club.</span>
               <span className="hero-title-accent">
-                <span className="text-gold-gradient">Kopieer & Verdien.</span>
+                <span className="text-gold-gradient">Copy & Earn.</span>
                 <Sparkles className="hero-sparkle" size={28} />
               </span>
             </motion.h1>
 
             <motion.p className="hero-subtitle" variants={fadeUp} custom={2}>
-              Kopieer onze live gold trades direct vanuit je wallet.
-              Geen storting nodig — je betaalt per trade via MetaMask. Powered by gTrade op Arbitrum.
+              Copy our live gold trades directly from your wallet.
+              No deposit needed — you pay per trade via MetaMask. Powered by gTrade on Arbitrum.
             </motion.p>
 
             {/* Trust indicators */}
@@ -510,7 +510,7 @@ function App() {
                 <ArrowRight size={18} />
               </button>
               <button className="btn btn-glass btn-lg" onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}>
-                Hoe werkt het?
+                How does it work?
                 <ChevronDown size={16} />
               </button>
             </motion.div>
@@ -530,7 +530,7 @@ function App() {
                 </div>
 
                 <div className="hero-card-tvl">
-                  <span className="hero-card-tvl-label">Totaal Gekopieerd</span>
+                  <span className="hero-card-tvl-label">Total Copied</span>
                   <span className="hero-card-tvl-amount">
                     $<CountUp end={signalCount} duration={2.5} separator="," decimals={0} suffix=" signals" />
                   </span>
@@ -563,7 +563,7 @@ function App() {
                 {/* Mini chart visualization */}
                 <div className="hero-card-chart">
                   <div className="hero-card-chart-label">
-                    <span>Recente signalen</span>
+                    <span>Recent signals</span>
                     <span className="gold">{signalCount} totaal</span>
                   </div>
                   <div className="mini-chart">
@@ -637,17 +637,17 @@ function App() {
           whileInView="visible"
           viewport={{ once: true }}
         >
-          <span className="section-badge">Simpel & Snel</span>
-          <h2 className="section-title">Hoe het werkt</h2>
-          <p className="section-subtitle">Begin in minder dan 2 minuten. Vier simpele stappen.</p>
+          <span className="section-badge">Simple & Fast</span>
+          <h2 className="section-title">How It Works</h2>
+          <p className="section-subtitle">Get started in less than 2 minutes. Four simple steps.</p>
         </motion.div>
 
         <div className="timeline">
           {[
-            { num: '01', icon: <Wallet size={22} />, title: 'Verbind Wallet', desc: 'Verbind MetaMask met Arbitrum. Je hebt USDC en een beetje ETH voor gas nodig.', color: 'var(--blue)' },
-            { num: '02', icon: <Eye size={22} />, title: 'Bekijk Signalen', desc: 'Onze trader opent posities op XAU/USD. Je ziet live signalen met entry, TP en SL.', color: 'var(--emerald)' },
-            { num: '03', icon: <Copy size={22} />, title: 'Kopieer Trade', desc: 'Klik op "Copy Trade", kies je bedrag in USDC. MetaMask opent, bevestig en je bent erin.', color: 'var(--accent)' },
-            { num: '04', icon: <Zap size={22} />, title: 'Claim Winst', desc: 'Trade sluit automatisch op TP/SL. Claim je winst direct terug naar je wallet.', color: 'var(--violet)' },
+            { num: '01', icon: <Wallet size={22} />, title: 'Connect Wallet', desc: 'Connect MetaMask to Arbitrum. You need USDC and a little ETH for gas.', color: 'var(--blue)' },
+            { num: '02', icon: <Eye size={22} />, title: 'View Signals', desc: 'Our trader opens positions on XAU/USD. You see live signals with entry, TP and SL.', color: 'var(--emerald)' },
+            { num: '03', icon: <Copy size={22} />, title: 'Copy Trade', desc: 'Click "Copy Trade", choose your amount in USDC. MetaMask opens, confirm and you\'re in.', color: 'var(--accent)' },
+            { num: '04', icon: <Zap size={22} />, title: 'Claim Profit', desc: 'Trade closes automatically at TP/SL. Claim your profit directly back to your wallet.', color: 'var(--violet)' },
           ].map((step, i) => (
             <motion.div
               className={`timeline-item ${i % 2 === 1 ? 'timeline-item-right' : ''}`}
@@ -700,7 +700,7 @@ function App() {
             <div className="bento-hero-content">
               <div className="bento-hero-icon"><BrainCircuit size={32} /></div>
               <h3>Copy Trading<br /><span className="text-gold-gradient">Engine</span></h3>
-              <p>Kopieer trades van ervaren gold traders. Elke trade wordt via gTrade on-chain uitgevoerd met echte leverage op XAU/USD.</p>
+              <p>Copy trades from experienced gold traders. Every trade is executed on-chain via gTrade with real leverage on XAU/USD.</p>
               <div className="bento-hero-bottom">
                 <div className="bento-hero-stat">
                   <span className="bento-hero-stat-num">150x</span>
@@ -719,7 +719,7 @@ function App() {
           <motion.div className="bento-stat-tile" variants={fadeUp} custom={1} initial="hidden" whileInView="visible" viewport={{ once: true }}>
             <TrendingUp size={20} className="bento-stat-icon" />
             <span className="bento-stat-number">$197B</span>
-            <span className="bento-stat-desc">Dagelijks volume op de goudmarkt</span>
+            <span className="bento-stat-desc">Daily volume on the gold market</span>
             <div className="bento-stat-bar">
               <motion.div className="bento-stat-bar-fill" initial={{ width: 0 }} whileInView={{ width: '78%' }} transition={{ duration: 1.2, delay: 0.5 }} viewport={{ once: true }} />
             </div>
@@ -729,7 +729,7 @@ function App() {
           <motion.div className="bento-stat-tile bento-stat-dark" variants={fadeUp} custom={2} initial="hidden" whileInView="visible" viewport={{ once: true }}>
             <Cpu size={20} className="bento-stat-icon" />
             <span className="bento-stat-number">24/5</span>
-            <span className="bento-stat-desc">Volledig automatisch, geen emoties</span>
+            <span className="bento-stat-desc">Fully automated, no emotions</span>
             <div className="bento-uptime-dots">
               {[...Array(14)].map((_, i) => (
                 <motion.div
@@ -750,7 +750,7 @@ function App() {
               <ShieldCheck size={22} className="bento-wide-icon" />
               <div>
                 <h4>On-Chain Copy Trading</h4>
-                <p>Trades worden via gTrade uitgevoerd op Arbitrum. Volledig transparant en verifieerbaar.</p>
+                <p>Trades are executed via gTrade on Arbitrum. Fully transparent and verifiable.</p>
               </div>
             </div>
             <div className="bento-wide-stats">
@@ -776,9 +776,9 @@ function App() {
             <div className="bento-inline-icon" style={{ color: 'var(--emerald)', borderColor: 'rgba(52,211,153,0.2)', background: 'rgba(52,211,153,0.06)' }}>
               <Wallet size={20} />
             </div>
-            <h4>Geen Storting Nodig</h4>
-            <p>Je betaalt per trade direct vanuit je eigen wallet. Geen lock-ups, geen deposit.</p>
-            <span className="bento-inline-badge green">Direct vanuit wallet</span>
+            <h4>No Deposit Needed</h4>
+            <p>You pay per trade directly from your own wallet. No lock-ups, no deposit.</p>
+            <span className="bento-inline-badge green">Directly from wallet</span>
           </motion.div>
 
           <motion.div className="bento-inline" variants={fadeUp} custom={5} initial="hidden" whileInView="visible" viewport={{ once: true }}>
@@ -786,7 +786,7 @@ function App() {
               <Copy size={20} />
             </div>
             <h4>1-Click Copy</h4>
-            <p>Zie een signaal, klik copy, bevestig in MetaMask. Zo simpel is het.</p>
+            <p>See a signal, click copy, confirm in MetaMask. It's that simple.</p>
             <span className="bento-inline-badge purple">Instant copy</span>
           </motion.div>
         </div>
@@ -802,14 +802,14 @@ function App() {
             whileInView="visible"
             viewport={{ once: true }}
           >
-            <span className="section-badge">Technologie</span>
+            <span className="section-badge">Technology</span>
             <h2 className="strat-showcase-title">
-              Copy Trading op<br />
-              <span className="text-gold-gradient">XAU/USD Goud</span>
+              Copy Trading on<br />
+              <span className="text-gold-gradient">XAU/USD Gold</span>
             </h2>
             <p className="strat-showcase-desc">
-              Onze trader opent posities op MT5 en spiegelt ze via gTrade on-chain.
-              Jij kopieert met je eigen wallet en verdient mee aan elke winstgevende trade.
+              Our trader opens positions on MT5 and mirrors them via gTrade on-chain.
+              You copy with your own wallet and earn from every profitable trade.
             </p>
             <div className="strat-indicators">
               {['gTrade', 'Arbitrum', 'USDC', 'Leverage', 'XAU/USD', 'On-Chain'].map(tag => (
@@ -817,7 +817,7 @@ function App() {
               ))}
             </div>
             <button className="btn btn-glass" onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}>
-              Meer over copy trading <ArrowRight size={16} />
+              More about copy trading <ArrowRight size={16} />
             </button>
           </motion.div>
 
@@ -829,10 +829,10 @@ function App() {
             viewport={{ once: true }}
           >
             {[
-              { icon: <BarChart3 size={18} />, title: 'Live Signalen', desc: 'Zie trades zodra ze geopend worden.', value: 'Real-time', color: 'var(--cyan)' },
-              { icon: <Copy size={18} />, title: '1-Click Copy', desc: 'Kopieer direct vanuit je wallet.', value: 'Instant', color: 'var(--accent)' },
-              { icon: <Shield size={18} />, title: 'Auto TP/SL', desc: 'Take-profit en stop-loss ingebouwd.', value: 'Altijd', color: 'var(--emerald)' },
-              { icon: <Coins size={18} />, title: 'Lage Fees', desc: `Slechts ${(feePercent / 100).toFixed(0)}% fee op winst.`, value: `${(feePercent / 100).toFixed(0)}%`, color: 'var(--violet)' },
+              { icon: <BarChart3 size={18} />, title: 'Live Signals', desc: 'See trades as soon as they open.', value: 'Real-time', color: 'var(--cyan)' },
+              { icon: <Copy size={18} />, title: '1-Click Copy', desc: 'Copy directly from your wallet.', value: 'Instant', color: 'var(--accent)' },
+              { icon: <Shield size={18} />, title: 'Auto TP/SL', desc: 'Take-profit and stop-loss built in.', value: 'Always', color: 'var(--emerald)' },
+              { icon: <Coins size={18} />, title: 'Low Fees', desc: `Only ${(feePercent / 100).toFixed(0)}% fee on profit.`, value: `${(feePercent / 100).toFixed(0)}%`, color: 'var(--violet)' },
             ].map((item, i) => (
               <motion.div
                 className="strat-list-item"
@@ -867,13 +867,13 @@ function App() {
         viewport={{ once: true }}
       >
         <div className="bottom-cta-glow" />
-        <span className="section-badge">Start Vandaag</span>
-        <h2>Klaar om te <span className="text-gold-gradient">copy traden</span>?</h2>
-        <p>Kopieer live gold trades direct vanuit je wallet op Arbitrum.</p>
+        <span className="section-badge">Start Today</span>
+        <h2>Ready to <span className="text-gold-gradient">copy trade</span>?</h2>
+        <p>Copy live gold trades directly from your wallet on Arbitrum.</p>
         <div className="bottom-cta-buttons">
           <button className="btn btn-primary btn-lg btn-glow" onClick={() => setActiveTab('dashboard')}>
             <Zap size={18} />
-            Start Nu
+            Start Now
             <ArrowRight size={18} />
           </button>
           <a
@@ -883,7 +883,7 @@ function App() {
             className="btn btn-glass btn-lg"
           >
             <BarChart3 size={16} />
-            Bekijk Resultaten
+            View Results
             <ExternalLink size={14} />
           </a>
         </div>
@@ -914,14 +914,14 @@ function App() {
             <div className="dash-total-amount">
               $<CountUp end={walletUSDC} duration={1.5} decimals={2} separator="," />
             </div>
-            <span className="dash-total-sub">USDC beschikbaar in wallet</span>
+            <span className="dash-total-sub">USDC available in wallet</span>
           </div>
         </motion.div>
 
         {/* Stat cards */}
         <motion.div className="dash-stat-card" variants={fadeUp} custom={1}>
           <BarChart3 size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">Totaal Signalen</span>
+          <span className="dash-stat-card-label">Total Signals</span>
           <span className="dash-stat-card-value">
             <CountUp end={signalCount} duration={1} decimals={0} />
           </span>
@@ -930,7 +930,7 @@ function App() {
 
         <motion.div className="dash-stat-card dash-stat-card-accent" variants={fadeUp} custom={2}>
           <Copy size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">Mijn Posities</span>
+          <span className="dash-stat-card-label">My Positions</span>
           <span className="dash-stat-card-value accent">{Object.keys(userPositions).length}</span>
           <span className="dash-stat-card-unit">trades</span>
         </motion.div>
@@ -939,7 +939,7 @@ function App() {
           <Coins size={18} className="dash-stat-card-icon" />
           <span className="dash-stat-card-label">Fee</span>
           <span className="dash-stat-card-value">{(feePercent / 100).toFixed(1)}%</span>
-          <span className="dash-stat-card-unit">op winst</span>
+          <span className="dash-stat-card-unit">on profit</span>
         </motion.div>
       </motion.div>
 
@@ -950,7 +950,7 @@ function App() {
         <motion.div className="dash-claim-panel" variants={slideInLeft} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div className="dash-claim-info" style={{ width: '100%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>Actief Signaal</h3>
+              <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>Active Signal</h3>
               {activeSignal && <span className="pulse-dot" style={{ width: 8, height: 8 }} />}
             </div>
 
@@ -999,14 +999,14 @@ function App() {
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                   <span>{Number(activeSignal.copierCount)} copiers</span>
                   <span>&middot;</span>
-                  <span>${parseFloat(ethers.formatUnits(activeSignal.totalCopied, USDC_DECIMALS)).toLocaleString()} USDC gekopieerd</span>
+                  <span>${parseFloat(ethers.formatUnits(activeSignal.totalCopied, USDC_DECIMALS)).toLocaleString()} USDC copied</span>
                 </div>
 
                 {userPositions[Number(activeSignal.id)] ? (
                   <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.2)', textAlign: 'center' }}>
                     <CheckCircle2 size={16} style={{ color: 'var(--accent)', marginBottom: '4px' }} />
                     <div style={{ fontSize: '0.8rem', color: 'var(--accent)' }}>
-                      Je hebt deze trade gekopieerd ({parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC)
+                      You copied this trade ({parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC)
                     </div>
                   </div>
                 ) : (
@@ -1023,8 +1023,8 @@ function App() {
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
                 <Clock size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
-                <div style={{ fontSize: '0.9rem' }}>Geen actief signaal</div>
-                <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Wacht op het volgende signaal van de trader</div>
+                <div style={{ fontSize: '0.9rem' }}>No active signal</div>
+                <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Waiting for the next signal from the trader</div>
               </div>
             )}
           </div>
@@ -1033,7 +1033,7 @@ function App() {
         {/* RIGHT: My Positions & History */}
         <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div style={{ padding: '20px' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>Mijn Posities</h3>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>My Positions</h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {signalHistory.filter(s => userPositions[Number(s.id)]).length > 0 ? (
@@ -1087,12 +1087,12 @@ function App() {
                           onClick={() => handleClaimProceeds(Number(signal.id))}
                           disabled={isLoading}
                         >
-                          <Zap size={14} /> Claim Winst
+                          <Zap size={14} /> Claim Profit
                         </button>
                       )}
                       {pos.claimed && (
                         <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.7rem', color: 'var(--success)' }}>
-                          <CheckCircle2 size={12} style={{ marginRight: '4px' }} /> Geclaimed
+                          <CheckCircle2 size={12} style={{ marginRight: '4px' }} /> Claimed
                         </div>
                       )}
                     </div>
@@ -1101,8 +1101,8 @@ function App() {
               ) : (
                 <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-secondary)' }}>
                   <Copy size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
-                  <div style={{ fontSize: '0.85rem' }}>Nog geen posities</div>
-                  <div style={{ fontSize: '0.7rem', marginTop: '4px' }}>Kopieer een signaal om te beginnen</div>
+                  <div style={{ fontSize: '0.85rem' }}>No positions yet</div>
+                  <div style={{ fontSize: '0.7rem', marginTop: '4px' }}>Copy a signal to get started</div>
                 </div>
               )}
             </div>
@@ -1138,9 +1138,9 @@ function App() {
           <div className="dash-tx-header">
             <div className="dash-tx-header-left">
               <BarChart3 size={16} />
-              <h3>Signaal Geschiedenis</h3>
+              <h3>Signal History</h3>
             </div>
-            <span className="dash-tx-count">{signalHistory.length} signalen</span>
+            <span className="dash-tx-count">{signalHistory.length} signals</span>
           </div>
 
           <div className="dash-tx-list">
@@ -1183,7 +1183,7 @@ function App() {
             {signalHistory.length === 0 && (
               <div className="dash-tx-empty">
                 <BarChart3 size={24} />
-                <span>Nog geen signalen</span>
+                <span>No signals yet</span>
               </div>
             )}
           </div>
@@ -1219,7 +1219,7 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   {/* Post Signal */}
                   <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
-                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Post Signaal</h3>
+                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Post Signal</h3>
                     <form onSubmit={handlePostSignal}>
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
                         <button
@@ -1249,33 +1249,33 @@ function App() {
                         <input type="number" step="0.01" className="input-field" placeholder="Stop Loss" value={signalForm.sl} onChange={(e) => setSignalForm(prev => ({ ...prev, sl: e.target.value }))} />
                       </div>
                       <div className="input-container" style={{ marginBottom: '12px' }}>
-                        <input type="number" step="1" className="input-field" placeholder="Leverage (bijv. 50)" value={signalForm.leverage} onChange={(e) => setSignalForm(prev => ({ ...prev, leverage: e.target.value }))} />
+                        <input type="number" step="1" className="input-field" placeholder="Leverage (e.g. 50)" value={signalForm.leverage} onChange={(e) => setSignalForm(prev => ({ ...prev, leverage: e.target.value }))} />
                         <div className="input-suffix">{signalForm.leverage}x</div>
                       </div>
                       <button type="submit" className="btn btn-primary btn-glow" style={{ width: '100%' }} disabled={isLoading}>
-                        <Zap size={16} /> {isLoading ? 'Bezig...' : 'Post Signaal'}
+                        <Zap size={16} /> {isLoading ? 'Loading...' : 'Post Signal'}
                       </button>
                     </form>
                   </div>
 
                   {/* Close Signal */}
                   <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
-                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Sluit Signaal</h3>
+                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Close Signal</h3>
                     <form onSubmit={handleCloseSignal}>
                       <div className="input-container" style={{ marginBottom: '8px' }}>
                         <input type="number" className="input-field" placeholder="Signal ID" value={closeSignalId} onChange={(e) => setCloseSignalId(e.target.value)} />
                       </div>
                       <div className="input-container" style={{ marginBottom: '12px' }}>
-                        <input type="number" step="0.01" className="input-field" placeholder="Resultaat % (bijv. 2.5 of -1.0)" value={closeResultPct} onChange={(e) => setCloseResultPct(e.target.value)} />
+                        <input type="number" step="0.01" className="input-field" placeholder="Result % (e.g. 2.5 or -1.0)" value={closeResultPct} onChange={(e) => setCloseResultPct(e.target.value)} />
                         <div className="input-suffix">%</div>
                       </div>
                       <button type="submit" className="btn btn-outline" style={{ width: '100%', borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={isLoading}>
-                        <X size={16} /> {isLoading ? 'Bezig...' : 'Sluit Signaal'}
+                        <X size={16} /> {isLoading ? 'Loading...' : 'Close Signal'}
                       </button>
                     </form>
 
                     <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border)' }}>
-                      <h4 style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>Fees Opnemen</h4>
+                      <h4 style={{ fontSize: '0.85rem', marginBottom: '8px', color: 'var(--text-secondary)' }}>Withdraw Fees</h4>
                       <button
                         className="btn btn-glass"
                         style={{ width: '100%' }}
@@ -1286,7 +1286,7 @@ function App() {
                             await tx.wait();
                             await loadData(contractRef.current, usdcRef.current, account);
                           } catch (err) {
-                            alert(err.reason || err.message || "Fees opnemen mislukt");
+                            alert(err.reason || err.message || "Failed to withdraw fees");
                           } finally {
                             setIsLoading(false);
                           }
@@ -1361,8 +1361,8 @@ function App() {
               <form onSubmit={handleCopyTrade}>
                 <div style={{ marginBottom: '8px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
-                    <span>Bedrag</span>
-                    <span>Beschikbaar: {walletUSDC.toFixed(2)} USDC</span>
+                    <span>Amount</span>
+                    <span>Available: {walletUSDC.toFixed(2)} USDC</span>
                   </div>
                   <div className="input-container">
                     <Coins className="input-icon" size={18} />
@@ -1382,11 +1382,11 @@ function App() {
 
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <AlertTriangle size={12} />
-                  Fee: {(feePercent / 100).toFixed(0)}% op winst. USDC gaat direct vanuit je wallet naar gTrade.
+                  Fee: {(feePercent / 100).toFixed(0)}% on profit. USDC goes directly from your wallet to gTrade.
                 </div>
 
                 <button type="submit" className="btn btn-primary btn-glow" style={{ width: '100%' }} disabled={isLoading || !account}>
-                  <Copy size={16} /> {isLoading ? 'Bezig...' : 'Bevestig Copy Trade'}
+                  <Copy size={16} /> {isLoading ? 'Loading...' : 'Confirm Copy Trade'}
                 </button>
               </form>
             </motion.div>
@@ -1429,7 +1429,7 @@ function App() {
             </button>
             <a href="https://www.myfxbook.com/members/SmartGoldBot" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
               <BarChart3 size={14} />
-              Resultaten
+              Results
             </a>
           </div>
 
@@ -1437,7 +1437,7 @@ function App() {
             <Wallet size={16} />
             {account
               ? `${account.substring(0, 6)}...${account.substring(account.length - 4)}`
-              : (isConnecting ? "Verbinden..." : "Connect Wallet")}
+              : (isConnecting ? "Connecting..." : "Connect Wallet")}
           </button>
         </nav>
 
