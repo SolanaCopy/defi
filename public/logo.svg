@@ -1,27 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">
   <defs>
     <linearGradient id="gold" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#F7E5A0"/>
+      <stop offset="0%" stop-color="#F0D078"/>
       <stop offset="50%" stop-color="#D4A843"/>
-      <stop offset="100%" stop-color="#A07C30"/>
-    </linearGradient>
-    <linearGradient id="goldLight" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#FFF1C9"/>
-      <stop offset="100%" stop-color="#D4A843"/>
-    </linearGradient>
-    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#141620"/>
-      <stop offset="100%" stop-color="#0a0b10"/>
+      <stop offset="100%" stop-color="#9A7B2E"/>
     </linearGradient>
   </defs>
 
-  <!-- Background circle -->
-  <circle cx="100" cy="100" r="96" fill="url(#bg)" stroke="url(#gold)" stroke-width="2.5" opacity="0.9"/>
+  <!-- Clean rounded square background -->
+  <rect x="8" y="8" width="184" height="184" rx="44" fill="#0c0d12"/>
+  <rect x="8" y="8" width="184" height="184" rx="44" fill="none" stroke="url(#gold)" stroke-width="1.5" opacity="0.3"/>
 
-  <!-- Inner ring -->
-  <circle cx="100" cy="100" r="82" fill="none" stroke="#D4A843" stroke-width="0.8" opacity="0.2"/>
+  <!-- Minimal S + upward arrow mark -->
+  <path d="M72,130 C72,130 72,142 88,142 L112,142 C132,142 132,126 132,126 C132,114 120,110 108,107 L92,103 C80,100 72,96 72,84 C72,72 82,62 98,62 L112,62 C128,62 132,72 132,72"
+    fill="none" stroke="url(#gold)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
 
-  <!-- Bold G lettermark -->
-  <path d="M118,72 A42,42 0 1,0 118,128 L118,104 L100,104"
-    fill="none" stroke="url(#goldLight)" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Small upward trend arrow -->
+  <path d="M140,56 L152,44 L164,56" fill="none" stroke="#D4A843" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <line x1="152" y1="44" x2="152" y2="68" stroke="#D4A843" stroke-width="4" stroke-linecap="round"/>
 </svg>
