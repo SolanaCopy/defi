@@ -141,7 +141,7 @@ function App() {
   const [signalHistory, setSignalHistory] = useState([]);
   const [userPositions, setUserPositions] = useState({});
   const [signalCount, setSignalCount] = useState(0);
-  const [feePercent, setFeePercent] = useState(0);
+  const [feePercent, setFeePercent] = useState(2000); // 20% default (contract uses basis points: 2000 = 20%)
 
   // Copy Trade Form
   const [copyAmount, setCopyAmount] = useState("");
