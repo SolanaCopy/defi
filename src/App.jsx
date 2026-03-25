@@ -447,12 +447,15 @@ function App() {
       setBridgeStatus("bridging");
       const txReq = freshQuote.transactionRequest;
       console.log("[Bridge] Sending tx:", { to: txReq.to, value: txReq.value, gasLimit: txReq.gasLimit, gasPrice: txReq.gasPrice, dataLen: txReq.data?.length });
+      // Increase gasLimit by 50% to prevent MetaMask gas estimation issues
+      const quotedGas = txReq.gasLimit ? BigInt(txReq.gasLimit) : 500000n;
+      const safeGasLimit = quotedGas * 150n / 100n;
       const tx = await signer.sendTransaction({
         type: 0,
         to: txReq.to,
         data: txReq.data,
         value: txReq.value || "0x0",
-        gasLimit: txReq.gasLimit,
+        gasLimit: safeGasLimit,
         gasPrice: txReq.gasPrice,
       });
       console.log("[Bridge] Tx sent:", tx.hash);
