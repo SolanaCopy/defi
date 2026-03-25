@@ -936,17 +936,21 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 0 12px' }}>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent)' }}>
+                      $<CountUp end={performanceStats.platform.all.totalCopied} duration={2} decimals={0} separator="," />
+                    </div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Total Volume</div>
+                  </div>
+                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>
+                      <CountUp end={signalHistory.reduce((sum, s) => sum + Number(s.copierCount), 0)} duration={2} />
+                    </div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Total Copiers</div>
+                  </div>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent)' }}>
                       <CountUp end={signalCount} duration={2} />
                     </div>
                     <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Signals</div>
-                  </div>
-                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>150x</div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Max Leverage</div>
-                  </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>{(feePercent / 100).toFixed(0)}%</div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Profit Fee</div>
                   </div>
                 </div>
 
@@ -1011,8 +1015,20 @@ function App() {
           {[...Array(2)].map((_, idx) => (
             <div className="marquee-content" key={idx}>
               <div className="marquee-item">
+                <span className="marquee-dot gold" />
+                <span className="marquee-label">Total Volume</span>
+                <span className="marquee-value gold">${performanceStats.platform.all.totalCopied.toLocaleString(undefined, {maximumFractionDigits: 0})} USDC</span>
+              </div>
+              <div className="marquee-divider">&bull;</div>
+              <div className="marquee-item">
                 <span className="marquee-dot green" />
-                <span className="marquee-label">Signalen</span>
+                <span className="marquee-label">Total Copiers</span>
+                <span className="marquee-value green">{signalHistory.reduce((sum, s) => sum + Number(s.copierCount), 0)}</span>
+              </div>
+              <div className="marquee-divider">&bull;</div>
+              <div className="marquee-item">
+                <span className="marquee-dot green" />
+                <span className="marquee-label">Signals</span>
                 <span className="marquee-value">{signalCount}</span>
               </div>
               <div className="marquee-divider">&bull;</div>
@@ -1023,14 +1039,8 @@ function App() {
               </div>
               <div className="marquee-divider">&bull;</div>
               <div className="marquee-item">
-                <span className="marquee-dot gold" />
-                <span className="marquee-label">Fee</span>
-                <span className="marquee-value gold">{(feePercent / 100).toFixed(0)}% per trade</span>
-              </div>
-              <div className="marquee-divider">&bull;</div>
-              <div className="marquee-item">
                 <span className="marquee-dot green" />
-                <span className="marquee-label">Netwerk</span>
+                <span className="marquee-label">Network</span>
                 <span className="marquee-value green">Arbitrum One</span>
               </div>
               <div className="marquee-divider">&bull;</div>
