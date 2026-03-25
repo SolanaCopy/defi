@@ -1194,20 +1194,326 @@ function App() {
             Start Now
             <ArrowRight size={18} />
           </button>
-          <a
-            href="https://www.myfxbook.com/members/SmartGoldBot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn btn-glass btn-lg"
-          >
+          <button className="btn btn-glass btn-lg" onClick={() => setActiveTab('results')}>
             <BarChart3 size={16} />
             View Results
-            <ExternalLink size={14} />
-          </a>
+            <ArrowRight size={14} />
+          </button>
         </div>
       </motion.section>
     </>
   );
+
+  // ===== RESULTS PAGE =====
+
+  const renderResults = () => {
+    const closedSignals = signalHistory.filter(s => s.closed);
+    const wins = closedSignals.filter(s => Number(s.resultPct) > 0);
+    const losses = closedSignals.filter(s => Number(s.resultPct) < 0);
+    const breakeven = closedSignals.filter(s => Number(s.resultPct) === 0);
+    const winRate = closedSignals.length > 0 ? (wins.length / closedSignals.length * 100) : 0;
+
+    // Best & worst trade
+    const bestTrade = closedSignals.length > 0
+      ? closedSignals.reduce((a, b) => Number(a.resultPct) > Number(b.resultPct) ? a : b)
+      : null;
+    const worstTrade = closedSignals.length > 0
+      ? closedSignals.reduce((a, b) => Number(a.resultPct) < Number(b.resultPct) ? a : b)
+      : null;
+
+    // Group signals by period
+    const now = Math.floor(Date.now() / 1000);
+    const DAY = 86400;
+
+    const groupByPeriod = (signals, days) => {
+      const groups = {};
+      for (const s of signals) {
+        const closedAt = Number(s.closedAt);
+        const daysAgo = Math.floor((now - closedAt) / DAY);
+        let key;
+        if (days === 1) {
+          const d = new Date(closedAt * 1000);
+          key = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+        } else if (days === 7) {
+          const weekNum = Math.floor(daysAgo / 7);
+          key = weekNum === 0 ? 'This Week' : weekNum === 1 ? 'Last Week' : `${weekNum}w ago`;
+        } else {
+          const d = new Date(closedAt * 1000);
+          key = d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
+        }
+        if (!groups[key]) groups[key] = { wins: 0, losses: 0, trades: 0 };
+        groups[key].trades++;
+        if (Number(s.resultPct) >= 0) groups[key].wins++;
+        else groups[key].losses++;
+      }
+      return groups;
+    };
+
+    // Current streak
+    let streak = 0;
+    let streakType = '';
+    for (const s of [...closedSignals].sort((a, b) => Number(b.closedAt) - Number(a.closedAt))) {
+      const isWin = Number(s.resultPct) > 0;
+      if (streak === 0) {
+        streakType = isWin ? 'win' : 'loss';
+        streak = 1;
+      } else if ((isWin && streakType === 'win') || (!isWin && streakType === 'loss')) {
+        streak++;
+      } else {
+        break;
+      }
+    }
+
+    // Average result
+    const avgResult = closedSignals.length > 0
+      ? closedSignals.reduce((sum, s) => sum + Number(s.resultPct), 0) / closedSignals.length / 100
+      : 0;
+
+    const monthlyGroups = groupByPeriod(closedSignals, 30);
+
+    return (
+      <>
+        {/* Hero Stats */}
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          style={{ textAlign: 'center', marginBottom: '32px' }}
+        >
+          <span className="section-badge">Verified On-Chain</span>
+          <h2 style={{ fontSize: '2rem', margin: '16px 0 8px' }}>
+            Trading <span className="text-gold-gradient">Results</span>
+          </h2>
+          <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+            All results are stored on the Arbitrum blockchain and verifiable by anyone
+          </p>
+        </motion.div>
+
+        {/* Overview Stats */}
+        <motion.div
+          variants={staggerContainer} initial="hidden" animate="visible"
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '24px' }}
+        >
+          {[
+            { label: 'Total Trades', value: closedSignals.length.toString(), color: 'var(--text-primary)' },
+            { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, color: winRate >= 50 ? 'var(--success)' : 'var(--danger)' },
+            { label: 'Wins', value: wins.length.toString(), color: 'var(--success)' },
+            { label: 'Losses', value: losses.length.toString(), color: 'var(--danger)' },
+            { label: 'Avg Result', value: `${avgResult >= 0 ? '+' : ''}${avgResult.toFixed(2)}%`, color: avgResult >= 0 ? 'var(--success)' : 'var(--danger)' },
+            { label: 'Streak', value: `${streak} ${streakType}${streak > 1 ? 's' : ''}`, color: streakType === 'win' ? 'var(--success)' : streak > 0 ? 'var(--danger)' : 'var(--text-secondary)' },
+          ].map((stat, i) => (
+            <motion.div key={stat.label} variants={fadeUp} custom={i} style={{
+              background: 'var(--bg-card)', borderRadius: '14px', padding: '20px', border: '1px solid var(--border)', textAlign: 'center',
+            }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>{stat.label}</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: stat.color }}>{stat.value}</div>
+            </motion.div>
+          ))}
+        </motion.div>
+
+        {/* Best & Worst Trade */}
+        {bestTrade && (
+          <motion.div variants={fadeUp} initial="hidden" animate="visible"
+            style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '24px' }}
+          >
+            <div style={{ background: 'rgba(52, 211, 153, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(52, 211, 153, 0.15)' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Best Trade</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                +{(Number(bestTrade.resultPct) / 100).toFixed(2)}%
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                #{Number(bestTrade.id)} &middot; {bestTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(bestTrade.leverage)}x
+              </div>
+            </div>
+            <div style={{ background: 'rgba(248, 113, 113, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(248, 113, 113, 0.15)' }}>
+              <div style={{ fontSize: '0.7rem', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Worst Trade</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                {(Number(worstTrade.resultPct) / 100).toFixed(2)}%
+              </div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                #{Number(worstTrade.id)} &middot; {worstTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(worstTrade.leverage)}x
+              </div>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Performance by Period */}
+        <motion.div variants={fadeUp} initial="hidden" animate="visible"
+          style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}
+        >
+          {/* Daily Performance */}
+          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <BarChart3 size={16} style={{ color: 'var(--accent)' }} />
+              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>Daily Performance</h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {[
+                { label: 'Today', data: performanceStats.platform.today },
+                { label: '7 Days', data: performanceStats.platform.week },
+                { label: '30 Days', data: performanceStats.platform.month },
+              ].map(({ label, data }) => (
+                <div key={label} style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '12px 14px',
+                }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{label}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{data.trades} trades</span>
+                    <span style={{
+                      fontSize: '0.85rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                      color: data.winRate >= 50 ? 'var(--success)' : data.trades === 0 ? 'var(--text-secondary)' : 'var(--danger)',
+                    }}>
+                      {data.trades > 0 ? `${data.winRate.toFixed(0)}%` : '-'}
+                    </span>
+                    <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>{data.wins}W/{data.losses}L</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Monthly Breakdown */}
+          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
+              <History size={16} style={{ color: 'var(--accent)' }} />
+              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>Monthly Breakdown</h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {Object.entries(monthlyGroups).length > 0 ? (
+                Object.entries(monthlyGroups).map(([month, data]) => (
+                  <div key={month} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '12px 14px',
+                  }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{month}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{data.trades} trades</span>
+                      <span style={{
+                        fontSize: '0.85rem', fontWeight: 700,
+                        color: data.wins >= data.losses ? 'var(--success)' : 'var(--danger)',
+                      }}>
+                        {data.trades > 0 ? `${(data.wins / data.trades * 100).toFixed(0)}%` : '-'}
+                      </span>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>{data.wins}W/{data.losses}L</span>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                  No completed trades yet
+                </div>
+              )}
+            </div>
+          </div>
+        </motion.div>
+
+        {/* Full Trade Log */}
+        <motion.div variants={fadeUp} initial="hidden" animate="visible"
+          style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <TrendingUp size={16} style={{ color: 'var(--accent)' }} />
+              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>Trade Log</h3>
+            </div>
+            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{signalHistory.length} signals</span>
+          </div>
+
+          {/* Table Header */}
+          <div style={{
+            display: 'grid', gridTemplateColumns: '50px 70px 80px 1fr 80px 80px 100px',
+            gap: '8px', padding: '8px 12px', fontSize: '0.65rem', color: 'var(--text-secondary)',
+            textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--border)',
+          }}>
+            <span>#</span>
+            <span>Direction</span>
+            <span>Leverage</span>
+            <span>Entry / TP / SL</span>
+            <span>Copiers</span>
+            <span>Volume</span>
+            <span style={{ textAlign: 'right' }}>Result</span>
+          </div>
+
+          {/* Trade Rows */}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {signalHistory.map((signal, index) => {
+              const result = Number(signal.resultPct) / 100;
+              const isClosed = signal.closed;
+              return (
+                <motion.div
+                  key={Number(signal.id)}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: index * 0.03 }}
+                  style={{
+                    display: 'grid', gridTemplateColumns: '50px 70px 80px 1fr 80px 80px 100px',
+                    gap: '8px', padding: '12px', fontSize: '0.8rem',
+                    borderBottom: '1px solid rgba(255,255,255,0.03)',
+                    alignItems: 'center',
+                  }}
+                >
+                  <span style={{ color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>{Number(signal.id)}</span>
+                  <span style={{
+                    padding: '2px 8px', borderRadius: '10px', fontSize: '0.65rem', fontWeight: 700, textAlign: 'center',
+                    background: signal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                    color: signal.long ? 'var(--success)' : 'var(--danger)',
+                  }}>
+                    {signal.long ? 'LONG' : 'SHORT'}
+                  </span>
+                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
+                    {formatLeverage(signal.leverage)}x
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                    ${formatGTradePrice(signal.entryPrice)} / ${formatGTradePrice(signal.tp)} / ${formatGTradePrice(signal.sl)}
+                  </span>
+                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
+                    {Number(signal.copierCount)}
+                  </span>
+                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
+                    ${parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6)).toFixed(0)}
+                  </span>
+                  <span style={{
+                    textAlign: 'right', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                    color: isClosed ? (result >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
+                  }}>
+                    {isClosed ? `${result >= 0 ? '+' : ''}${result.toFixed(2)}%` : 'OPEN'}
+                  </span>
+                </motion.div>
+              );
+            })}
+            {signalHistory.length === 0 && (
+              <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
+                <BarChart3 size={32} style={{ marginBottom: '12px', opacity: 0.3 }} />
+                <div>No trades recorded yet</div>
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* Verification Note */}
+        <motion.div variants={fadeUp} initial="hidden" animate="visible"
+          style={{
+            display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px',
+            background: 'rgba(212, 168, 67, 0.05)', borderRadius: '12px', padding: '16px 20px',
+            border: '1px solid rgba(212, 168, 67, 0.15)',
+          }}
+        >
+          <ShieldCheck size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+          <div>
+            <div style={{ fontSize: '0.85rem', fontWeight: 600, marginBottom: '2px' }}>On-Chain Verified</div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              All results are recorded on the Arbitrum blockchain. Verify on{' '}
+              <a href={`https://arbiscan.io/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer"
+                style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
+                Arbiscan
+              </a>
+            </div>
+          </div>
+        </motion.div>
+      </>
+    );
+  };
 
   // ===== DASHBOARD =====
 
@@ -2149,10 +2455,10 @@ function App() {
             <button className={`nav-link ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
               Dashboard
             </button>
-            <a href="https://www.myfxbook.com/members/SmartGoldBot" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
+            <button className={`nav-link ${activeTab === 'results' ? 'active' : ''}`} onClick={() => setActiveTab('results')}>
               <BarChart3 size={14} />
               Results
-            </a>
+            </button>
           </div>
 
           <button className="connect-wallet-btn" onClick={connectWallet} disabled={isConnecting}>
@@ -2169,6 +2475,10 @@ function App() {
             {activeTab === 'invest' ? (
               <motion.div key="invest" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
                 {renderInvest()}
+              </motion.div>
+            ) : activeTab === 'results' ? (
+              <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                {renderResults()}
               </motion.div>
             ) : (
               <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
