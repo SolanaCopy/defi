@@ -35,7 +35,8 @@ async function getBridgeQuote(fromToken, fromAmount, fromAddress, direction = "t
     fromAmount: fromAmount,
     fromAddress: fromAddress,
     integrator: "smart-goldbot",
-    slippage: "0.03",
+    slippage: "0.05",
+    allowBridges: "across",
   });
   const res = await fetch(`${LIFI_API}/quote?${params}`);
   if (!res.ok) {
