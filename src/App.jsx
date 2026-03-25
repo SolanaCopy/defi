@@ -443,24 +443,19 @@ function App() {
         }
       }
 
-      // Step 3: Send bridge transaction directly via MetaMask
+      // Step 3: Send bridge transaction via ethers signer (same method as working CLI test)
       setBridgeStatus("bridging");
       const txReq = freshQuote.transactionRequest;
-      console.log("[Bridge] Sending tx:", { to: txReq.to, value: txReq.value, gas: txReq.gasLimit, gasPrice: txReq.gasPrice, dataLen: txReq.data?.length });
-      const txHash = await window.ethereum.request({
-        method: 'eth_sendTransaction',
-        params: [{
-          from: account,
-          to: txReq.to,
-          data: txReq.data,
-          value: txReq.value || "0x0",
-          gas: txReq.gasLimit,
-          gasPrice: txReq.gasPrice,
-        }],
+      console.log("[Bridge] Sending tx:", { to: txReq.to, value: txReq.value, gasLimit: txReq.gasLimit, gasPrice: txReq.gasPrice, dataLen: txReq.data?.length });
+      const tx = await signer.sendTransaction({
+        to: txReq.to,
+        data: txReq.data,
+        value: txReq.value || "0x0",
+        gasLimit: txReq.gasLimit,
+        gasPrice: txReq.gasPrice,
       });
-      console.log("[Bridge] Tx sent:", txHash);
-      // Wait for confirmation
-      const receipt = await provider.waitForTransaction(txHash);
+      console.log("[Bridge] Tx sent:", tx.hash);
+      const receipt = await tx.wait();
       console.log("[Bridge] Tx confirmed:", receipt.status);
 
       // Step 3: Poll for bridge completion
