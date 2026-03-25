@@ -399,7 +399,7 @@ function App() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
 
-      // Step 1: Approve max (so we don't need to re-approve each time)
+      // Step 1: Approve (handle USDT's non-standard approve)
       const fromTokenAddr = bridgeQuote.action?.fromToken?.address;
       const approvalAddr = bridgeQuote.estimate?.approvalAddress;
       if (fromTokenAddr && fromTokenAddr !== "0x0000000000000000000000000000000000000000" && approvalAddr) {
@@ -408,6 +408,11 @@ function App() {
         const allowance = await tokenContract.allowance(account, approvalAddr);
         const requiredAmount = BigInt(bridgeQuote.action.fromAmount);
         if (BigInt(allowance) < requiredAmount) {
+          // USDT requires resetting to 0 first if allowance is non-zero
+          if (BigInt(allowance) > 0n) {
+            const resetTx = await tokenContract.approve(approvalAddr, 0);
+            await resetTx.wait();
+          }
           const approveTx = await tokenContract.approve(approvalAddr, ethers.MaxUint256);
           await approveTx.wait();
         }
