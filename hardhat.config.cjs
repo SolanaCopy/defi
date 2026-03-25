@@ -1,4 +1,8 @@
+require("dotenv").config();
 require("@nomicfoundation/hardhat-toolbox");
+
+const PRIVATE_KEY = process.env.ADMIN_PRIVATE_KEY;
+const accounts = PRIVATE_KEY ? [PRIVATE_KEY] : [];
 
 /** @type import('hardhat/config').HardhatUserConfig */
 module.exports = {
@@ -7,8 +11,8 @@ module.exports = {
     hardhat: {
       forking: process.env.FORK_ARBITRUM
         ? {
-            url: process.env.ARBITRUM_RPC || "https://arb1.arbitrum.io/rpc",
-            blockNumber: 441600000,
+            url: process.env.ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc",
+            blockNumber: 443170000,
           }
         : undefined,
       chains: {
@@ -24,8 +28,13 @@ module.exports = {
     },
     arbitrumSepolia: {
       url: process.env.ARBITRUM_SEPOLIA_RPC || "https://sepolia-rollup.arbitrum.io/rpc",
-      accounts: process.env.PRIVATE_KEY ? [process.env.PRIVATE_KEY] : [],
+      accounts,
       chainId: 421614,
+    },
+    arbitrum: {
+      url: process.env.ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc",
+      accounts,
+      chainId: 42161,
     },
   },
 };

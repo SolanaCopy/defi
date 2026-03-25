@@ -1,18 +1,52 @@
 /* global BigInt */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import CountUp from 'react-countup';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
-import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings } from 'lucide-react';
+import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw } from 'lucide-react';
 import CONTRACT_ABI from './contractABI.json';
 import './index.css';
 
 // ===== ARBITRUM CONFIG =====
-const CONTRACT_ADDRESS = "0x0000000000000000000000000000000000000000"; // Deploy and fill in
+const CONTRACT_ADDRESS = "0xb09d6B8fA13Cbf757393ECb3E9c616C6BE94cA82";
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC on Arbitrum
 const ARBITRUM_CHAIN_ID = "0xa4b1"; // 42161
+
+// ===== MULTI-CHAIN: BSC CONFIG =====
+const BSC_CHAIN_ID = "0x38"; // 56
+const BSC_TOKENS = {
+  USDT: { address: "0x55d398326f99059fF775485246999027B3197955", symbol: "USDT", decimals: 18 },
+  USDC: { address: "0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d", symbol: "USDC", decimals: 18 },
+};
+const LIFI_API = "https://li.quest/v1";
+
+// Fetch bridge quote from Li.Fi API
+async function getBridgeQuote(fromToken, fromAmount, fromAddress) {
+  const params = new URLSearchParams({
+    fromChain: "56",
+    toChain: "42161",
+    fromToken: fromToken,
+    toToken: USDC_ADDRESS,
+    fromAmount: fromAmount,
+    fromAddress: fromAddress,
+    integrator: "smart-goldbot",
+  });
+  const res = await fetch(`${LIFI_API}/quote?${params}`);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || "Failed to get bridge quote");
+  }
+  return res.json();
+}
+
+// Check bridge transaction status
+async function getBridgeStatus(txHash, bridge, fromChain, toChain) {
+  const params = new URLSearchParams({ txHash, bridge, fromChain: String(fromChain), toChain: String(toChain) });
+  const res = await fetch(`${LIFI_API}/status?${params}`);
+  return res.json();
+}
 
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
@@ -143,6 +177,74 @@ function App() {
   const [signalCount, setSignalCount] = useState(0);
   const [feePercent, setFeePercent] = useState(2000); // 20% default (contract uses basis points: 2000 = 20%)
 
+  // Performance stats computed from signal history + user positions
+  const performanceStats = useMemo(() => {
+    const now = Math.floor(Date.now() / 1000);
+    const DAY = 86400;
+    const WEEK = 7 * DAY;
+    const MONTH = 30 * DAY;
+
+    const closedSignals = signalHistory.filter(s => s.closed);
+    const mySignals = closedSignals.filter(s => userPositions[Number(s.id)]);
+
+    const calcPnl = (signals, since) => {
+      const filtered = since
+        ? signals.filter(s => Number(s.closedAt) >= since)
+        : signals;
+      let totalPnl = 0;
+      let wins = 0;
+      let losses = 0;
+      let totalCollateral = 0;
+
+      for (const s of filtered) {
+        const pos = userPositions[Number(s.id)];
+        const col = pos ? parseFloat(ethers.formatUnits(pos.collateral, 6)) : 0;
+        const resultPct = Number(s.resultPct) / 100; // to %
+        const lev = Number(s.leverage) / 1000;
+        const pnl = col * (resultPct / 100) * lev;
+        totalPnl += pnl;
+        totalCollateral += col;
+        if (Number(s.resultPct) >= 0) wins++;
+        else losses++;
+      }
+
+      return { pnl: totalPnl, wins, losses, trades: filtered.length, totalCollateral };
+    };
+
+    // Platform-wide stats (all signals, not just user's)
+    const calcPlatformPnl = (signals, since) => {
+      const filtered = since
+        ? signals.filter(s => Number(s.closedAt) >= since)
+        : signals;
+      let wins = 0;
+      let losses = 0;
+      let totalCopied = 0;
+
+      for (const s of filtered) {
+        if (Number(s.resultPct) >= 0) wins++;
+        else losses++;
+        totalCopied += parseFloat(ethers.formatUnits(s.totalCopied || 0n, 6));
+      }
+
+      return { wins, losses, trades: filtered.length, winRate: filtered.length > 0 ? (wins / filtered.length * 100) : 0, totalCopied };
+    };
+
+    return {
+      my: {
+        today: calcPnl(mySignals, now - DAY),
+        week: calcPnl(mySignals, now - WEEK),
+        month: calcPnl(mySignals, now - MONTH),
+        all: calcPnl(mySignals, null),
+      },
+      platform: {
+        today: calcPlatformPnl(closedSignals, now - DAY),
+        week: calcPlatformPnl(closedSignals, now - WEEK),
+        month: calcPlatformPnl(closedSignals, now - MONTH),
+        all: calcPlatformPnl(closedSignals, null),
+      },
+    };
+  }, [signalHistory, userPositions]);
+
   // Copy Trade Form
   const [copyAmount, setCopyAmount] = useState("");
   const [showCopyModal, setShowCopyModal] = useState(false);
@@ -161,6 +263,17 @@ function App() {
 
   // Transaction history
   const [transactions, setTransactions] = useState([]);
+
+  // Bridge modal state
+  const [showBridgeModal, setShowBridgeModal] = useState(false);
+  const [currentChainId, setCurrentChainId] = useState(null);
+  const [bridgeToken, setBridgeToken] = useState("USDT");
+  const [bridgeAmount, setBridgeAmount] = useState("");
+  const [bridgeQuote, setBridgeQuote] = useState(null);
+  const [bridgeLoading, setBridgeLoading] = useState(false);
+  const [bridgeStatus, setBridgeStatus] = useState(""); // "", "quoting", "approving", "bridging", "waiting", "done", "error"
+  const [bridgeError, setBridgeError] = useState("");
+  const [bscBalance, setBscBalance] = useState({ USDT: 0, USDC: 0 });
 
   // Contract refs
   const providerRef = useRef(null);
@@ -184,6 +297,143 @@ function App() {
 
   const { scrollYProgress } = useScroll();
   const heroOpacity = useTransform(scrollYProgress, [0, 0.15], [1, 0]);
+
+  // Detect current chain
+  useEffect(() => {
+    if (!window.ethereum) return;
+    const checkChain = async () => {
+      try {
+        const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+        setCurrentChainId(chainId);
+      } catch {}
+    };
+    checkChain();
+    const handleChainChanged = (chainId) => setCurrentChainId(chainId);
+    window.ethereum.on('chainChanged', handleChainChanged);
+    return () => window.ethereum.removeListener('chainChanged', handleChainChanged);
+  }, []);
+
+  const isOnBSC = currentChainId === BSC_CHAIN_ID;
+  const isOnArbitrum = currentChainId === ARBITRUM_CHAIN_ID;
+
+  // Load BSC token balances when on BSC
+  useEffect(() => {
+    if (!isOnBSC || !account || !window.ethereum) return;
+    const loadBscBalances = async () => {
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const usdtContract = new ethers.Contract(BSC_TOKENS.USDT.address, ERC20_ABI, provider);
+        const usdcContract = new ethers.Contract(BSC_TOKENS.USDC.address, ERC20_ABI, provider);
+        const [usdtBal, usdcBal] = await Promise.all([
+          usdtContract.balanceOf(account),
+          usdcContract.balanceOf(account),
+        ]);
+        setBscBalance({
+          USDT: parseFloat(ethers.formatUnits(usdtBal, 18)),
+          USDC: parseFloat(ethers.formatUnits(usdcBal, 18)),
+        });
+      } catch (err) {
+        console.error("BSC balance error:", err);
+      }
+    };
+    loadBscBalances();
+  }, [isOnBSC, account]);
+
+  // Get bridge quote
+  const handleGetQuote = async () => {
+    if (!bridgeAmount || !account || Number(bridgeAmount) <= 0) return;
+    setBridgeLoading(true);
+    setBridgeStatus("quoting");
+    setBridgeError("");
+    setBridgeQuote(null);
+    try {
+      const token = BSC_TOKENS[bridgeToken];
+      const amountWei = ethers.parseUnits(bridgeAmount, token.decimals).toString();
+      const quote = await getBridgeQuote(token.address, amountWei, account);
+      setBridgeQuote(quote);
+      setBridgeStatus("");
+    } catch (err) {
+      setBridgeError(err.message || "Failed to get quote");
+      setBridgeStatus("error");
+    } finally {
+      setBridgeLoading(false);
+    }
+  };
+
+  // Execute bridge transaction
+  const handleBridge = async () => {
+    if (!bridgeQuote || !account) return;
+    setBridgeLoading(true);
+    setBridgeError("");
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+
+      // Step 1: Approve if needed
+      if (bridgeQuote.action?.fromToken?.address !== "0x0000000000000000000000000000000000000000") {
+        setBridgeStatus("approving");
+        const tokenContract = new ethers.Contract(bridgeQuote.action.fromToken.address, ERC20_ABI, signer);
+        const allowance = await tokenContract.allowance(account, bridgeQuote.estimate.approvalAddress);
+        const requiredAmount = BigInt(bridgeQuote.action.fromAmount);
+        if (BigInt(allowance) < requiredAmount) {
+          const approveTx = await tokenContract.approve(bridgeQuote.estimate.approvalAddress, requiredAmount);
+          await approveTx.wait();
+        }
+      }
+
+      // Step 2: Send bridge transaction
+      setBridgeStatus("bridging");
+      const tx = await signer.sendTransaction({
+        to: bridgeQuote.transactionRequest.to,
+        data: bridgeQuote.transactionRequest.data,
+        value: bridgeQuote.transactionRequest.value || "0x0",
+        gasLimit: bridgeQuote.transactionRequest.gasLimit,
+      });
+      const receipt = await tx.wait();
+
+      // Step 3: Poll for bridge completion
+      setBridgeStatus("waiting");
+      const bridge = bridgeQuote.tool;
+      let completed = false;
+      for (let i = 0; i < 60; i++) { // max 5 min polling
+        await new Promise(r => setTimeout(r, 5000));
+        try {
+          const status = await getBridgeStatus(receipt.hash, bridge, 56, 42161);
+          if (status.status === "DONE") {
+            completed = true;
+            break;
+          }
+          if (status.status === "FAILED") {
+            throw new Error("Bridge transaction failed");
+          }
+        } catch {}
+      }
+
+      setBridgeStatus("done");
+      setBridgeQuote(null);
+      setBridgeAmount("");
+
+      // Refresh BSC balances
+      if (isOnBSC) {
+        const usdtContract = new ethers.Contract(BSC_TOKENS.USDT.address, ERC20_ABI, provider);
+        const usdcContract = new ethers.Contract(BSC_TOKENS.USDC.address, ERC20_ABI, provider);
+        const [usdtBal, usdcBal] = await Promise.all([
+          usdtContract.balanceOf(account),
+          usdcContract.balanceOf(account),
+        ]);
+        setBscBalance({
+          USDT: parseFloat(ethers.formatUnits(usdtBal, 18)),
+          USDC: parseFloat(ethers.formatUnits(usdcBal, 18)),
+        });
+      }
+    } catch (err) {
+      console.error("Bridge error:", err);
+      setBridgeError(err.reason || err.message || "Bridge failed");
+      setBridgeStatus("error");
+    } finally {
+      setBridgeLoading(false);
+    }
+  };
 
   // Switch to Arbitrum network
   const switchToArbitrum = async () => {
@@ -280,22 +530,34 @@ function App() {
     }
     try {
       setIsConnecting(true);
-      await switchToArbitrum();
+
+      // Request accounts first
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+      setCurrentChainId(chainId);
+
+      // If not on Arbitrum or BSC, switch to Arbitrum
+      if (chainId !== ARBITRUM_CHAIN_ID && chainId !== BSC_CHAIN_ID) {
+        await switchToArbitrum();
+      }
 
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
-
-      const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
-      const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
-
-      providerRef.current = provider;
-      signerRef.current = signer;
-      contractRef.current = contract;
-      usdcRef.current = usdcContract;
-
       setAccount(address);
-      await loadData(contract, usdcContract, address);
+
+      // Only set up contract refs if on Arbitrum
+      if (chainId === ARBITRUM_CHAIN_ID) {
+        const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+        const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
+
+        providerRef.current = provider;
+        signerRef.current = signer;
+        contractRef.current = contract;
+        usdcRef.current = usdcContract;
+
+        await loadData(contract, usdcContract, address);
+      }
     } catch (error) {
       console.error("Connection error:", error);
     } finally {
@@ -319,7 +581,13 @@ function App() {
       }
     };
     window.ethereum.on('accountsChanged', handleAccountsChanged);
-    window.ethereum.on('chainChanged', () => window.location.reload());
+    window.ethereum.on('chainChanged', (chainId) => {
+      setCurrentChainId(chainId);
+      if (chainId === ARBITRUM_CHAIN_ID && contractRef.current && usdcRef.current) {
+        // Reconnect on Arbitrum
+        connectWallet();
+      }
+    });
     return () => {
       window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
       window.ethereum.removeListener('chainChanged', () => {});
@@ -521,62 +789,112 @@ function App() {
             <div className="hero-card">
               <div className="hero-card-glow" />
               <div className="hero-card-inner">
+                {/* Header */}
                 <div className="hero-card-header">
                   <div className="hero-card-header-left">
                     <span className="pulse-dot" />
-                    <span className="hero-card-label">Copy Trading Stats</span>
+                    <span className="hero-card-label">Live Trading Terminal</span>
                   </div>
                   <span className="hero-card-live">LIVE</span>
                 </div>
 
-                <div className="hero-card-tvl">
-                  <span className="hero-card-tvl-label">Total Copied</span>
-                  <span className="hero-card-tvl-amount">
-                    $<CountUp end={signalCount} duration={2.5} separator="," decimals={0} suffix=" signals" />
-                  </span>
+                {/* Active trade preview */}
+                <div style={{ padding: '16px 0 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.3rem', fontWeight: 700 }}>XAU/USD</span>
+                      <span style={{
+                        padding: '2px 8px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 700,
+                        background: activeSignal ? (activeSignal.long ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)',
+                        color: activeSignal ? (activeSignal.long ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
+                        letterSpacing: '0.05em'
+                      }}>
+                        {activeSignal ? (activeSignal.long ? 'LONG' : 'SHORT') : 'WAITING'}
+                      </span>
+                    </div>
+                    {activeSignal && (
+                      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 600 }}>
+                        {formatLeverage(activeSignal.leverage)}x
+                      </span>
+                    )}
+                  </div>
+                  {activeSignal ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                      {[
+                        { label: 'ENTRY', value: `$${formatGTradePrice(activeSignal.entryPrice)}`, color: 'var(--text-primary)' },
+                        { label: 'TP', value: `$${formatGTradePrice(activeSignal.tp)}`, color: 'var(--success)' },
+                        { label: 'SL', value: `$${formatGTradePrice(activeSignal.sl)}`, color: 'var(--danger)' },
+                      ].map(item => (
+                        <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
+                          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>{item.value}</div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                      <Clock size={14} />
+                      <span>Waiting for next signal...</span>
+                    </div>
+                  )}
                 </div>
 
-                <div className="hero-card-grid">
-                  <div className="hero-card-stat">
-                    <div className="hero-card-stat-icon">
-                      <TrendingUp size={16} />
+                {/* Stats row */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 0 12px' }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent)' }}>
+                      <CountUp end={signalCount} duration={2} />
                     </div>
-                    <span className="hero-card-stat-value gold">XAU/USD</span>
-                    <span className="hero-card-stat-label">Pair</span>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Signals</div>
                   </div>
-                  <div className="hero-card-stat">
-                    <div className="hero-card-stat-icon">
-                      <ShieldCheck size={16} />
-                    </div>
-                    <span className="hero-card-stat-value">Arbitrum</span>
-                    <span className="hero-card-stat-label">Netwerk</span>
+                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>150x</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Max Leverage</div>
                   </div>
-                  <div className="hero-card-stat">
-                    <div className="hero-card-stat-icon">
-                      <Coins size={16} />
-                    </div>
-                    <span className="hero-card-stat-value">{(feePercent / 100).toFixed(0)}%</span>
-                    <span className="hero-card-stat-label">Fee</span>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>{(feePercent / 100).toFixed(0)}%</div>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Profit Fee</div>
                   </div>
                 </div>
 
-                {/* Mini chart visualization */}
-                <div className="hero-card-chart">
-                  <div className="hero-card-chart-label">
-                    <span>Recent signals</span>
-                    <span className="gold">{signalCount} totaal</span>
+                {/* Performance bars */}
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '8px' }}>
+                    <span style={{ color: 'var(--text-secondary)' }}>Recent Performance</span>
+                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Gold Trading</span>
                   </div>
-                  <div className="mini-chart">
-                    {[35, 45, 40, 60, 55, 70, 85].map((h, i) => (
+                  <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '48px' }}>
+                    {[
+                      { h: 65, win: true }, { h: 40, win: false }, { h: 80, win: true },
+                      { h: 55, win: true }, { h: 30, win: false }, { h: 75, win: true },
+                      { h: 90, win: true }, { h: 45, win: true }, { h: 60, win: true },
+                      { h: 35, win: false }, { h: 85, win: true }, { h: 70, win: true },
+                    ].map((bar, i) => (
                       <motion.div
                         key={i}
-                        className="mini-chart-bar"
+                        style={{
+                          flex: 1, borderRadius: '3px 3px 0 0',
+                          background: bar.win
+                            ? 'linear-gradient(to top, rgba(52,211,153,0.3), rgba(52,211,153,0.7))'
+                            : 'linear-gradient(to top, rgba(248,113,113,0.2), rgba(248,113,113,0.5))',
+                        }}
                         initial={{ height: 0 }}
-                        animate={{ height: `${h}%` }}
-                        transition={{ duration: 0.8, delay: 0.8 + i * 0.1, ease: "easeOut" }}
+                        animate={{ height: `${bar.h}%` }}
+                        transition={{ duration: 0.6, delay: 0.6 + i * 0.06, ease: "easeOut" }}
                       />
                     ))}
                   </div>
+                </div>
+
+                {/* Bottom tags */}
+                <div style={{ display: 'flex', gap: '6px', marginTop: '12px', flexWrap: 'wrap' }}>
+                  {['Arbitrum', 'gTrade', 'USDC', 'On-Chain'].map(tag => (
+                    <span key={tag} style={{
+                      padding: '3px 10px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 600,
+                      background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)',
+                      border: '1px solid rgba(255,255,255,0.06)'
+                    }}>{tag}</span>
+                  ))}
                 </div>
               </div>
             </div>
@@ -900,6 +1218,52 @@ function App() {
       animate={{ opacity: 1 }}
       transition={{ duration: 0.4 }}
     >
+      {/* ===== BSC BANNER ===== */}
+      {isOnBSC && account && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          style={{
+            background: 'linear-gradient(135deg, rgba(243, 186, 47, 0.12), rgba(212, 168, 67, 0.08))',
+            border: '1px solid rgba(243, 186, 47, 0.3)',
+            borderRadius: '14px',
+            padding: '16px 20px',
+            marginBottom: '16px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '16px',
+            flexWrap: 'wrap',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Network size={18} style={{ color: '#F3BA2F' }} />
+            <div>
+              <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#F3BA2F' }}>You're on BNB Chain</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                Bridge your USDT/USDC to Arbitrum to start copy trading
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button
+              className="btn btn-primary"
+              style={{ padding: '8px 16px', fontSize: '0.8rem' }}
+              onClick={() => setShowBridgeModal(true)}
+            >
+              <ArrowLeftRight size={14} /> Bridge Now
+            </button>
+            <button
+              className="btn btn-glass"
+              style={{ padding: '8px 16px', fontSize: '0.8rem' }}
+              onClick={switchToArbitrum}
+            >
+              Switch to Arbitrum
+            </button>
+          </div>
+        </motion.div>
+      )}
+
       {/* ===== TOP: Wallet + Stats ===== */}
       <motion.div className="dash-bento-top" variants={staggerContainer} initial="hidden" animate="visible">
 
@@ -915,6 +1279,14 @@ function App() {
               $<CountUp end={walletUSDC} duration={1.5} decimals={2} separator="," />
             </div>
             <span className="dash-total-sub">USDC available in wallet</span>
+            <button
+              className="btn btn-glass"
+              style={{ marginTop: '12px', width: '100%', fontSize: '0.8rem', padding: '8px 12px' }}
+              onClick={() => setShowBridgeModal(true)}
+            >
+              <ArrowLeftRight size={14} />
+              Bridge from BSC
+            </button>
           </div>
         </motion.div>
 
@@ -941,6 +1313,113 @@ function App() {
           <span className="dash-stat-card-value">{(feePercent / 100).toFixed(1)}%</span>
           <span className="dash-stat-card-unit">on profit</span>
         </motion.div>
+      </motion.div>
+
+      {/* ===== PERFORMANCE STATS ===== */}
+      <motion.div
+        variants={fadeUp}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: '16px',
+          marginTop: '16px',
+        }}
+      >
+        {/* Platform Performance */}
+        <div style={{
+          background: 'var(--bg-card)',
+          borderRadius: '16px',
+          padding: '24px',
+          border: '1px solid var(--border)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+            <BarChart3 size={18} style={{ color: 'var(--accent)' }} />
+            <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>Platform Performance</h3>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+            {[
+              { label: 'Today', data: performanceStats.platform.today },
+              { label: '7 Days', data: performanceStats.platform.week },
+              { label: '30 Days', data: performanceStats.platform.month },
+              { label: 'All Time', data: performanceStats.platform.all },
+            ].map(({ label, data }) => (
+              <div key={label} style={{
+                background: 'rgba(255,255,255,0.02)',
+                borderRadius: '10px',
+                padding: '12px',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                  {label}
+                </div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px' }}>
+                  {data.trades}
+                </div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>trades</div>
+                <div style={{
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  color: data.winRate >= 50 ? 'var(--success)' : data.trades === 0 ? 'var(--text-secondary)' : 'var(--danger)',
+                }}>
+                  {data.trades > 0 ? `${data.winRate.toFixed(0)}% win` : '-'}
+                </div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                  {data.wins}W / {data.losses}L
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* My PnL */}
+        <div style={{
+          background: 'var(--bg-card)',
+          borderRadius: '16px',
+          padding: '24px',
+          border: '1px solid var(--border)',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
+            <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
+            <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>My PnL</h3>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+            {[
+              { label: 'Today', data: performanceStats.my.today },
+              { label: '7 Days', data: performanceStats.my.week },
+              { label: '30 Days', data: performanceStats.my.month },
+              { label: 'All Time', data: performanceStats.my.all },
+            ].map(({ label, data }) => (
+              <div key={label} style={{
+                background: 'rgba(255,255,255,0.02)',
+                borderRadius: '10px',
+                padding: '12px',
+                textAlign: 'center',
+              }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
+                  {label}
+                </div>
+                <div style={{
+                  fontSize: '1.1rem',
+                  fontWeight: 700,
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  color: data.pnl >= 0 ? (data.pnl > 0 ? 'var(--success)' : 'var(--text-primary)') : 'var(--danger)',
+                  marginBottom: '4px',
+                }}>
+                  {data.pnl >= 0 ? '+' : ''}{data.pnl.toFixed(2)}
+                </div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>USDC</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                  {data.trades} trade{data.trades !== 1 ? 's' : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </motion.div>
 
       {/* ===== MIDDLE: Active Signal + Positions ===== */}
@@ -1303,6 +1782,249 @@ function App() {
           </AnimatePresence>
         </motion.div>
       )}
+
+      {/* ===== BRIDGE MODAL ===== */}
+      <AnimatePresence>
+        {showBridgeModal && (
+          <motion.div
+            className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => { if (!bridgeLoading) setShowBridgeModal(false); }}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px'
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'var(--bg-secondary)', borderRadius: '20px',
+                padding: '28px', maxWidth: '440px', width: '100%',
+                border: '1px solid var(--border)'
+              }}
+            >
+              {/* Header */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <ArrowLeftRight size={20} style={{ color: 'var(--accent)' }} />
+                  <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Bridge to Arbitrum</h3>
+                </div>
+                <button onClick={() => { if (!bridgeLoading) setShowBridgeModal(false); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <X size={20} />
+                </button>
+              </div>
+
+              <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.5 }}>
+                Bridge USDT or USDC from BNB Chain to Arbitrum USDC. Powered by Li.Fi.
+              </div>
+
+              {/* Done state */}
+              {bridgeStatus === "done" ? (
+                <div style={{ textAlign: 'center', padding: '30px 20px' }}>
+                  <CheckCircle2 size={48} style={{ color: 'var(--success)', marginBottom: '16px' }} />
+                  <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '8px' }}>Bridge Complete!</div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                    Your USDC is now on Arbitrum. Switch network to start copy trading.
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-primary btn-glow" style={{ flex: 1 }} onClick={async () => {
+                      await switchToArbitrum();
+                      setShowBridgeModal(false);
+                      setBridgeStatus("");
+                    }}>
+                      Switch to Arbitrum
+                    </button>
+                    <button className="btn btn-glass" style={{ flex: 1 }} onClick={() => { setShowBridgeModal(false); setBridgeStatus(""); }}>
+                      Close
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {/* Route visualization */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px',
+                    background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '14px', marginBottom: '16px'
+                  }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>FROM</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#F3BA2F' }}>BNB Chain</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{bridgeToken}</div>
+                    </div>
+                    <ArrowRight size={20} style={{ color: 'var(--accent)' }} />
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>TO</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#28A0F0' }}>Arbitrum</div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>USDC</div>
+                    </div>
+                  </div>
+
+                  {/* Token selector */}
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                    {["USDT", "USDC"].map(token => (
+                      <button
+                        key={token}
+                        type="button"
+                        className={`btn ${bridgeToken === token ? 'btn-primary' : 'btn-outline'}`}
+                        style={{ flex: 1, padding: '8px', fontSize: '0.85rem' }}
+                        onClick={() => { setBridgeToken(token); setBridgeQuote(null); setBridgeError(""); }}
+                        disabled={bridgeLoading}
+                      >
+                        {token}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Amount input */}
+                  <div style={{ marginBottom: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
+                      <span>Amount</span>
+                      <span>Balance: {bscBalance[bridgeToken].toFixed(2)} {bridgeToken}</span>
+                    </div>
+                    <div className="input-container" style={{ marginBottom: 0 }}>
+                      <Coins className="input-icon" size={18} />
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="input-field"
+                        style={{ fontSize: '1.1rem', minWidth: 0 }}
+                        placeholder="0.00"
+                        value={bridgeAmount}
+                        onChange={(e) => { setBridgeAmount(e.target.value); setBridgeQuote(null); }}
+                        disabled={bridgeLoading}
+                      />
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, paddingRight: '0.5rem' }}>
+                        <button type="button" className="input-max-btn" style={{ marginRight: 0 }} onClick={() => { setBridgeAmount(bscBalance[bridgeToken].toFixed(2)); setBridgeQuote(null); }}>MAX</button>
+                        <span style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{bridgeToken}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Quick amounts */}
+                  <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
+                    {[25, 50, 75, 100].map(pct => (
+                      <button
+                        key={pct}
+                        type="button"
+                        className="dash-quick-btn"
+                        onClick={() => { setBridgeAmount((bscBalance[bridgeToken] * pct / 100).toFixed(2)); setBridgeQuote(null); }}
+                        disabled={bridgeLoading}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Quote result */}
+                  {bridgeQuote && (
+                    <div style={{
+                      background: 'rgba(52, 211, 153, 0.06)', border: '1px solid rgba(52, 211, 153, 0.2)',
+                      borderRadius: '12px', padding: '14px', marginBottom: '16px'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>You receive</span>
+                        <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--success)' }}>
+                          ~{parseFloat(ethers.formatUnits(bridgeQuote.estimate.toAmount, USDC_DECIMALS)).toFixed(2)} USDC
+                        </span>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                        <span>Bridge: {bridgeQuote.tool}</span>
+                        <span>~{Math.ceil(bridgeQuote.estimate.executionDuration / 60)} min</span>
+                      </div>
+                      {bridgeQuote.estimate.gasCosts?.[0] && (
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          <span>Gas fee</span>
+                          <span>~${parseFloat(bridgeQuote.estimate.gasCosts[0].amountUSD || "0").toFixed(2)}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Error */}
+                  {bridgeError && (
+                    <div style={{
+                      background: 'rgba(248, 113, 113, 0.08)', border: '1px solid rgba(248, 113, 113, 0.2)',
+                      borderRadius: '10px', padding: '12px', marginBottom: '16px',
+                      fontSize: '0.8rem', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '8px'
+                    }}>
+                      <AlertTriangle size={16} />
+                      {bridgeError}
+                    </div>
+                  )}
+
+                  {/* Status indicator */}
+                  {bridgeStatus && bridgeStatus !== "error" && (
+                    <div style={{
+                      background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.2)',
+                      borderRadius: '10px', padding: '12px', marginBottom: '16px',
+                      fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px'
+                    }}>
+                      <Loader2 size={16} className="spin" />
+                      {bridgeStatus === "quoting" && "Getting best bridge route..."}
+                      {bridgeStatus === "approving" && "Approve token in your wallet..."}
+                      {bridgeStatus === "bridging" && "Confirm bridge transaction..."}
+                      {bridgeStatus === "waiting" && "Bridging in progress... This may take a few minutes."}
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  {!bridgeQuote ? (
+                    <button
+                      className="btn btn-primary btn-glow"
+                      style={{ width: '100%' }}
+                      onClick={handleGetQuote}
+                      disabled={bridgeLoading || !bridgeAmount || Number(bridgeAmount) <= 0 || !account}
+                    >
+                      {bridgeLoading ? <><Loader2 size={16} className="spin" /> Getting Quote...</> : <><RefreshCw size={16} /> Get Bridge Quote</>}
+                    </button>
+                  ) : (
+                    <button
+                      className="btn btn-primary btn-glow"
+                      style={{ width: '100%' }}
+                      onClick={handleBridge}
+                      disabled={bridgeLoading}
+                    >
+                      {bridgeLoading ? <><Loader2 size={16} className="spin" /> Bridging...</> : <><ArrowLeftRight size={16} /> Bridge {bridgeAmount} {bridgeToken} → USDC</>}
+                    </button>
+                  )}
+
+                  {!isOnBSC && (
+                    <div style={{ textAlign: 'center', marginTop: '12px' }}>
+                      <button className="btn btn-glass" style={{ fontSize: '0.8rem', padding: '8px 16px' }} onClick={async () => {
+                        try {
+                          await window.ethereum.request({ method: 'wallet_switchEthereumChain', params: [{ chainId: BSC_CHAIN_ID }] });
+                        } catch (err) {
+                          if (err.code === 4902) {
+                            await window.ethereum.request({
+                              method: 'wallet_addEthereumChain',
+                              params: [{
+                                chainId: BSC_CHAIN_ID,
+                                chainName: 'BNB Smart Chain',
+                                nativeCurrency: { name: 'BNB', symbol: 'BNB', decimals: 18 },
+                                rpcUrls: ['https://bsc-dataseed.binance.org/'],
+                                blockExplorerUrls: ['https://bscscan.com/'],
+                              }],
+                            });
+                          }
+                        }
+                      }}>
+                        <Network size={14} /> Switch to BNB Chain first
+                      </button>
+                    </div>
+                  )}
+                </>
+              )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ===== COPY TRADE MODAL ===== */}
       <AnimatePresence>

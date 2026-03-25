@@ -49,6 +49,7 @@ input[type="number"] { -moz-appearance: textfield; }
 @keyframes shimmerGold { 0%,100% { background-position: 0% center; } 50% { background-position: 200% center; } }
 @keyframes pulseGlow { 0%,100% { opacity: 1; box-shadow: 0 0 4px var(--success); } 50% { opacity: 0.4; box-shadow: 0 0 10px var(--success); } }
 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+.spin { animation: spin 1s linear infinite; }
 @keyframes marquee { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }
 @keyframes borderGlow {
   0%, 100% { opacity: 0.5; }
@@ -930,10 +931,10 @@ input[type="number"] { -moz-appearance: textfield; }
 .dash-action-balance svg { color: var(--accent); }
 .dash-action-balance .mono { margin-left: auto; font-family: 'Space Grotesk'; font-weight: 600; color: var(--text-primary); }
 
-.input-container { display: flex; align-items: center; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 14px; padding: 0.4rem; transition: all 0.25s; margin-bottom: 0.75rem; }
+.input-container { display: flex; align-items: center; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 14px; padding: 0.4rem; transition: all 0.25s; margin-bottom: 0.75rem; overflow: hidden; }
 .input-container:focus-within { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-glow); }
 .input-icon { color: var(--accent); padding: 0 0.75rem; }
-.input-field { flex: 1; background: transparent; border: none; color: var(--text-primary); font-size: 1.35rem; font-family: 'Space Grotesk'; font-weight: 600; padding: 0.5rem 0; outline: none; }
+.input-field { flex: 1; min-width: 0; background: transparent; border: none; color: var(--text-primary); font-size: 1.35rem; font-family: 'Space Grotesk'; font-weight: 600; padding: 0.5rem 0; outline: none; }
 .input-field::placeholder { color: rgba(255,255,255,0.15); }
 .input-max-btn { background: rgba(212,168,67,0.1); color: var(--accent); border: 1px solid var(--border-accent); border-radius: 8px; padding: 0.4rem 0.8rem; font-weight: 700; font-size: 0.7rem; cursor: pointer; transition: all 0.2s; margin-right: 0.25rem; }
 .input-max-btn:hover { background: var(--accent); color: var(--bg-primary); }

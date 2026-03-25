@@ -24,8 +24,9 @@ interface IGNSMultiCollatDiamond {
         uint64 openPrice;
         uint64 tp;
         uint64 sl;
-        uint120 positionSizeToken;
         bool isCounterTrade;
+        uint160 positionSizeToken;
+        uint24 __placeholder;
     }
 
     function openTrade(Trade calldata trade, uint16 maxSlippageP, address referrer) external;
@@ -239,8 +240,9 @@ contract GoldCopyTrader {
             openPrice: c.entryPrice,
             tp: c.tp,
             sl: c.sl,
+            isCounterTrade: false,
             positionSizeToken: 0,
-            isCounterTrade: false
+            __placeholder: 0
         });
         diamond.openTrade(t, 1000, address(0));
     }

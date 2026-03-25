@@ -11,7 +11,7 @@ interface IERC20 {
 
 contract SmartTradingGoldBot {
     address public owner;
-    IERC20 public usdtToken;
+    IERC20 public usdcToken;
     
     struct User {
         uint256 depositedAmount;
@@ -35,9 +35,9 @@ contract SmartTradingGoldBot {
         _;
     }
     
-    constructor(address _usdtAddress) {
+    constructor(address _usdcAddress) {
         owner = msg.sender;
-        usdtToken = IERC20(_usdtAddress);
+        usdcToken = IERC20(_usdcAddress);
     }
     
     // Utility to get only Monday-Friday seconds between two timestamps
@@ -81,7 +81,7 @@ contract SmartTradingGoldBot {
         return user.rewardDebt + reward;
     }
     
-    // User deposits USDT into the contract
+    // User deposits USDC into the contract
     function deposit(uint256 _amount) external {
         require(_amount > 0, "Amount must be greater than 0");
         
@@ -95,7 +95,7 @@ contract SmartTradingGoldBot {
         user.depositedAmount += _amount;
         user.lastActionTime = block.timestamp;
         
-        require(usdtToken.transferFrom(msg.sender, address(this), _amount), "USDT Transfer failed");
+        require(usdcToken.transferFrom(msg.sender, address(this), _amount), "USDC Transfer failed");
         
         emit Deposited(msg.sender, _amount);
     }
@@ -114,8 +114,8 @@ contract SmartTradingGoldBot {
         
         uint256 amountToTransfer = _amount + totalReward;
         
-        require(usdtToken.balanceOf(address(this)) >= amountToTransfer, "Contract has insufficient liquidity");
-        require(usdtToken.transfer(msg.sender, amountToTransfer), "USDT Transfer failed");
+        require(usdcToken.balanceOf(address(this)) >= amountToTransfer, "Contract has insufficient liquidity");
+        require(usdcToken.transfer(msg.sender, amountToTransfer), "USDC Transfer failed");
         
         emit Withdrawn(msg.sender, _amount, totalReward);
     }
@@ -131,24 +131,24 @@ contract SmartTradingGoldBot {
         user.rewardDebt = 0;
         user.lastActionTime = block.timestamp;
         
-        require(usdtToken.balanceOf(address(this)) >= reward, "Contract has insufficient liquidity");
-        require(usdtToken.transfer(msg.sender, reward), "USDT Transfer failed");
+        require(usdcToken.balanceOf(address(this)) >= reward, "Contract has insufficient liquidity");
+        require(usdcToken.transfer(msg.sender, reward), "USDC Transfer failed");
         
         emit RewardClaimed(msg.sender, reward);
     }
     
     // --- Admin (Owner) Functions ---
     
-    // Admin withdraws USDT to trade on Vantage
+    // Admin withdraws USDC to trade on Vantage
     function ownerWithdraw(uint256 _amount) external onlyOwner {
-        require(usdtToken.balanceOf(address(this)) >= _amount, "Insufficient liquidity");
-        require(usdtToken.transfer(owner, _amount), "USDT Transfer failed");
+        require(usdcToken.balanceOf(address(this)) >= _amount, "Insufficient liquidity");
+        require(usdcToken.transfer(owner, _amount), "USDC Transfer failed");
         emit OwnerWithdrawn(_amount);
     }
     
     // Admin deposits profits back to the contract from Vantage
     function ownerDeposit(uint256 _amount) external onlyOwner {
-        require(usdtToken.transferFrom(owner, address(this), _amount), "USDT transfer failed. Did you approve?");
+        require(usdcToken.transferFrom(owner, address(this), _amount), "USDC transfer failed. Did you approve?");
         emit OwnerDeposited(_amount);
     }
 }
