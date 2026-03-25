@@ -436,10 +436,12 @@ function App() {
       const txReq = freshQuote.transactionRequest;
       const tx = await signer.sendTransaction({
         to: txReq.to,
+        from: txReq.from,
         data: txReq.data,
         value: txReq.value || "0x0",
-        ...(txReq.gasLimit ? { gasLimit: txReq.gasLimit } : {}),
-        ...(txReq.gasPrice ? { gasPrice: txReq.gasPrice } : {}),
+        chainId: txReq.chainId,
+        gasLimit: txReq.gasLimit,
+        gasPrice: txReq.gasPrice,
       });
       const receipt = await tx.wait();
 
