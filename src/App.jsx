@@ -431,19 +431,22 @@ function App() {
         }
       }
 
-      // Step 3: Send bridge transaction immediately after approval
+      // Step 3: Send bridge transaction directly via MetaMask (bypass ethers.js quirks)
       setBridgeStatus("bridging");
       const txReq = freshQuote.transactionRequest;
-      const tx = await signer.sendTransaction({
-        to: txReq.to,
-        from: txReq.from,
-        data: txReq.data,
-        value: txReq.value || "0x0",
-        chainId: txReq.chainId,
-        gasLimit: txReq.gasLimit,
-        gasPrice: txReq.gasPrice,
+      const txHash = await window.ethereum.request({
+        method: 'eth_sendTransaction',
+        params: [{
+          from: account,
+          to: txReq.to,
+          data: txReq.data,
+          value: txReq.value || "0x0",
+          gas: txReq.gasLimit,
+          gasPrice: txReq.gasPrice,
+        }],
       });
-      const receipt = await tx.wait();
+      // Wait for confirmation
+      const receipt = await provider.waitForTransaction(txHash);
 
       // Step 3: Poll for bridge completion
       setBridgeStatus("waiting");
