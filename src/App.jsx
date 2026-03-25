@@ -2198,11 +2198,11 @@ function App() {
             }}
           >
             <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
+              initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
+              exit={{ opacity: 0, scale: 0.95 }}
               onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: '420px', width: '100%', maxHeight: '85vh', overflow: 'auto', borderRadius: '16px' }}
+              style={{ maxWidth: '420px', width: '100%', borderRadius: '16px', overflow: 'hidden' }}
             >
               <QueryClientProvider client={queryClient}>
                 <LiFiWidget
@@ -2215,8 +2215,15 @@ function App() {
                     toToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
                     hiddenUI: ['poweredBy', 'language', 'appearance'],
                     theme: {
-                      container: { borderRadius: '16px', boxShadow: '0 0 40px rgba(0,0,0,0.5)', maxHeight: '80vh' },
-                      palette: { primary: { main: '#D4A843' }, secondary: { main: '#1a1a2e' }, background: { default: '#0d0d1a', paper: '#1a1a2e' } },
+                      container: {
+                        borderRadius: '16px',
+                        boxShadow: '0 0 60px rgba(0,0,0,0.6)',
+                      },
+                      palette: {
+                        primary: { main: '#D4A843' },
+                        secondary: { main: '#1a1a2e' },
+                        background: { default: '#0d0d1a', paper: '#1a1a2e' },
+                      },
                     },
                   }}
                 />
