@@ -35,6 +35,7 @@ async function getBridgeQuote(fromToken, fromAmount, fromAddress, direction = "t
     fromAmount: fromAmount,
     fromAddress: fromAddress,
     integrator: "smart-goldbot",
+    slippage: "0.03",
   });
   const res = await fetch(`${LIFI_API}/quote?${params}`);
   if (!res.ok) {
@@ -399,26 +400,7 @@ function App() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
 
-      // Step 1: Approve (handle USDT's non-standard approve)
-      const fromTokenAddr = bridgeQuote.action?.fromToken?.address;
-      const approvalAddr = bridgeQuote.estimate?.approvalAddress;
-      if (fromTokenAddr && fromTokenAddr !== "0x0000000000000000000000000000000000000000" && approvalAddr) {
-        setBridgeStatus("approving");
-        const tokenContract = new ethers.Contract(fromTokenAddr, ERC20_ABI, signer);
-        const allowance = await tokenContract.allowance(account, approvalAddr);
-        const requiredAmount = BigInt(bridgeQuote.action.fromAmount);
-        if (BigInt(allowance) < requiredAmount) {
-          // USDT requires resetting to 0 first if allowance is non-zero
-          if (BigInt(allowance) > 0n) {
-            const resetTx = await tokenContract.approve(approvalAddr, 0);
-            await resetTx.wait();
-          }
-          const approveTx = await tokenContract.approve(approvalAddr, ethers.MaxUint256);
-          await approveTx.wait();
-        }
-      }
-
-      // Step 2: Get a FRESH quote right before executing (old quote may have expired)
+      // Step 1: Get a FRESH quote (old quotes expire quickly)
       setBridgeStatus("quoting");
       let freshQuote;
       if (bridgeDirection === "toArbitrum") {
@@ -430,7 +412,25 @@ function App() {
         freshQuote = await getBridgeQuote(USDC_ADDRESS, amountWei, account, "fromBridge");
       }
 
-      // Step 3: Send bridge transaction with fresh data
+      // Step 2: Approve on the fresh quote's approval address
+      const fromTokenAddr = freshQuote.action?.fromToken?.address;
+      const approvalAddr = freshQuote.estimate?.approvalAddress;
+      if (fromTokenAddr && fromTokenAddr !== "0x0000000000000000000000000000000000000000" && approvalAddr) {
+        setBridgeStatus("approving");
+        const tokenContract = new ethers.Contract(fromTokenAddr, ERC20_ABI, signer);
+        const allowance = await tokenContract.allowance(account, approvalAddr);
+        const requiredAmount = BigInt(freshQuote.action.fromAmount);
+        if (BigInt(allowance) < requiredAmount) {
+          if (BigInt(allowance) > 0n) {
+            const resetTx = await tokenContract.approve(approvalAddr, 0);
+            await resetTx.wait();
+          }
+          const approveTx = await tokenContract.approve(approvalAddr, ethers.MaxUint256);
+          await approveTx.wait();
+        }
+      }
+
+      // Step 3: Send bridge transaction immediately after approval
       setBridgeStatus("bridging");
       const txReq = freshQuote.transactionRequest;
       const tx = await signer.sendTransaction({
