@@ -399,33 +399,42 @@ function App() {
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
 
-      // Step 1: Approve if needed
-      if (bridgeQuote.action?.fromToken?.address !== "0x0000000000000000000000000000000000000000") {
+      // Step 1: Approve max (so we don't need to re-approve each time)
+      const fromTokenAddr = bridgeQuote.action?.fromToken?.address;
+      const approvalAddr = bridgeQuote.estimate?.approvalAddress;
+      if (fromTokenAddr && fromTokenAddr !== "0x0000000000000000000000000000000000000000" && approvalAddr) {
         setBridgeStatus("approving");
-        const tokenContract = new ethers.Contract(bridgeQuote.action.fromToken.address, ERC20_ABI, signer);
-        const allowance = await tokenContract.allowance(account, bridgeQuote.estimate.approvalAddress);
+        const tokenContract = new ethers.Contract(fromTokenAddr, ERC20_ABI, signer);
+        const allowance = await tokenContract.allowance(account, approvalAddr);
         const requiredAmount = BigInt(bridgeQuote.action.fromAmount);
         if (BigInt(allowance) < requiredAmount) {
-          const approveTx = await tokenContract.approve(bridgeQuote.estimate.approvalAddress, requiredAmount);
+          const approveTx = await tokenContract.approve(approvalAddr, ethers.MaxUint256);
           await approveTx.wait();
         }
       }
 
-      // Step 2: Send bridge transaction
+      // Step 2: Get a FRESH quote right before executing (old quote may have expired)
+      setBridgeStatus("quoting");
+      let freshQuote;
+      if (bridgeDirection === "toArbitrum") {
+        const token = BSC_TOKENS[bridgeToken];
+        const amountWei = ethers.parseUnits(bridgeAmount, token.decimals).toString();
+        freshQuote = await getBridgeQuote(token.address, amountWei, account, "toBridge");
+      } else {
+        const amountWei = ethers.parseUnits(bridgeAmount, 6).toString();
+        freshQuote = await getBridgeQuote(USDC_ADDRESS, amountWei, account, "fromBridge");
+      }
+
+      // Step 3: Send bridge transaction with fresh data
       setBridgeStatus("bridging");
-      const txRequest = {
-        to: bridgeQuote.transactionRequest.to,
-        data: bridgeQuote.transactionRequest.data,
-        value: bridgeQuote.transactionRequest.value || "0x0",
-      };
-      // Include gasLimit and gasPrice from quote if available
-      if (bridgeQuote.transactionRequest.gasLimit) {
-        txRequest.gasLimit = bridgeQuote.transactionRequest.gasLimit;
-      }
-      if (bridgeQuote.transactionRequest.gasPrice) {
-        txRequest.gasPrice = bridgeQuote.transactionRequest.gasPrice;
-      }
-      const tx = await signer.sendTransaction(txRequest);
+      const txReq = freshQuote.transactionRequest;
+      const tx = await signer.sendTransaction({
+        to: txReq.to,
+        data: txReq.data,
+        value: txReq.value || "0x0",
+        ...(txReq.gasLimit ? { gasLimit: txReq.gasLimit } : {}),
+        ...(txReq.gasPrice ? { gasPrice: txReq.gasPrice } : {}),
+      });
       const receipt = await tx.wait();
 
       // Step 3: Poll for bridge completion
