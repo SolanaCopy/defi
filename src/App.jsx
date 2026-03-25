@@ -1601,6 +1601,12 @@ function App() {
                 style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
                 Arbiscan
               </a>
+              {' · '}
+              Join our{' '}
+              <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer"
+                style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
+                Telegram Community
+              </a>
             </div>
           </div>
         </motion.div>
@@ -2659,9 +2665,15 @@ function App() {
               Dashboard
             </button>
             <button className={`nav-link ${activeTab === 'results' ? 'active' : ''}`} onClick={() => setActiveTab('results')}>
-              <BarChart3 size={14} />
               Results
             </button>
+            <a href={`https://arbiscan.io/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
+              <ShieldCheck size={14} />
+              Contract
+            </a>
+            <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
+              Community
+            </a>
           </div>
 
           <button className="connect-wallet-btn" onClick={connectWallet} disabled={isConnecting}>
