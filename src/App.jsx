@@ -447,17 +447,21 @@ function App() {
       setBridgeStatus("bridging");
       const txReq = freshQuote.transactionRequest;
       console.log("[Bridge] Sending tx:", { to: txReq.to, value: txReq.value, gasLimit: txReq.gasLimit, gasPrice: txReq.gasPrice, dataLen: txReq.data?.length });
-      // Increase gasLimit by 50% to prevent MetaMask gas estimation issues
+      // Build tx based on network
       const quotedGas = txReq.gasLimit ? BigInt(txReq.gasLimit) : 500000n;
       const safeGasLimit = quotedGas * 150n / 100n;
-      const tx = await signer.sendTransaction({
-        type: 0,
+      const txParams = {
         to: txReq.to,
         data: txReq.data,
         value: txReq.value || "0x0",
         gasLimit: safeGasLimit,
-        gasPrice: txReq.gasPrice,
-      });
+      };
+      // BSC = legacy tx, Arbitrum = EIP-1559
+      if (bridgeDirection === "toArbitrum") {
+        txParams.type = 0;
+        txParams.gasPrice = txReq.gasPrice;
+      }
+      const tx = await signer.sendTransaction(txParams);
       console.log("[Bridge] Tx sent:", tx.hash);
       const receipt = await tx.wait();
       console.log("[Bridge] Tx confirmed:", receipt.status);
