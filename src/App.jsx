@@ -6,8 +6,12 @@ import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
 import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw } from 'lucide-react';
+import { LiFiWidget } from '@lifi/widget';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import CONTRACT_ABI from './contractABI.json';
 import './index.css';
+
+const queryClient = new QueryClient();
 
 // ===== ARBITRUM CONFIG =====
 const CONTRACT_ADDRESS = "0xb09d6B8fA13Cbf757393ECb3E9c616C6BE94cA82";
@@ -1644,7 +1648,7 @@ function App() {
             <button
               className="btn btn-primary"
               style={{ padding: '8px 16px', fontSize: '0.8rem' }}
-              onClick={() => window.open('https://jumper.exchange/?fromChain=56&toChain=42161&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831', '_blank')}
+              onClick={() => setShowBridgeModal(true)}
             >
               <ArrowLeftRight size={14} /> Bridge Now
             </button>
@@ -1677,7 +1681,7 @@ function App() {
             <button
               className="btn btn-glass"
               style={{ marginTop: '12px', width: '100%', fontSize: '0.8rem', padding: '8px 12px' }}
-              onClick={() => window.open('https://jumper.exchange/?fromChain=56&toChain=42161&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831', '_blank')}
+              onClick={() => setShowBridgeModal(true)}
             >
               <ArrowLeftRight size={14} />
               Bridge
@@ -2178,7 +2182,47 @@ function App() {
         </motion.div>
       )}
 
-      {/* Bridge opens Jumper in new tab */}
+      {/* ===== BRIDGE MODAL (Li.Fi Widget) ===== */}
+      <AnimatePresence>
+        {showBridgeModal && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowBridgeModal(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px',
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflow: 'auto', borderRadius: '16px' }}
+            >
+              <QueryClientProvider client={queryClient}>
+                <LiFiWidget
+                  integrator="smart-goldbot"
+                  config={{
+                    appearance: 'dark',
+                    fromChain: 56,
+                    toChain: 42161,
+                    toToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+                    theme: {
+                      container: { borderRadius: '16px', boxShadow: '0 0 40px rgba(0,0,0,0.5)' },
+                      palette: { primary: { main: '#D4A843' }, secondary: { main: '#1a1a2e' }, background: { default: '#0d0d1a', paper: '#1a1a2e' } },
+                    },
+                  }}
+                />
+              </QueryClientProvider>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* OLD BRIDGE MODAL (kept as fallback, disabled) */}
       <AnimatePresence>
