@@ -14,7 +14,7 @@ import './index.css';
 const queryClient = new QueryClient();
 
 // ===== ARBITRUM CONFIG =====
-const CONTRACT_ADDRESS = "0x8553DbEB0BBb2F65A810B751e2B7966C50ED1124";
+const CONTRACT_ADDRESS = "0x7Aa3485E80a74238a023eB4Ae2554827034eAa5B";
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC on Arbitrum
 const ARBITRUM_CHAIN_ID = "0xa4b1"; // 42161
 

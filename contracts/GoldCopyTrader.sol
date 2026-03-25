@@ -62,6 +62,7 @@ contract GoldCopyTrader {
         uint64 sl;
         uint24 leverage;
         int256 resultPct;
+        uint256 feeAtCreation;  // fee locked at signal creation time
     }
 
     struct SignalMeta {
@@ -129,7 +130,7 @@ contract GoldCopyTrader {
         require(activeSignalId == 0, "Close active signal first"); // only 1 active at a time
 
         signalCount++;
-        signalCore[signalCount] = SignalCore(_long, true, false, _entry, _tp, _sl, _lev, 0);
+        signalCore[signalCount] = SignalCore(_long, true, false, _entry, _tp, _sl, _lev, 0, feePercent);
         signalMeta[signalCount] = SignalMeta(block.timestamp, 0, 0, 0);
         activeSignalId = signalCount; // FIX #9
 
@@ -264,7 +265,7 @@ contract GoldCopyTrader {
 
         if (c.resultPct >= 0) {
             uint256 profit = (col * uint256(c.resultPct) * c.leverage) / (BASIS_POINTS * 1000);
-            fee = (profit * feePercent) / BASIS_POINTS;
+            fee = (profit * c.feeAtCreation) / BASIS_POINTS;
             totalFeesCollected += fee;
             payout = col + profit - fee;
         } else {
@@ -304,7 +305,7 @@ contract GoldCopyTrader {
 
         if (c.resultPct >= 0) {
             uint256 profit = (col * uint256(c.resultPct) * c.leverage) / (BASIS_POINTS * 1000);
-            uint256 fee = (profit * feePercent) / BASIS_POINTS;
+            uint256 fee = (profit * c.feeAtCreation) / BASIS_POINTS;
             return col + profit - fee;
         } else {
             uint256 loss = (col * uint256(-c.resultPct) * c.leverage) / (BASIS_POINTS * 1000);
