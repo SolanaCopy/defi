@@ -2178,11 +2178,63 @@ function App() {
         </motion.div>
       )}
 
-      {/* ===== BRIDGE MODAL ===== */}
+      {/* ===== BRIDGE MODAL (Jumper Exchange) ===== */}
       <AnimatePresence>
         {showBridgeModal && (
           <motion.div
             className="modal-overlay"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setShowBridgeModal(false)}
+            style={{
+              position: 'fixed', inset: 0, zIndex: 1000,
+              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '20px'
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                background: 'var(--bg-secondary)', borderRadius: '20px',
+                maxWidth: '480px', width: '100%', maxHeight: '90vh',
+                overflow: 'hidden', border: '1px solid var(--border)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <ArrowLeftRight size={20} style={{ color: 'var(--accent)' }} />
+                  <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Bridge</h3>
+                </div>
+                <button onClick={() => setShowBridgeModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                  <X size={20} />
+                </button>
+              </div>
+              <iframe
+                src="https://jumper.exchange/widget?fromChain=56&toChain=42161&toToken=0xaf88d065e77c8cC2239327C5EDb3A432268e5831&theme=dark"
+                style={{
+                  width: '100%',
+                  height: '680px',
+                  border: 'none',
+                  borderRadius: '0 0 20px 20px',
+                }}
+                title="Bridge"
+                allow="clipboard-write"
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* OLD BRIDGE MODAL (kept as fallback, disabled) */}
+      <AnimatePresence>
+        {false && (
+          <motion.div
+            className="modal-overlay-old"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
