@@ -22,13 +22,16 @@ const BSC_TOKENS = {
 };
 const LIFI_API = "https://li.quest/v1";
 
-// Fetch bridge quote from Li.Fi API
-async function getBridgeQuote(fromToken, fromAmount, fromAddress) {
+// BSC USDT/USDC addresses for receiving on BSC
+const BSC_USDT_ADDRESS = "0x55d398326f99059fF775485246999027B3197955";
+
+// Fetch bridge quote from Li.Fi API (supports both directions)
+async function getBridgeQuote(fromToken, fromAmount, fromAddress, direction = "toBridge") {
   const params = new URLSearchParams({
-    fromChain: "56",
-    toChain: "42161",
+    fromChain: direction === "toBridge" ? "56" : "42161",
+    toChain: direction === "toBridge" ? "42161" : "56",
     fromToken: fromToken,
-    toToken: USDC_ADDRESS,
+    toToken: direction === "toBridge" ? USDC_ADDRESS : BSC_USDT_ADDRESS,
     fromAmount: fromAmount,
     fromAddress: fromAddress,
     integrator: "smart-goldbot",
@@ -267,6 +270,7 @@ function App() {
   // Bridge modal state
   const [showBridgeModal, setShowBridgeModal] = useState(false);
   const [currentChainId, setCurrentChainId] = useState(null);
+  const [bridgeDirection, setBridgeDirection] = useState("toArbitrum"); // "toArbitrum" or "toBSC"
   const [bridgeToken, setBridgeToken] = useState("USDT");
   const [bridgeAmount, setBridgeAmount] = useState("");
   const [bridgeQuote, setBridgeQuote] = useState(null);
@@ -274,6 +278,7 @@ function App() {
   const [bridgeStatus, setBridgeStatus] = useState(""); // "", "quoting", "approving", "bridging", "waiting", "done", "error"
   const [bridgeError, setBridgeError] = useState("");
   const [bscBalance, setBscBalance] = useState({ USDT: 0, USDC: 0 });
+  const [arbUsdcBalance, setArbUsdcBalance] = useState(0);
 
   // Contract refs
   const providerRef = useRef(null);
@@ -339,6 +344,22 @@ function App() {
     loadBscBalances();
   }, [isOnBSC, account]);
 
+  // Load Arbitrum USDC balance for bridge-back
+  useEffect(() => {
+    if (!isOnArbitrum || !account || !window.ethereum) return;
+    const loadArbBalance = async () => {
+      try {
+        const provider = new ethers.BrowserProvider(window.ethereum);
+        const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, provider);
+        const bal = await usdcContract.balanceOf(account);
+        setArbUsdcBalance(parseFloat(ethers.formatUnits(bal, 6)));
+      } catch (err) {
+        console.error("Arbitrum balance error:", err);
+      }
+    };
+    loadArbBalance();
+  }, [isOnArbitrum, account]);
+
   // Get bridge quote
   const handleGetQuote = async () => {
     if (!bridgeAmount || !account || Number(bridgeAmount) <= 0) return;
@@ -347,9 +368,18 @@ function App() {
     setBridgeError("");
     setBridgeQuote(null);
     try {
-      const token = BSC_TOKENS[bridgeToken];
-      const amountWei = ethers.parseUnits(bridgeAmount, token.decimals).toString();
-      const quote = await getBridgeQuote(token.address, amountWei, account);
+      let fromTokenAddr, amountWei, direction;
+      if (bridgeDirection === "toArbitrum") {
+        const token = BSC_TOKENS[bridgeToken];
+        fromTokenAddr = token.address;
+        amountWei = ethers.parseUnits(bridgeAmount, token.decimals).toString();
+        direction = "toBridge";
+      } else {
+        fromTokenAddr = USDC_ADDRESS;
+        amountWei = ethers.parseUnits(bridgeAmount, 6).toString();
+        direction = "fromBridge";
+      }
+      const quote = await getBridgeQuote(fromTokenAddr, amountWei, account, direction);
       setBridgeQuote(quote);
       setBridgeStatus("");
     } catch (err) {
@@ -1591,7 +1621,7 @@ function App() {
               onClick={() => setShowBridgeModal(true)}
             >
               <ArrowLeftRight size={14} />
-              Bridge from BSC
+              Bridge
             </button>
           </div>
         </motion.div>
@@ -2120,15 +2150,37 @@ function App() {
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <ArrowLeftRight size={20} style={{ color: 'var(--accent)' }} />
-                  <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Bridge to Arbitrum</h3>
+                  <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Bridge</h3>
                 </div>
                 <button onClick={() => { if (!bridgeLoading) setShowBridgeModal(false); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                   <X size={20} />
                 </button>
               </div>
 
+              {/* Direction toggle */}
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '4px' }}>
+                <button
+                  className={`btn ${bridgeDirection === 'toArbitrum' ? 'btn-primary' : 'btn-glass'}`}
+                  style={{ flex: 1, padding: '8px', fontSize: '0.75rem' }}
+                  onClick={() => { setBridgeDirection('toArbitrum'); setBridgeQuote(null); setBridgeError(''); setBridgeToken('USDT'); }}
+                  disabled={bridgeLoading}
+                >
+                  BSC → Arbitrum
+                </button>
+                <button
+                  className={`btn ${bridgeDirection === 'toBSC' ? 'btn-primary' : 'btn-glass'}`}
+                  style={{ flex: 1, padding: '8px', fontSize: '0.75rem' }}
+                  onClick={() => { setBridgeDirection('toBSC'); setBridgeQuote(null); setBridgeError(''); }}
+                  disabled={bridgeLoading}
+                >
+                  Arbitrum → BSC
+                </button>
+              </div>
+
               <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: 1.5 }}>
-                Bridge USDT or USDC from BNB Chain to Arbitrum USDC. Powered by Li.Fi.
+                {bridgeDirection === 'toArbitrum'
+                  ? 'Bridge USDT or USDC from BNB Chain to Arbitrum USDC. Powered by Li.Fi.'
+                  : 'Bridge USDC from Arbitrum back to USDT on BNB Chain. Powered by Li.Fi.'}
               </div>
 
               {/* Done state */}
@@ -2137,16 +2189,24 @@ function App() {
                   <CheckCircle2 size={48} style={{ color: 'var(--success)', marginBottom: '16px' }} />
                   <div style={{ fontSize: '1.1rem', fontWeight: 600, marginBottom: '8px' }}>Bridge Complete!</div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
-                    Your USDC is now on Arbitrum. Switch network to start copy trading.
+                    {bridgeDirection === 'toArbitrum'
+                      ? 'Your USDC is now on Arbitrum. Switch network to start copy trading.'
+                      : 'Your USDT is now on BNB Chain.'}
                   </div>
                   <div style={{ display: 'flex', gap: '8px' }}>
-                    <button className="btn btn-primary btn-glow" style={{ flex: 1 }} onClick={async () => {
-                      await switchToArbitrum();
-                      setShowBridgeModal(false);
-                      setBridgeStatus("");
-                    }}>
-                      Switch to Arbitrum
-                    </button>
+                    {bridgeDirection === 'toArbitrum' ? (
+                      <button className="btn btn-primary btn-glow" style={{ flex: 1 }} onClick={async () => {
+                        await switchToArbitrum();
+                        setShowBridgeModal(false);
+                        setBridgeStatus("");
+                      }}>
+                        Switch to Arbitrum
+                      </button>
+                    ) : (
+                      <button className="btn btn-primary btn-glow" style={{ flex: 1 }} onClick={() => { setShowBridgeModal(false); setBridgeStatus(""); }}>
+                        Done
+                      </button>
+                    )}
                     <button className="btn btn-glass" style={{ flex: 1 }} onClick={() => { setShowBridgeModal(false); setBridgeStatus(""); }}>
                       Close
                     </button>
@@ -2161,38 +2221,48 @@ function App() {
                   }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>FROM</div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#F3BA2F' }}>BNB Chain</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{bridgeToken}</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: bridgeDirection === 'toArbitrum' ? '#F3BA2F' : '#28A0F0' }}>
+                        {bridgeDirection === 'toArbitrum' ? 'BNB Chain' : 'Arbitrum'}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {bridgeDirection === 'toArbitrum' ? bridgeToken : 'USDC'}
+                      </div>
                     </div>
                     <ArrowRight size={20} style={{ color: 'var(--accent)' }} />
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>TO</div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: '#28A0F0' }}>Arbitrum</div>
-                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>USDC</div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: bridgeDirection === 'toArbitrum' ? '#28A0F0' : '#F3BA2F' }}>
+                        {bridgeDirection === 'toArbitrum' ? 'Arbitrum' : 'BNB Chain'}
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                        {bridgeDirection === 'toArbitrum' ? 'USDC' : 'USDT'}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Token selector */}
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                    {["USDT", "USDC"].map(token => (
-                      <button
-                        key={token}
-                        type="button"
-                        className={`btn ${bridgeToken === token ? 'btn-primary' : 'btn-outline'}`}
-                        style={{ flex: 1, padding: '8px', fontSize: '0.85rem' }}
-                        onClick={() => { setBridgeToken(token); setBridgeQuote(null); setBridgeError(""); }}
-                        disabled={bridgeLoading}
-                      >
-                        {token}
-                      </button>
-                    ))}
-                  </div>
+                  {/* Token selector (only for BSC → Arbitrum) */}
+                  {bridgeDirection === 'toArbitrum' && (
+                    <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                      {["USDT", "USDC"].map(token => (
+                        <button
+                          key={token}
+                          type="button"
+                          className={`btn ${bridgeToken === token ? 'btn-primary' : 'btn-outline'}`}
+                          style={{ flex: 1, padding: '8px', fontSize: '0.85rem' }}
+                          onClick={() => { setBridgeToken(token); setBridgeQuote(null); setBridgeError(""); }}
+                          disabled={bridgeLoading}
+                        >
+                          {token}
+                        </button>
+                      ))}
+                    </div>
+                  )}
 
                   {/* Amount input */}
                   <div style={{ marginBottom: '6px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>
                       <span>Amount</span>
-                      <span>Balance: {bscBalance[bridgeToken].toFixed(2)} {bridgeToken}</span>
+                      <span>Balance: {bridgeDirection === 'toArbitrum' ? bscBalance[bridgeToken].toFixed(2) + ' ' + bridgeToken : arbUsdcBalance.toFixed(2) + ' USDC'}</span>
                     </div>
                     <div className="input-container" style={{ marginBottom: 0 }}>
                       <Coins className="input-icon" size={18} />
@@ -2207,8 +2277,11 @@ function App() {
                         disabled={bridgeLoading}
                       />
                       <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0, paddingRight: '0.5rem' }}>
-                        <button type="button" className="input-max-btn" style={{ marginRight: 0 }} onClick={() => { setBridgeAmount(bscBalance[bridgeToken].toFixed(2)); setBridgeQuote(null); }}>MAX</button>
-                        <span style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{bridgeToken}</span>
+                        <button type="button" className="input-max-btn" style={{ marginRight: 0 }} onClick={() => {
+                          const max = bridgeDirection === 'toArbitrum' ? bscBalance[bridgeToken].toFixed(2) : arbUsdcBalance.toFixed(2);
+                          setBridgeAmount(max); setBridgeQuote(null);
+                        }}>MAX</button>
+                        <span style={{ color: 'var(--text-secondary)', fontWeight: 600, fontSize: '0.8rem', whiteSpace: 'nowrap' }}>{bridgeDirection === 'toArbitrum' ? bridgeToken : 'USDC'}</span>
                       </div>
                     </div>
                   </div>
@@ -2220,7 +2293,10 @@ function App() {
                         key={pct}
                         type="button"
                         className="dash-quick-btn"
-                        onClick={() => { setBridgeAmount((bscBalance[bridgeToken] * pct / 100).toFixed(2)); setBridgeQuote(null); }}
+                        onClick={() => {
+                          const bal = bridgeDirection === 'toArbitrum' ? bscBalance[bridgeToken] : arbUsdcBalance;
+                          setBridgeAmount((bal * pct / 100).toFixed(2)); setBridgeQuote(null);
+                        }}
                         disabled={bridgeLoading}
                       >
                         {pct}%
@@ -2237,7 +2313,7 @@ function App() {
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>You receive</span>
                         <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--success)' }}>
-                          ~{parseFloat(ethers.formatUnits(bridgeQuote.estimate.toAmount, USDC_DECIMALS)).toFixed(2)} USDC
+                          ~{parseFloat(ethers.formatUnits(bridgeQuote.estimate.toAmount, bridgeDirection === 'toArbitrum' ? 6 : 18)).toFixed(2)} {bridgeDirection === 'toArbitrum' ? 'USDC' : 'USDT'}
                         </span>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
@@ -2297,11 +2373,17 @@ function App() {
                       onClick={handleBridge}
                       disabled={bridgeLoading}
                     >
-                      {bridgeLoading ? <><Loader2 size={16} className="spin" /> Bridging...</> : <><ArrowLeftRight size={16} /> Bridge {bridgeAmount} {bridgeToken} → USDC</>}
+                      {bridgeLoading
+                        ? <><Loader2 size={16} className="spin" /> Bridging...</>
+                        : bridgeDirection === 'toArbitrum'
+                          ? <><ArrowLeftRight size={16} /> Bridge {bridgeAmount} {bridgeToken} → USDC</>
+                          : <><ArrowLeftRight size={16} /> Bridge {bridgeAmount} USDC → USDT</>
+                      }
                     </button>
                   )}
 
-                  {!isOnBSC && (
+                  {/* Network switch helper */}
+                  {bridgeDirection === 'toArbitrum' && !isOnBSC && (
                     <div style={{ textAlign: 'center', marginTop: '12px' }}>
                       <button className="btn btn-glass" style={{ fontSize: '0.8rem', padding: '8px 16px' }} onClick={async () => {
                         try {
@@ -2322,6 +2404,13 @@ function App() {
                         }
                       }}>
                         <Network size={14} /> Switch to BNB Chain first
+                      </button>
+                    </div>
+                  )}
+                  {bridgeDirection === 'toBSC' && !isOnArbitrum && (
+                    <div style={{ textAlign: 'center', marginTop: '12px' }}>
+                      <button className="btn btn-glass" style={{ fontSize: '0.8rem', padding: '8px 16px' }} onClick={switchToArbitrum}>
+                        <Network size={14} /> Switch to Arbitrum first
                       </button>
                     </div>
                   )}
