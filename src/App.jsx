@@ -424,11 +424,13 @@ function App() {
       // Step 3: Poll for bridge completion
       setBridgeStatus("waiting");
       const bridge = bridgeQuote.tool;
+      const fromChainId = bridgeDirection === 'toArbitrum' ? 56 : 42161;
+      const toChainId = bridgeDirection === 'toArbitrum' ? 42161 : 56;
       let completed = false;
       for (let i = 0; i < 60; i++) { // max 5 min polling
         await new Promise(r => setTimeout(r, 5000));
         try {
-          const status = await getBridgeStatus(receipt.hash, bridge, 56, 42161);
+          const status = await getBridgeStatus(receipt.hash, bridge, fromChainId, toChainId);
           if (status.status === "DONE") {
             completed = true;
             break;
