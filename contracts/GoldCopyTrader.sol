@@ -273,10 +273,15 @@ contract GoldCopyTrader {
             fee = 0;
         }
 
-        emit ProceedsClaimed(msg.sender, _id, payout, fee);  // FIX #7: correct signal ID
+        // Cap payout to available balance (prevents stuck USDC from gTrade fees)
+        uint256 available = usdc.balanceOf(address(this));
+        if (payout > available) {
+            payout = available;
+        }
+
+        emit ProceedsClaimed(msg.sender, _id, payout, fee);
 
         if (payout > 0) {
-            require(usdc.balanceOf(address(this)) >= payout, "Low balance");
             require(usdc.transfer(msg.sender, payout), "Failed");
         }
     }
