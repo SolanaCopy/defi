@@ -2202,18 +2202,20 @@ function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
               onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: '480px', width: '100%', maxHeight: '90vh', overflow: 'auto', borderRadius: '16px' }}
+              style={{ maxWidth: '420px', width: '100%', maxHeight: '85vh', overflow: 'auto', borderRadius: '16px' }}
             >
               <QueryClientProvider client={queryClient}>
                 <LiFiWidget
                   integrator="smart-goldbot"
                   config={{
                     appearance: 'dark',
+                    variant: 'compact',
                     fromChain: 56,
                     toChain: 42161,
                     toToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+                    hiddenUI: ['poweredBy', 'language', 'appearance'],
                     theme: {
-                      container: { borderRadius: '16px', boxShadow: '0 0 40px rgba(0,0,0,0.5)' },
+                      container: { borderRadius: '16px', boxShadow: '0 0 40px rgba(0,0,0,0.5)', maxHeight: '80vh' },
                       palette: { primary: { main: '#D4A843' }, secondary: { main: '#1a1a2e' }, background: { default: '#0d0d1a', paper: '#1a1a2e' } },
                     },
                   }}
