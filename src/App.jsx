@@ -401,6 +401,7 @@ function App() {
 
       // Step 1: Get a FRESH quote (old quotes expire quickly)
       setBridgeStatus("quoting");
+      console.log("[Bridge] Getting fresh quote...", { bridgeDirection, bridgeToken, bridgeAmount });
       let freshQuote;
       if (bridgeDirection === "toArbitrum") {
         const token = BSC_TOKENS[bridgeToken];
@@ -410,6 +411,13 @@ function App() {
         const amountWei = ethers.parseUnits(bridgeAmount, 6).toString();
         freshQuote = await getBridgeQuote(USDC_ADDRESS, amountWei, account, "fromBridge");
       }
+      console.log("[Bridge] Quote received:", {
+        tool: freshQuote.tool,
+        approvalAddr: freshQuote.estimate?.approvalAddress,
+        toAmount: freshQuote.estimate?.toAmount,
+        steps: freshQuote.includedSteps?.map(s => s.type),
+        txTo: freshQuote.transactionRequest?.to,
+      });
 
       // Step 2: Approve on the fresh quote's approval address
       const fromTokenAddr = freshQuote.action?.fromToken?.address;
@@ -419,19 +427,26 @@ function App() {
         const tokenContract = new ethers.Contract(fromTokenAddr, ERC20_ABI, signer);
         const allowance = await tokenContract.allowance(account, approvalAddr);
         const requiredAmount = BigInt(freshQuote.action.fromAmount);
+        console.log("[Bridge] Allowance:", allowance.toString(), "Required:", requiredAmount.toString());
         if (BigInt(allowance) < requiredAmount) {
           if (BigInt(allowance) > 0n) {
+            console.log("[Bridge] Resetting allowance to 0...");
             const resetTx = await tokenContract.approve(approvalAddr, 0);
             await resetTx.wait();
           }
+          console.log("[Bridge] Approving max...");
           const approveTx = await tokenContract.approve(approvalAddr, ethers.MaxUint256);
           await approveTx.wait();
+          console.log("[Bridge] Approved!");
+        } else {
+          console.log("[Bridge] Already approved");
         }
       }
 
-      // Step 3: Send bridge transaction directly via MetaMask (bypass ethers.js quirks)
+      // Step 3: Send bridge transaction directly via MetaMask
       setBridgeStatus("bridging");
       const txReq = freshQuote.transactionRequest;
+      console.log("[Bridge] Sending tx:", { to: txReq.to, value: txReq.value, gas: txReq.gasLimit, gasPrice: txReq.gasPrice, dataLen: txReq.data?.length });
       const txHash = await window.ethereum.request({
         method: 'eth_sendTransaction',
         params: [{
@@ -443,8 +458,10 @@ function App() {
           gasPrice: txReq.gasPrice,
         }],
       });
+      console.log("[Bridge] Tx sent:", txHash);
       // Wait for confirmation
       const receipt = await provider.waitForTransaction(txHash);
+      console.log("[Bridge] Tx confirmed:", receipt.status);
 
       // Step 3: Poll for bridge completion
       setBridgeStatus("waiting");
