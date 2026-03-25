@@ -448,6 +448,7 @@ function App() {
       const txReq = freshQuote.transactionRequest;
       console.log("[Bridge] Sending tx:", { to: txReq.to, value: txReq.value, gasLimit: txReq.gasLimit, gasPrice: txReq.gasPrice, dataLen: txReq.data?.length });
       const tx = await signer.sendTransaction({
+        type: 0,
         to: txReq.to,
         data: txReq.data,
         value: txReq.value || "0x0",
