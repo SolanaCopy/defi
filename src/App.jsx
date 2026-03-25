@@ -413,12 +413,19 @@ function App() {
 
       // Step 2: Send bridge transaction
       setBridgeStatus("bridging");
-      const tx = await signer.sendTransaction({
+      const txRequest = {
         to: bridgeQuote.transactionRequest.to,
         data: bridgeQuote.transactionRequest.data,
         value: bridgeQuote.transactionRequest.value || "0x0",
-        gasLimit: bridgeQuote.transactionRequest.gasLimit,
-      });
+      };
+      // Include gasLimit and gasPrice from quote if available
+      if (bridgeQuote.transactionRequest.gasLimit) {
+        txRequest.gasLimit = bridgeQuote.transactionRequest.gasLimit;
+      }
+      if (bridgeQuote.transactionRequest.gasPrice) {
+        txRequest.gasPrice = bridgeQuote.transactionRequest.gasPrice;
+      }
+      const tx = await signer.sendTransaction(txRequest);
       const receipt = await tx.wait();
 
       // Step 3: Poll for bridge completion
@@ -460,7 +467,19 @@ function App() {
       }
     } catch (err) {
       console.error("Bridge error:", err);
-      setBridgeError(err.reason || err.message || "Bridge failed");
+      let errorMsg = "Bridge failed";
+      if (err.code === "ACTION_REJECTED" || err.code === 4001) {
+        errorMsg = "Transaction rejected in wallet";
+      } else if (err.code === "INSUFFICIENT_FUNDS") {
+        errorMsg = "Not enough BNB for gas fees";
+      } else if (err.reason) {
+        errorMsg = err.reason;
+      } else if (err.shortMessage) {
+        errorMsg = err.shortMessage;
+      } else if (err.message) {
+        errorMsg = err.message.length > 100 ? err.message.slice(0, 100) + "..." : err.message;
+      }
+      setBridgeError(errorMsg);
       setBridgeStatus("error");
     } finally {
       setBridgeLoading(false);
