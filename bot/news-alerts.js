@@ -8,7 +8,7 @@ const {
   TELEGRAM_CHAT_ID,
 } = process.env;
 
-const CHECK_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
+const CHECK_INTERVAL = 30 * 60 * 1000; // Check every 30 minutes
 const ALERT_BEFORE = 60; // Alert 60 minutes before
 const ALERT_AFTER = 60;  // No-trade zone 60 minutes after
 
@@ -175,7 +175,7 @@ export async function startNewsAlerts() {
   }
 
   polling = true;
-  console.log("[NEWS] Forex news alerts started — checking every 5 minutes");
+  console.log("[NEWS] Forex news alerts started — checking every 30 minutes");
 
   // Initial check
   await checkNews();
