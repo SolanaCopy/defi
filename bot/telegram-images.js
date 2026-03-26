@@ -95,12 +95,116 @@ function ctaButton(y, text, gradId = "gold", textColor = "#0A0A0F") {
   `;
 }
 
+// ===== CHART DATA =====
+async function fetchGoldCandles() {
+  try {
+    const url = "https://api.binance.com/api/v3/klines?symbol=PAXGUSDT&interval=5m&limit=40";
+    const res = await fetch(url, { signal: AbortSignal.timeout(5000) });
+    const data = await res.json();
+    return data.map(c => ({
+      open: parseFloat(c[1]),
+      high: parseFloat(c[2]),
+      low: parseFloat(c[3]),
+      close: parseFloat(c[4]),
+    }));
+  } catch (err) {
+    console.error("[IMG] Failed to fetch gold candles:", err.message);
+    return null;
+  }
+}
+
+// ===== CHART HELPERS =====
+function generateCandleChart(entryNum, tpNum, slNum, isLong, chartX, chartY, chartW, chartH, realCandles) {
+  let candles;
+
+  if (realCandles && realCandles.length > 0) {
+    candles = realCandles;
+  } else {
+    // Fallback: generate candles if API fails
+    const range = Math.abs(tpNum - slNum);
+    candles = [];
+    let price = entryNum - range * 0.3;
+    for (let i = 0; i < 30; i++) {
+      const v = range * 0.04;
+      const change = Math.sin(i * 0.8) * v + (i < 20 ? 0.3 : isLong ? 0.6 : -0.6) * v;
+      price += change;
+      const open = price;
+      const close = price + Math.sin(i * 1.3) * v * 0.8;
+      const high = Math.max(open, close) + Math.abs(Math.sin(i * 2.1)) * v * 0.5;
+      const low = Math.min(open, close) - Math.abs(Math.cos(i * 1.7)) * v * 0.5;
+      candles.push({ open, close, high, low });
+    }
+  }
+
+  // Scale to chart area
+  const range = Math.abs(tpNum - slNum);
+  const allPrices = [tpNum, slNum, ...candles.flatMap(c => [c.high, c.low])];
+  const minP = Math.min(...allPrices) - range * 0.05;
+  const maxP = Math.max(...allPrices) + range * 0.05;
+  const scaleY = (p) => chartY + chartH - ((p - minP) / (maxP - minP)) * chartH;
+  const candleW = (chartW / candles.length) * 0.7;
+  const gap = chartW / candles.length;
+
+  let svg = "";
+
+  // Grid lines
+  for (let i = 0; i <= 4; i++) {
+    const y = chartY + (chartH / 4) * i;
+    svg += `<line x1="${chartX}" y1="${y}" x2="${chartX + chartW}" y2="${y}" stroke="#1A1A28" stroke-width="0.5"/>`;
+  }
+
+  // TP line
+  const tpY = scaleY(tpNum);
+  svg += `<line x1="${chartX}" y1="${tpY}" x2="${chartX + chartW}" y2="${tpY}" stroke="${GREEN}" stroke-width="1" stroke-dasharray="6,4" opacity="0.7"/>`;
+  svg += `<text x="${chartX + chartW + 8}" y="${tpY + 4}" font-family="${FONT}" font-size="10" fill="${GREEN}">TP</text>`;
+
+  // SL line
+  const slY = scaleY(slNum);
+  svg += `<line x1="${chartX}" y1="${slY}" x2="${chartX + chartW}" y2="${slY}" stroke="${RED}" stroke-width="1" stroke-dasharray="6,4" opacity="0.7"/>`;
+  svg += `<text x="${chartX + chartW + 8}" y="${slY + 4}" font-family="${FONT}" font-size="10" fill="${RED}">SL</text>`;
+
+  // Entry line
+  const entryY = scaleY(entryNum);
+  svg += `<line x1="${chartX}" y1="${entryY}" x2="${chartX + chartW}" y2="${entryY}" stroke="${GOLD}" stroke-width="1.5" stroke-dasharray="4,3" opacity="0.9"/>`;
+  svg += `<text x="${chartX + chartW + 8}" y="${entryY + 4}" font-family="${FONT}" font-size="10" fill="${GOLD}">ENTRY</text>`;
+
+  // Candles
+  candles.forEach((c, i) => {
+    const x = chartX + i * gap + gap * 0.15;
+    const bullish = c.close >= c.open;
+    const color = bullish ? GREEN : RED;
+    const bodyTop = scaleY(Math.max(c.open, c.close));
+    const bodyBot = scaleY(Math.min(c.open, c.close));
+    const bodyH = Math.max(bodyBot - bodyTop, 1);
+
+    // Wick
+    svg += `<line x1="${x + candleW / 2}" y1="${scaleY(c.high)}" x2="${x + candleW / 2}" y2="${scaleY(c.low)}" stroke="${color}" stroke-width="1" opacity="0.6"/>`;
+    // Body
+    svg += `<rect x="${x}" y="${bodyTop}" width="${candleW}" height="${bodyH}" rx="1" fill="${color}" opacity="${bullish ? 0.8 : 0.6}"/>`;
+  });
+
+  // TP/SL zone shading
+  svg += `<rect x="${chartX}" y="${tpY}" width="${chartW}" height="${entryY - tpY}" fill="${GREEN}" opacity="0.03"/>`;
+  svg += `<rect x="${chartX}" y="${entryY}" width="${chartW}" height="${slY - entryY}" fill="${RED}" opacity="0.03"/>`;
+
+  return svg;
+}
+
 // ===== 1. SIGNAL IMAGE =====
 export async function signalImage({ signalId, direction, leverage, entry, tp, sl }) {
   const isLong = direction === "LONG";
   const dirColor = isLong ? GREEN : RED;
   const dirGradH = isLong ? "green" : "red";
-  const h = 450;
+  const h = 620;
+
+  // Parse prices (remove commas)
+  const entryNum = parseFloat(String(entry).replace(/,/g, ""));
+  const tpNum = parseFloat(String(tp).replace(/,/g, ""));
+  const slNum = parseFloat(String(sl).replace(/,/g, ""));
+
+  // Fetch real 5min gold candles
+  const realCandles = await fetchGoldCandles();
+  const chartSvg = generateCandleChart(entryNum, tpNum, slNum, isLong, 50, 200, 680, 220, realCandles);
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
@@ -110,33 +214,40 @@ export async function signalImage({ signalId, direction, leverage, entry, tp, sl
     ${brandHeader()}
 
     <!-- Title section -->
-    <text x="400" y="85" font-family="${FONT}" font-size="14" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}</text>
-    <text x="400" y="118" font-family="${FONT}" font-size="30" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">NEW TRADE SIGNAL</text>
+    <text x="400" y="80" font-family="${FONT}" font-size="13" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}</text>
+    <text x="400" y="110" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">NEW TRADE SIGNAL</text>
 
     <!-- Direction pill -->
-    <rect x="250" y="140" width="300" height="46" rx="23" fill="${dirColor}" opacity="0.1" stroke="${dirColor}" stroke-width="1" stroke-opacity="0.3"/>
-    <circle cx="290" cy="163" r="7" fill="${dirColor}"/>
-    <text x="410" y="170" font-family="${FONT}" font-size="20" fill="${dirColor}" font-weight="700" text-anchor="middle">${esc(direction)}   ·   XAU/USD   ·   ${esc(leverage)}</text>
+    <rect x="250" y="128" width="300" height="42" rx="21" fill="${dirColor}" opacity="0.1" stroke="${dirColor}" stroke-width="1" stroke-opacity="0.3"/>
+    <circle cx="288" cy="149" r="6" fill="${dirColor}"/>
+    <text x="408" y="156" font-family="${FONT}" font-size="18" fill="${dirColor}" font-weight="700" text-anchor="middle">${esc(direction)}   ·   XAU/USD   ·   ${esc(leverage)}</text>
 
-    ${line(205)}
+    ${line(185)}
+
+    <!-- Chart -->
+    ${card(40, 192, 720, 240)}
+    <text x="60" y="210" font-family="${FONT}" font-size="10" fill="${GRAY}" letter-spacing="1">XAU/USD · 5M</text>
+    <text x="740" y="210" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="end">${realCandles ? "LIVE" : ""}${realCandles ? "" : ""}</text>
+    ${realCandles ? `<circle cx="726" cy="206" r="3" fill="${GREEN}" opacity="0.8"/>` : ""}
+    ${chartSvg}
 
     <!-- Price cards -->
-    ${card(45, 222, 220, 90)}
-    <text x="155" y="253" font-family="${FONT}" font-size="12" fill="${LIGHT_GRAY}" text-anchor="middle" letter-spacing="2">ENTRY PRICE</text>
-    <text x="155" y="290" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle">$${esc(entry)}</text>
+    ${card(45, 448, 220, 75)}
+    <text x="155" y="474" font-family="${FONT}" font-size="11" fill="${LIGHT_GRAY}" text-anchor="middle" letter-spacing="2">ENTRY PRICE</text>
+    <text x="155" y="505" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle">$${esc(entry)}</text>
 
-    ${card(290, 222, 220, 90, "#1a3a1a")}
-    <text x="400" y="253" font-family="${FONT}" font-size="12" fill="${GREEN}" text-anchor="middle" letter-spacing="2">TAKE PROFIT</text>
-    <text x="400" y="290" font-family="${FONT}" font-size="28" fill="${GREEN}" font-weight="700" text-anchor="middle">$${esc(tp)}</text>
+    ${card(290, 448, 220, 75, "#1a3a1a")}
+    <text x="400" y="474" font-family="${FONT}" font-size="11" fill="${GREEN}" text-anchor="middle" letter-spacing="2">TAKE PROFIT</text>
+    <text x="400" y="505" font-family="${FONT}" font-size="26" fill="${GREEN}" font-weight="700" text-anchor="middle">$${esc(tp)}</text>
 
-    ${card(535, 222, 220, 90, "#3a1a1a")}
-    <text x="645" y="253" font-family="${FONT}" font-size="12" fill="${RED}" text-anchor="middle" letter-spacing="2">STOP LOSS</text>
-    <text x="645" y="290" font-family="${FONT}" font-size="28" fill="${RED}" font-weight="700" text-anchor="middle">$${esc(sl)}</text>
+    ${card(535, 448, 220, 75, "#3a1a1a")}
+    <text x="645" y="474" font-family="${FONT}" font-size="11" fill="${RED}" text-anchor="middle" letter-spacing="2">STOP LOSS</text>
+    <text x="645" y="505" font-family="${FONT}" font-size="26" fill="${RED}" font-weight="700" text-anchor="middle">$${esc(sl)}</text>
 
     <!-- CTA -->
-    ${ctaButton(345, "COPY THIS TRADE NOW")}
+    ${ctaButton(545, "COPY THIS TRADE NOW")}
 
-    ${footerText(435)}
+    ${footerText(h - 8)}
   </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
