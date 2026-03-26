@@ -119,7 +119,25 @@ function shouldRespond(update) {
   const isPrivate = msg.chat?.type === "private";
 
   if (!isGroup && !isPrivate) return false;
-  return true;
+
+  // In private chat, always respond
+  if (isPrivate) return true;
+
+  const text = msg.text.toLowerCase().trim();
+
+  // Commands
+  if (text.startsWith("/")) return true;
+
+  // Questions (ends with ?)
+  if (text.endsWith("?")) return true;
+
+  // Bot mentioned
+  if (text.includes("@onchaincopybot") || text.includes("bot")) return true;
+
+  // Reply to bot message
+  if (msg.reply_to_message?.from?.is_bot) return true;
+
+  return false;
 }
 
 async function handleUpdate(update) {
