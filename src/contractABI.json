@@ -55,7 +55,8 @@
       { "internalType": "uint64", "name": "tp", "type": "uint64" },
       { "internalType": "uint64", "name": "sl", "type": "uint64" },
       { "internalType": "uint24", "name": "leverage", "type": "uint24" },
-      { "internalType": "int256", "name": "resultPct", "type": "int256" }
+      { "internalType": "int256", "name": "resultPct", "type": "int256" },
+      { "internalType": "uint256", "name": "feeAtCreation", "type": "uint256" }
     ],
     "stateMutability": "view", "type": "function"
   },
