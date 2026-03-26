@@ -167,7 +167,7 @@ function timeAgo(timestamp) {
 
 function App() {
   const [account, setAccount] = useState("");
-  const [activeTab, setActiveTab] = useState("invest");
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [particlesReady, setParticlesReady] = useState(false);
@@ -844,8 +844,8 @@ function App() {
             </motion.h1>
 
             <motion.p className="hero-subtitle" variants={fadeUp} custom={2}>
-              Copy our live gold trades directly from your wallet.
-              No deposit needed — you pay per trade via MetaMask. Powered by gTrade on Arbitrum.
+              Copy our live gold trades with one click. Just connect your wallet,
+              wait for a signal, and click Copy Now. Your profit is paid directly to your wallet.
             </motion.p>
 
             {/* Trust indicators */}
@@ -927,7 +927,7 @@ function App() {
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
                       <Clock size={14} />
-                      <span>Waiting for next signal...</span>
+                      <span>No active trade — waiting for next signal</span>
                     </div>
                   )}
                 </div>
@@ -1071,10 +1071,10 @@ function App() {
 
         <div className="timeline">
           {[
-            { num: '01', icon: <Wallet size={22} />, title: 'Connect Wallet', desc: 'Connect MetaMask to Arbitrum. You need USDC and a little ETH for gas.', color: 'var(--blue)' },
-            { num: '02', icon: <Eye size={22} />, title: 'View Signals', desc: 'Our trader opens positions on XAU/USD. You see live signals with entry, TP and SL.', color: 'var(--emerald)' },
-            { num: '03', icon: <Copy size={22} />, title: 'Copy Trade', desc: 'Click "Copy Trade", choose your amount in USDC. MetaMask opens, confirm and you\'re in.', color: 'var(--accent)' },
-            { num: '04', icon: <Zap size={22} />, title: 'Claim Profit', desc: 'Trade closes automatically at TP/SL. Claim your profit directly back to your wallet.', color: 'var(--violet)' },
+            { num: '01', icon: <Wallet size={22} />, title: 'Connect Wallet', desc: 'Install MetaMask and connect to Arbitrum network. Make sure you have USDC in your wallet (you can bridge from any chain).', color: 'var(--blue)' },
+            { num: '02', icon: <Eye size={22} />, title: 'Wait for Signal', desc: 'When our trader spots a gold opportunity, a live signal appears on the dashboard. You also get a notification in Telegram.', color: 'var(--emerald)' },
+            { num: '03', icon: <Copy size={22} />, title: 'Click Copy Now', desc: 'Click the "Copy Now" button, enter how much USDC you want to invest. MetaMask opens — confirm and your trade is live.', color: 'var(--accent)' },
+            { num: '04', icon: <Zap size={22} />, title: 'Get Paid', desc: 'The trade closes automatically when it hits profit or stop loss. Click "Claim" to receive your USDC back — including your profit.', color: 'var(--violet)' },
           ].map((step, i) => (
             <motion.div
               className={`timeline-item ${i % 2 === 1 ? 'timeline-item-right' : ''}`}
@@ -1203,8 +1203,8 @@ function App() {
             <div className="bento-inline-icon" style={{ color: 'var(--emerald)', borderColor: 'rgba(52,211,153,0.2)', background: 'rgba(52,211,153,0.06)' }}>
               <Wallet size={20} />
             </div>
-            <h4>No Deposit Needed</h4>
-            <p>You pay per trade directly from your own wallet. No lock-ups, no deposit.</p>
+            <h4>Pay Per Trade</h4>
+            <p>No upfront deposit needed. You only pay when you copy a trade — directly from your wallet via MetaMask.</p>
             <span className="bento-inline-badge green">Directly from wallet</span>
           </motion.div>
 
@@ -1213,7 +1213,7 @@ function App() {
               <Copy size={20} />
             </div>
             <h4>1-Click Copy</h4>
-            <p>See a signal, click copy, confirm in MetaMask. It's that simple.</p>
+            <p>When a signal goes live, just click "Copy Now", choose your amount, and confirm in MetaMask. Done.</p>
             <span className="bento-inline-badge purple">Instant copy</span>
           </motion.div>
         </div>
@@ -1685,6 +1685,89 @@ function App() {
         </motion.div>
       )}
 
+      {/* ===== LIVE SIGNAL STATUS BANNER ===== */}
+      <motion.div
+        variants={fadeUp}
+        initial="hidden"
+        animate="visible"
+        style={{
+          background: activeSignal
+            ? `linear-gradient(135deg, ${activeSignal.long ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)'}, rgba(212,168,67,0.08))`
+            : 'linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))',
+          border: `1px solid ${activeSignal
+            ? (activeSignal.long ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)')
+            : 'var(--border)'}`,
+          borderRadius: '16px',
+          padding: '20px 24px',
+          marginBottom: '16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '16px',
+          flexWrap: 'wrap',
+        }}
+      >
+        {activeSignal ? (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
+              <span className="pulse-dot" style={{ width: 10, height: 10, background: activeSignal.long ? 'var(--success)' : 'var(--danger)' }} />
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>
+                  Signal #{Number(activeSignal.id)} is LIVE
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  <span style={{
+                    color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
+                    fontWeight: 600,
+                  }}>{activeSignal.long ? 'LONG' : 'SHORT'}</span>
+                  {' '}XAU/USD · {formatLeverage(activeSignal.leverage)}x · Entry ${formatGTradePrice(activeSignal.entryPrice)}
+                </div>
+              </div>
+            </div>
+            {!userPositions[Number(activeSignal.id)] ? (
+              <button
+                className="btn btn-primary btn-glow"
+                style={{ padding: '12px 28px', fontSize: '0.95rem', fontWeight: 700 }}
+                onClick={() => setShowCopyModal(true)}
+                disabled={!account || isLoading}
+              >
+                <Zap size={16} /> Copy Now
+              </button>
+            ) : (
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent)' }}>
+                <CheckCircle2 size={18} />
+                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                  Copied — {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC
+                </span>
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+              <Clock size={22} style={{ color: 'var(--text-secondary)', opacity: 0.6 }} />
+              <div>
+                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>
+                  No Active Signal
+                </div>
+                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+                  Waiting for the next trade signal. You'll be notified in Telegram.
+                </div>
+              </div>
+            </div>
+            <a
+              href="https://t.me/SmartTradingClubDapp"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn btn-glass"
+              style={{ padding: '10px 20px', fontSize: '0.85rem', textDecoration: 'none' }}
+            >
+              Join Telegram for alerts
+            </a>
+          </>
+        )}
+      </motion.div>
+
       {/* ===== TOP: Wallet + Stats ===== */}
       <motion.div className="dash-bento-top" variants={staggerContainer} initial="hidden" animate="visible">
 
@@ -1923,8 +2006,11 @@ function App() {
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
                 <Clock size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
-                <div style={{ fontSize: '0.9rem' }}>No active signal</div>
-                <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>Waiting for the next signal from the trader</div>
+                <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>No active signal right now</div>
+                <div style={{ fontSize: '0.75rem', marginTop: '6px', lineHeight: 1.5 }}>
+                  When our trader opens a new trade, it will appear here with a "Copy Now" button.
+                  <br />Join our <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>Telegram</a> to get notified instantly.
+                </div>
               </div>
             )}
           </div>
@@ -2001,8 +2087,11 @@ function App() {
               ) : (
                 <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-secondary)' }}>
                   <Copy size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
-                  <div style={{ fontSize: '0.85rem' }}>No positions yet</div>
-                  <div style={{ fontSize: '0.7rem', marginTop: '4px' }}>Copy a signal to get started</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>No positions yet</div>
+                  <div style={{ fontSize: '0.7rem', marginTop: '6px', lineHeight: 1.5 }}>
+                    When you copy a trade, it will appear here.<br />
+                    After the trade closes, you can claim your profit.
+                  </div>
                 </div>
               )}
             </div>
@@ -2585,7 +2674,7 @@ function App() {
               }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Copy Trade</h3>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Copy This Trade</h3>
                 <button onClick={() => setShowCopyModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                   <X size={20} />
                 </button>
@@ -2633,13 +2722,19 @@ function App() {
                   ))}
                 </div>
 
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <AlertTriangle size={12} />
-                  Fee: {(feePercent / 100).toFixed(0)}% on profit. USDC goes directly from your wallet to gTrade.
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: 1.6, background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '10px 12px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
+                    <AlertTriangle size={12} />
+                    <strong>How it works:</strong>
+                  </div>
+                  <div>1. MetaMask will ask you to approve USDC</div>
+                  <div>2. Your USDC is used to open the trade</div>
+                  <div>3. When the trade closes, click "Claim" to get paid</div>
+                  <div style={{ marginTop: '6px', color: 'var(--accent)' }}>Fee: {(feePercent / 100).toFixed(0)}% on profit only — no fee on losses</div>
                 </div>
 
-                <button type="submit" className="btn btn-primary btn-glow" style={{ width: '100%' }} disabled={isLoading || !account}>
-                  <Copy size={16} /> {isLoading ? 'Loading...' : 'Confirm Copy Trade'}
+                <button type="submit" className="btn btn-primary btn-glow" style={{ width: '100%', padding: '14px', fontSize: '1rem' }} disabled={isLoading || !account}>
+                  <Zap size={18} /> {isLoading ? 'Processing...' : 'Copy Now'}
                 </button>
               </form>
             </motion.div>
