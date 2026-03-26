@@ -448,14 +448,7 @@ export async function botOnlineImage() {
     ${brandHeader()}
 
     <!-- Center logo -->
-    <g transform="translate(340, 70)">
-      <polygon points="60,4 112,28 112,98 60,122 8,98 8,28" fill="none" stroke="url(#gold)" stroke-width="2.5"/>
-      <rect x="26" y="62" width="14" height="36" rx="3" fill="${GOLD_LIGHT}" opacity="0.6"/>
-      <rect x="46" y="44" width="14" height="54" rx="3" fill="${GOLD}" opacity="0.8"/>
-      <rect x="66" y="26" width="14" height="72" rx="3" fill="${GOLD_LIGHT}" opacity="0.9"/>
-      <polyline points="22,68 44,48 62,58 90,24" fill="none" stroke="${GOLD_LIGHT}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-      <polygon points="90,24 82,26 88,34" fill="${GOLD_LIGHT}"/>
-    </g>
+    <image x="340" y="70" width="120" height="120" href="data:image/png;base64,${LOGO_B64}"/>
 
     <!-- Title -->
     <text x="400" y="228" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="2">SMART TRADING BOT</text>
