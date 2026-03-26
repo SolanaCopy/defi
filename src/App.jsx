@@ -2045,15 +2045,23 @@ function App() {
                   const pos = userPositions[Number(signal.id)];
                   const isClosed = signal.closed;
                   const result = Number(signal.resultPct) / 100;
+                  const collateral = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
+                  const leverage = Number(signal.leverage) / 1000;
+                  const pnlPct = result * leverage;
+                  const pnlUSDC = collateral * pnlPct / 100;
+                  const feePct = Number(signal.feeAtCreation || 0) / 100;
+                  const fee = pnlUSDC > 0 ? pnlUSDC * feePct / 100 : 0;
+                  const payout = pnlUSDC >= 0 ? collateral + pnlUSDC - fee : Math.max(0, collateral + pnlUSDC);
 
                   return (
                     <div key={Number(signal.id)} style={{
                       background: 'rgba(255,255,255,0.02)',
-                      borderRadius: '10px',
-                      padding: '14px',
-                      border: '1px solid var(--border)'
+                      borderRadius: '12px',
+                      padding: '16px',
+                      border: `1px solid ${isClosed ? (result >= 0 ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'var(--border)'}`,
                     }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      {/* Header: direction + status */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{
                             padding: '2px 8px',
@@ -2070,8 +2078,9 @@ function App() {
                         </div>
                         <span style={{
                           fontSize: '0.7rem',
-                          padding: '2px 8px',
+                          padding: '2px 10px',
                           borderRadius: '12px',
+                          fontWeight: 600,
                           background: isClosed ? (result >= 0 ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)') : 'rgba(212, 168, 67, 0.1)',
                           color: isClosed ? (result >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
                         }}>
@@ -2079,24 +2088,52 @@ function App() {
                         </span>
                       </div>
 
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                        <span>Inzet: {parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS)).toFixed(2)} USDC</span>
-                        <span>{formatLeverage(signal.leverage)}x</span>
+                      {/* PnL Grid */}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Invested</div>
+                          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem' }}>${collateral.toFixed(2)}</div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>PnL</div>
+                          <div style={{
+                            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.85rem',
+                            color: isClosed ? (pnlUSDC >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
+                          }}>
+                            {isClosed ? `${pnlUSDC >= 0 ? '+' : ''}$${pnlUSDC.toFixed(2)}` : 'Pending'}
+                          </div>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Payout</div>
+                          <div style={{
+                            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.85rem',
+                            color: isClosed ? (payout > collateral ? 'var(--success)' : payout < collateral ? 'var(--danger)' : 'var(--text-primary)') : 'var(--accent)',
+                          }}>
+                            {isClosed ? `$${payout.toFixed(2)}` : 'Pending'}
+                          </div>
+                        </div>
                       </div>
 
+                      {/* Leverage + fee info */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: isClosed ? '4px' : '0' }}>
+                        <span>{leverage}x leverage</span>
+                        {isClosed && fee > 0 && <span>Fee: ${fee.toFixed(2)} USDC</span>}
+                      </div>
+
+                      {/* Claim button */}
                       {isClosed && !pos.claimed && (
                         <button
-                          className="btn btn-primary"
-                          style={{ width: '100%', marginTop: '10px', padding: '8px', fontSize: '0.8rem' }}
+                          className="btn btn-primary btn-glow"
+                          style={{ width: '100%', marginTop: '10px', padding: '10px', fontSize: '0.85rem' }}
                           onClick={() => handleClaimProceeds(Number(signal.id))}
                           disabled={isLoading}
                         >
-                          <Zap size={14} /> Claim Profit
+                          <Zap size={16} /> Claim ${payout.toFixed(2)} USDC
                         </button>
                       )}
                       {pos.claimed && (
-                        <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.7rem', color: 'var(--success)' }}>
-                          <CheckCircle2 size={12} style={{ marginRight: '4px' }} /> Claimed
+                        <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.75rem', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
+                          <CheckCircle2 size={14} /> Claimed ${payout.toFixed(2)} USDC
                         </div>
                       )}
                     </div>
