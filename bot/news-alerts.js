@@ -82,9 +82,9 @@ async function checkNews() {
     const minutesUntil = getMinutesUntil(event.date);
     const eventKey = `${event.date}-${event.title}`;
 
-    // 1 hour before alert
+    // 1 hour before alert (wide window: 45-90 min before)
     const preAlertKey = `pre-${eventKey}`;
-    if (minutesUntil > 55 && minutesUntil <= 65 && !alertedEvents.has(preAlertKey)) {
+    if (minutesUntil > 45 && minutesUntil <= 90 && !alertedEvents.has(preAlertKey)) {
       alertedEvents.add(preAlertKey);
 
       const msg = [
@@ -107,9 +107,9 @@ async function checkNews() {
       await sendTelegram(msg);
     }
 
-    // Event happening now alert
+    // Event happening now alert (wide window: -15 to +15 min)
     const nowAlertKey = `now-${eventKey}`;
-    if (minutesUntil > -5 && minutesUntil <= 5 && !alertedEvents.has(nowAlertKey)) {
+    if (minutesUntil > -15 && minutesUntil <= 15 && !alertedEvents.has(nowAlertKey)) {
       alertedEvents.add(nowAlertKey);
 
       const msg = [
@@ -130,9 +130,9 @@ async function checkNews() {
       await sendTelegram(msg);
     }
 
-    // All-clear alert (1 hour after event)
+    // All-clear alert (1 hour after event, wide window: 45-90 min after)
     const clearKey = `clear-${eventKey}`;
-    if (minutesUntil < -(ALERT_AFTER - 5) && minutesUntil > -(ALERT_AFTER + 5) && !alertedEvents.has(clearKey)) {
+    if (minutesUntil < -45 && minutesUntil > -90 && !alertedEvents.has(clearKey)) {
       alertedEvents.add(clearKey);
 
       const msg = [
