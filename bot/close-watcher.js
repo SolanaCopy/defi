@@ -10,6 +10,7 @@
 import "dotenv/config";
 import { ethers } from "ethers";
 import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage } from "./telegram-images.js";
+import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 
 // ===== CONFIG =====
 const {
@@ -199,10 +200,14 @@ class CloseWatcher {
     log(`Contract: ${GOLD_COPY_TRADER_ADDRESS}`);
     log(`gTrade Diamond: ${GTRADE_DIAMOND}`);
 
+    // Debug: log key format (not the key itself)
+    const key = ADMIN_PRIVATE_KEY?.trim();
+    log(`Private key length: ${key?.length}, starts with 0x: ${key?.startsWith("0x")}, has spaces: ${key !== ADMIN_PRIVATE_KEY}`);
+
     // Set up HTTP provider for transactions (always needed)
     const httpRpc = ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc";
     this.httpProvider = new ethers.JsonRpcProvider(httpRpc);
-    this.wallet = new ethers.Wallet(ADMIN_PRIVATE_KEY, this.httpProvider);
+    this.wallet = new ethers.Wallet(key, this.httpProvider);
     this.copyTrader = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, this.wallet);
 
     // Verify admin
@@ -227,6 +232,9 @@ class CloseWatcher {
 
     // Listen for contract events (deposits, claims, signals)
     this.listenContractEvents();
+
+    // Start AI assistant (answers questions in Telegram)
+    startTelegramAI();
 
     // Try WebSocket for real-time events
     if (ARBITRUM_RPC_WSS) {
@@ -518,6 +526,7 @@ class CloseWatcher {
     if (this.wsProvider) {
       this.wsProvider.destroy();
     }
+    stopTelegramAI();
     log("Bot stopped.");
   }
 }
