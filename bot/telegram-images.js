@@ -69,7 +69,7 @@ const LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAAACXBIWXMAAAsTAA
 function brandHeader() {
   return `
     <image x="28" y="14" width="32" height="32" href="data:image/png;base64,${LOGO_B64}"/>
-    <text x="72" y="29" font-family="${FONT}" font-size="13" fill="${GRAY}" font-weight="600" letter-spacing="3" dominant-baseline="middle">SMART TRADING CLUB</text>
+    <text x="72" y="34" font-family="${FONT}" font-size="13" fill="${GRAY}" font-weight="600" letter-spacing="3" dominant-baseline="middle">SMART TRADING CLUB</text>
   `;
 }
 
