@@ -11,6 +11,7 @@ import "dotenv/config";
 import { ethers } from "ethers";
 import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage } from "./telegram-images.js";
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
+import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
 
 // ===== CONFIG =====
 const {
@@ -235,6 +236,9 @@ class CloseWatcher {
 
     // Start AI assistant (answers questions in Telegram)
     startTelegramAI();
+
+    // Start forex news alerts
+    startNewsAlerts();
 
     // Try WebSocket for real-time events
     if (ARBITRUM_RPC_WSS) {
@@ -527,6 +531,7 @@ class CloseWatcher {
       this.wsProvider.destroy();
     }
     stopTelegramAI();
+    stopNewsAlerts();
     log("Bot stopped.");
   }
 }
