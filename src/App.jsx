@@ -933,24 +933,30 @@ function App() {
                 </div>
 
                 {/* Stats row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '6px', padding: '14px 0 12px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px', padding: '14px 0 12px' }}>
                   <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent)' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent)' }}>
                       $<CountUp end={performanceStats.platform.all.totalCopied} duration={2} decimals={0} separator="," />
                     </div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Total Volume</div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Volume</div>
                   </div>
-                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)', borderRight: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>
+                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700 }}>
                       <CountUp end={signalHistory.reduce((sum, s) => sum + Number(s.copierCount), 0)} duration={2} />
                     </div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Total Copiers</div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Copiers</div>
                   </div>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700, color: 'var(--accent)' }}>
+                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent)' }}>
                       <CountUp end={signalCount} duration={2} />
                     </div>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Signals</div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Signals</div>
+                  </div>
+                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700 }}>
+                      {(feePercent / 100).toFixed(0)}%
+                    </div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Profit Fee</div>
                   </div>
                 </div>
 
