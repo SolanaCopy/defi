@@ -568,13 +568,31 @@ function App() {
       const fee = await contract.feePercent();
       setFeePercent(Number(fee));
 
+      // Helper to parse signal data from contract Result objects
+      const parseSignal = (id, core, meta) => ({
+        id: Number(id),
+        long: core[0],
+        active: core[1],
+        closed: core[2],
+        entryPrice: core[3],
+        tp: core[4],
+        sl: core[5],
+        leverage: core[6],
+        resultPct: core[7],
+        feeAtCreation: core[8],
+        timestamp: meta[0],
+        closedAt: meta[1],
+        totalCopied: meta[2],
+        copierCount: meta[3],
+      });
+
       // Active signal
       try {
         const activeId = await contract.getActiveSignalId();
         if (Number(activeId) > 0) {
           const core = await contract.signalCore(activeId);
           const meta = await contract.signalMeta(activeId);
-          setActiveSignal({ id: Number(activeId), ...core, ...meta });
+          setActiveSignal(parseSignal(activeId, core, meta));
         } else {
           setActiveSignal(null);
         }
@@ -590,7 +608,7 @@ function App() {
         for (let i = total; i >= start; i--) {
           const core = await contract.signalCore(i);
           const meta = await contract.signalMeta(i);
-          histArr.push({ id: i, ...core, ...meta });
+          histArr.push(parseSignal(i, core, meta));
         }
         setSignalHistory(histArr);
       } catch {
