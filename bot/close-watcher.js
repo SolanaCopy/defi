@@ -250,9 +250,9 @@ class CloseWatcher {
     const provider = this.wsProvider || this.httpProvider;
     const contract = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, provider);
 
-    const BTN_COPY = { text: "💰 Copy Now", url: WEBSITE };
-    const BTN_APP = { text: "🚀 Open App", url: WEBSITE };
-    const BTN_CLAIM = { text: "🏆 Claim Profits", url: WEBSITE };
+    const BTN_COPY = { text: "💰 Copy Now", url: `${WEBSITE}?tab=dashboard` };
+    const BTN_APP = { text: "🚀 Open App", url: `${WEBSITE}?tab=dashboard` };
+    const BTN_CLAIM = { text: "🏆 Claim Profits", url: `${WEBSITE}?tab=dashboard` };
     const BTN_CONTRACT = { text: "📄 Contract", url: `${ARBISCAN_ADDR}${GOLD_COPY_TRADER_ADDRESS}` };
     const BTN_TG = { text: "💬 Community", url: "https://t.me/SmartTradingClubDapp" };
     const txBtn = (hash) => ({ text: "🔗 View TX", url: `${ARBISCAN_TX}${hash}` });
