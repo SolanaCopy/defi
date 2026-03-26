@@ -438,7 +438,7 @@ export async function autoCloseImage({ signalId, direction, leverage, resultPct 
 
 // ===== 6. BOT ONLINE IMAGE =====
 export async function botOnlineImage() {
-  const h = 320;
+  const h = 340;
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
@@ -448,17 +448,19 @@ export async function botOnlineImage() {
     ${brandHeader()}
 
     <!-- Center logo -->
-    <image x="340" y="70" width="120" height="120" href="data:image/png;base64,${LOGO_B64}"/>
+    <image x="350" y="65" width="100" height="100" href="data:image/png;base64,${LOGO_B64}"/>
 
     <!-- Title -->
-    <text x="400" y="228" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="2">SMART TRADING BOT</text>
+    <text x="400" y="200" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="2">SMART TRADING BOT</text>
 
-    <!-- Online status -->
-    <circle cx="328" cy="264" r="6" fill="${GREEN}"/>
-    <circle cx="328" cy="264" r="10" fill="${GREEN}" opacity="0.2"/>
-    <text x="348" y="270" font-family="${FONT}" font-size="15" fill="${GREEN}" font-weight="600" letter-spacing="1">Online  ·  Monitoring Trades</text>
+    <!-- Online status (centered) -->
+    <g transform="translate(400, 240)">
+      <circle cx="-100" cy="0" r="6" fill="${GREEN}"/>
+      <circle cx="-100" cy="0" r="10" fill="${GREEN}" opacity="0.2"/>
+      <text x="0" y="6" font-family="${FONT}" font-size="15" fill="${GREEN}" font-weight="600" text-anchor="middle" letter-spacing="1">Online  ·  Monitoring Trades</text>
+    </g>
 
-    ${footerText(h - 8)}
+    ${footerText(h - 10)}
   </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
