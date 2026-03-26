@@ -453,10 +453,10 @@ export async function botOnlineImage() {
     <!-- Title -->
     <text x="400" y="200" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="2">SMART TRADING BOT</text>
 
-    <!-- Online status (centered) -->
-    <circle cx="260" cy="240" r="6" fill="${GREEN}"/>
-    <circle cx="260" cy="240" r="10" fill="${GREEN}" opacity="0.2"/>
-    <text x="415" y="246" font-family="${FONT}" font-size="15" fill="${GREEN}" font-weight="600" text-anchor="middle" letter-spacing="1">Online  ·  Monitoring Trades</text>
+    <!-- Online status pill (centered) -->
+    <rect x="248" y="225" width="304" height="36" rx="18" fill="${GREEN}" opacity="0.06" stroke="${GREEN}" stroke-width="1" stroke-opacity="0.2"/>
+    <circle cx="272" cy="243" r="5" fill="${GREEN}"/>
+    <text x="410" y="249" font-family="${FONT}" font-size="14" fill="${GREEN}" font-weight="600" text-anchor="middle" letter-spacing="1">Online  ·  Monitoring Trades</text>
 
     ${footerText(h - 10)}
   </svg>`;
