@@ -455,7 +455,7 @@ export async function botOnlineImage() {
 
     <!-- Online status pill (centered) -->
     <rect x="248" y="225" width="304" height="36" rx="18" fill="${GREEN}" opacity="0.06" stroke="${GREEN}" stroke-width="1" stroke-opacity="0.2"/>
-    <circle cx="272" cy="243" r="5" fill="${GREEN}"/>
+    <circle cx="280" cy="243" r="5" fill="${GREEN}"/>
     <text x="410" y="249" font-family="${FONT}" font-size="14" fill="${GREEN}" font-weight="600" text-anchor="middle" letter-spacing="1">Online  ·  Monitoring Trades</text>
 
     ${footerText(h - 10)}
