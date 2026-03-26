@@ -14,7 +14,7 @@ const GRAY = "#7A7A8E";
 const LIGHT_GRAY = "#A0A0B4";
 
 const W = 800;
-const FONT = "Arial, Helvetica, sans-serif";
+const FONT = "'DejaVu Sans', Arial, Helvetica, sans-serif";
 
 // ===== SVG HELPERS =====
 function esc(str) {
