@@ -204,6 +204,46 @@ async function checkWeekendClose() {
   }
 }
 
+// ===== SUNDAY MARKET OPEN =====
+let lastSundayAlert = "";
+
+async function checkSundayOpen() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
+  const weekKey = `open-${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+
+  // Sunday 20:00-20:30 UTC (= 21:00-21:30 CET)
+  if (day === 0 && hour === 20 && minute < 35 && lastSundayAlert !== weekKey) {
+    lastSundayAlert = weekKey;
+
+    const msg = [
+      "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+      "\u{1F680}  <b>MARKET OPENS SOON</b>",
+      "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+      "",
+      "The gold market reopens in about 2 hours!",
+      "Get ready for a new week of trading.",
+      "",
+      "\u{1F4B0} Make sure you have <b>USDC</b> ready in your wallet",
+      "\u26FD Have some <b>ETH</b> for gas on Arbitrum",
+      "\u{1F514} Turn on notifications so you don\u2019t miss signals",
+      "",
+      "\u{1F4C8} <b>New week, new opportunities!</b>",
+      "First signal can drop at any moment after market open.",
+      "",
+      "Let\u2019s get it! \u{1F4AA}",
+    ].join("\n");
+
+    console.log("[NEWS] Sunday market open alert sent");
+    await sendTelegram(msg, [
+      { text: "\u{1F680} Open App", url: "https://www.smarttradingclub.io?tab=dashboard" },
+      { text: "\u{1F4AC} Community", url: "https://t.me/SmartTradingClubDapp" },
+    ]);
+  }
+}
+
 export async function startNewsAlerts() {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log("[NEWS] No Telegram config — news alerts disabled");
@@ -221,6 +261,7 @@ export async function startNewsAlerts() {
     if (!polling) return;
     await checkNews();
     await checkWeekendClose();
+    await checkSundayOpen();
     setTimeout(loop, CHECK_INTERVAL);
   };
   setTimeout(loop, CHECK_INTERVAL);
