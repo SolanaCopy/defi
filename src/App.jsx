@@ -2822,7 +2822,7 @@ function App() {
         {/* Navigation */}
         <nav className={`navbar ${scrolled ? 'navbar-scrolled' : ''}`}>
           <div className="brand">
-            <img src="/logo.svg" alt="Smart GoldBot" className="brand-logo" />
+            <img src="/logo.png" alt="Smart Trading Club" className="brand-logo" />
             <span className="brand-text">Smart <span className="text-gold-gradient">GoldBot</span></span>
           </div>
 
