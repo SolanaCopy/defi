@@ -168,6 +168,42 @@ export function isInNewsBlackout(events) {
   return false;
 }
 
+// ===== WEEKLY MARKET CLOSE =====
+let lastWeekendAlert = "";
+
+async function checkWeekendClose() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun, 5=Fri
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
+  const weekKey = `${now.getUTCFullYear()}-W${Math.ceil(now.getUTCDate() / 7)}`;
+
+  // Friday 21:00-21:30 UTC (= 22:00-22:30 CET)
+  if (day === 5 && hour === 21 && minute < 35 && lastWeekendAlert !== weekKey) {
+    lastWeekendAlert = weekKey;
+
+    const msg = [
+      "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+      "\u{1F319}  <b>MARKET CLOSING SOON</b>",
+      "\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501",
+      "",
+      "The gold market closes in less than 1 hour.",
+      "No new signals will be opened until Sunday evening.",
+      "",
+      "\u{1F3C6} <b>Great week of trading!</b>",
+      "Enjoy your weekend and recharge for next week.",
+      "",
+      "\u{1F4C5} Market reopens: <b>Sunday 23:00 CET</b>",
+      "\u{1F514} You\u2019ll be notified when trading resumes.",
+      "",
+      "See you Monday! \u{1F44B}",
+    ].join("\n");
+
+    console.log("[NEWS] Weekend market close alert sent");
+    await sendTelegram(msg);
+  }
+}
+
 export async function startNewsAlerts() {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log("[NEWS] No Telegram config — news alerts disabled");
@@ -184,6 +220,7 @@ export async function startNewsAlerts() {
   const loop = async () => {
     if (!polling) return;
     await checkNews();
+    await checkWeekendClose();
     setTimeout(loop, CHECK_INTERVAL);
   };
   setTimeout(loop, CHECK_INTERVAL);
