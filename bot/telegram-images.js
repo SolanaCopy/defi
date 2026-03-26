@@ -64,15 +64,12 @@ function topBar(gradId = "gold") {
   return `<rect x="0" y="0" width="${W}" height="5" fill="url(#${gradId})"/>`;
 }
 
+const LOGO_B64 = "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";
+
 function brandHeader() {
   return `
-    <g transform="translate(32, 18)">
-      <polygon points="15,1 27,7 27,24 15,30 3,24 3,7" fill="none" stroke="${GOLD}" stroke-width="1.5"/>
-      <rect x="7" y="16" width="4" height="10" rx="1" fill="${GOLD_LIGHT}" opacity="0.7"/>
-      <rect x="12.5" y="11" width="4" height="15" rx="1" fill="${GOLD}"/>
-      <rect x="18" y="6" width="4" height="20" rx="1" fill="${GOLD_LIGHT}" opacity="0.9"/>
-    </g>
-    <text x="66" y="35" font-family="${FONT}" font-size="13" fill="${GRAY}" font-weight="600" letter-spacing="3">SMART TRADING CLUB</text>
+    <image x="28" y="12" width="36" height="36" href="data:image/png;base64,${LOGO_B64}"/>
+    <text x="76" y="36" font-family="${FONT}" font-size="13" fill="${GRAY}" font-weight="600" letter-spacing="3" dominant-baseline="middle">SMART TRADING CLUB</text>
   `;
 }
 
@@ -294,19 +291,16 @@ export async function signalClosedImage({ signalId, resultPct, direction, levera
   const pct = Number(resultPct);
   const win = pct >= 0;
   const color = win ? GREEN : RED;
+  const dimColor = win ? GREEN_DIM : RED_DIM;
   const gradH = win ? "green" : "red";
-  const gradV = win ? "greenV" : "redV";
   const sign = win ? "+" : "";
-  const h = 450;
-  const barCount = Math.min(Math.ceil(Math.abs(pct) / 2.5), 14);
+  const h = 480;
 
-  const bars = Array.from({ length: 14 }, (_, i) => {
-    const filled = i < barCount;
-    const bh = 14 + i * 5;
-    const y = 310 - bh;
-    const x = 130 + i * 40;
-    return `<rect x="${x}" y="${y}" width="26" height="${bh}" rx="5" fill="${filled ? `url(#${gradV})` : '#1A1A28'}" opacity="${filled ? (0.5 + i * 0.035) : 0.25}"/>`;
-  }).join("");
+  // Circular progress ring
+  const radius = 70;
+  const circumference = 2 * Math.PI * radius;
+  const progress = Math.min(Math.abs(pct) / 50, 1); // 50% = full ring
+  const dashOffset = circumference * (1 - progress);
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
@@ -315,20 +309,50 @@ export async function signalClosedImage({ signalId, resultPct, direction, levera
     ${topBar(gradH)}
     ${brandHeader()}
 
-    <!-- Title -->
-    <text x="400" y="80" font-family="${FONT}" font-size="14" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}${direction ? `  ·  ${esc(direction)}` : ""}${leverage ? `  ·  ${esc(leverage)}` : ""}</text>
-    <text x="400" y="112" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">${win ? "SIGNAL CLOSED — PROFIT" : "SIGNAL CLOSED — LOSS"}</text>
+    <!-- Status badge -->
+    <rect x="300" y="60" width="200" height="30" rx="15" fill="${color}" opacity="0.1" stroke="${color}" stroke-width="1" stroke-opacity="0.3"/>
+    <text x="400" y="80" font-family="${FONT}" font-size="12" fill="${color}" font-weight="700" text-anchor="middle" letter-spacing="2">${win ? "PROFIT" : "LOSS"}</text>
 
-    <!-- Big percentage -->
-    <text x="400" y="178" font-family="${FONT}" font-size="60" fill="${color}" font-weight="700" text-anchor="middle" filter="url(#glow)">${sign}${pct.toFixed(2)}%</text>
+    <!-- Signal info -->
+    <text x="400" y="115" font-family="${FONT}" font-size="13" fill="${GRAY}" text-anchor="middle" letter-spacing="1">Signal #${esc(signalId)}${direction ? `  ·  ${esc(direction)}` : ""}${leverage ? `  ·  ${esc(leverage)}` : ""}</text>
 
-    <!-- Bar chart -->
-    ${bars}
+    <!-- Result card -->
+    <g transform="translate(400, 215)">
+      <!-- Outer ring background -->
+      <circle cx="0" cy="0" r="${radius}" fill="none" stroke="#1A1A28" stroke-width="6"/>
+      <!-- Progress ring -->
+      <circle cx="0" cy="0" r="${radius}" fill="none" stroke="${color}" stroke-width="6"
+        stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"
+        stroke-linecap="round" transform="rotate(-90)" opacity="0.8"/>
+      <!-- Glow -->
+      <circle cx="0" cy="0" r="${radius}" fill="none" stroke="${color}" stroke-width="2"
+        stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"
+        stroke-linecap="round" transform="rotate(-90)" opacity="0.15" filter="url(#glow)"/>
+      <!-- Inner fill -->
+      <circle cx="0" cy="0" r="${radius - 10}" fill="${color}" opacity="0.04"/>
+    </g>
 
-    <!-- Bottom section -->
+    <!-- Percentage (outside ring, centered) -->
+    <text x="400" y="210" font-family="${FONT}" font-size="38" fill="${color}" font-weight="700" text-anchor="middle">${sign}${pct.toFixed(2)}%</text>
+    <text x="400" y="235" font-family="${FONT}" font-size="13" fill="${GRAY}" text-anchor="middle">RESULT</text>
+
+    <!-- Stats row -->
+    ${card(50, 340, 220, 60)}
+    <text x="160" y="365" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="middle" letter-spacing="2">STATUS</text>
+    <text x="160" y="388" font-family="${FONT}" font-size="18" fill="${color}" font-weight="700" text-anchor="middle">${win ? "CLOSED IN PROFIT" : "CLOSED IN LOSS"}</text>
+
+    ${card(290, 340, 220, 60)}
+    <text x="400" y="365" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="middle" letter-spacing="2">SIGNAL</text>
+    <text x="400" y="388" font-family="${FONT}" font-size="18" fill="${WHITE}" font-weight="700" text-anchor="middle">#${esc(signalId)}</text>
+
+    ${card(530, 340, 220, 60)}
+    <text x="640" y="365" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="middle" letter-spacing="2">TRADE</text>
+    <text x="640" y="388" font-family="${FONT}" font-size="18" fill="${WHITE}" font-weight="700" text-anchor="middle">${esc(direction || "XAU/USD")} ${esc(leverage || "")}</text>
+
+    <!-- CTA -->
     ${win
-      ? ctaButton(345, "CLAIM YOUR PROFITS")
-      : `<text x="400" y="375" font-family="${FONT}" font-size="17" fill="${GRAY}" text-anchor="middle">Next trade will be better</text>`
+      ? ctaButton(418, "CLAIM YOUR PROFITS")
+      : `<text x="400" y="445" font-family="${FONT}" font-size="16" fill="${GRAY}" text-anchor="middle">Next trade will be better</text>`
     }
 
     ${footerText(h - 8)}
