@@ -847,6 +847,7 @@ input[type="number"] { -moz-appearance: textfield; }
   display: grid;
   grid-template-columns: 1fr 1.2fr;
   gap: 1.25rem;
+  margin-top: 1.5rem;
   margin-bottom: 1.5rem;
 }
 
