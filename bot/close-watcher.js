@@ -342,14 +342,27 @@ class CloseWatcher {
     contract.on("SignalClosed", async (signalId, resultPct) => {
       const pct = Number(resultPct) / 100;
       const win = pct >= 0;
-      log(`SignalClosed #${signalId} result=${pct}%`);
+
+      // Get leverage from signal
+      let levNum = 50;
+      let dir = "XAU/USD";
+      try {
+        const signal = await this.copyTrader.signalCore(signalId);
+        levNum = Number(signal.leverage || signal[6]) / 1000;
+        dir = (signal.long || signal[0]) ? "LONG" : "SHORT";
+      } catch {}
+
+      const leveragedPct = pct * levNum;
+      log(`SignalClosed #${signalId} result=${pct}% x${levNum} = ${leveragedPct.toFixed(1)}%`);
+
       const img = await signalClosedImage({
-        signalId: String(signalId), resultPct: pct, direction: "XAU/USD", leverage: "",
+        signalId: String(signalId), resultPct: leveragedPct, direction: dir, leverage: `${levNum}x`,
       });
       await sendTelegramPhoto(img, [
         win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
         ``,
-        `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(2)}%</b>`,
+        `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
+        `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${levNum}x`,
       ].join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
     });
 
@@ -525,16 +538,19 @@ class CloseWatcher {
       log(`TX confirmed in block ${receipt.blockNumber} — Signal #${activeId} closed!`);
 
       const pct = Number(resultPct) / 100;
+      const levNum = leverage / 1000;
+      const leveragedPct = pct * levNum;
       const win = pct >= 0;
       const dir = signal.long ? "LONG" : "SHORT";
-      const lev = `${leverage / 1000}x`;
+      const lev = `${levNum}x`;
       const img = await autoCloseImage({
-        signalId: String(activeId), direction: dir, leverage: lev, resultPct: pct,
+        signalId: String(activeId), direction: dir, leverage: lev, resultPct: leveragedPct,
       });
       await sendTelegramPhoto(img, [
         `⚡ <b>Auto-Close Signal #${activeId}</b>`,
         ``,
-        `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(2)}%</b>`,
+        `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
+        `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${lev}`,
       ].join("\n"), [
         win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
         { text: "🔗 View TX", url: `${ARBISCAN_TX}${tx.hash}` },
