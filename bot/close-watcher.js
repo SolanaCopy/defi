@@ -32,12 +32,17 @@ const ARBISCAN_ADDR = "https://arbiscan.io/address/";
 // ===== ABI FRAGMENTS =====
 const COPY_TRADER_ABI = [
   "function closeSignal(uint256 _id, int256 _result) external",
+  "function closeTradeMarket(uint32 _index, uint64 _expectedPrice) external",
   "function activeSignalId() view returns (uint256)",
-  "function signalCore(uint256) view returns (bool long, bool active, bool closed, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage, int256 resultPct)",
+  "function signalCore(uint256) view returns (bool long, bool active, bool closed, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage, int256 resultPct, uint256 feeAtCreation)",
   "function admin() view returns (address)",
+  "function getAutoCopyUsers() view returns (address[])",
+  "function autoCopy(address) view returns (uint256 amount, bool enabled)",
+  "function executeCopyFor(address _user, uint256 _signalId) external",
   "event SignalPosted(uint256 indexed signalId, bool long, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage)",
   "event SignalClosed(uint256 indexed signalId, int256 resultPct)",
   "event TradeCopied(address indexed user, uint256 indexed signalId, uint256 amount)",
+  "event AutoCopied(address indexed user, uint256 indexed signalId, uint256 amount)",
   "event ProceedsClaimed(address indexed user, uint256 indexed signalId, uint256 payout, uint256 fee)",
   "event FeesWithdrawn(uint256 amount)",
 ];
@@ -275,6 +280,26 @@ class CloseWatcher {
         ``,
         `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
       ].join("\n"), [BTN_COPY, BTN_CONTRACT]);
+
+      // Auto-copy for enabled users
+      try {
+        const users = await this.copyTrader.getAutoCopyUsers();
+        for (const user of users) {
+          try {
+            const config = await this.copyTrader.autoCopy(user);
+            if (config.enabled) {
+              log(`Auto-copy for ${user} (${Number(config.amount) / 1e6} USDC)...`);
+              const tx = await this.copyTrader.executeCopyFor(user, signalId);
+              await tx.wait();
+              log(`Auto-copied for ${user}`);
+            }
+          } catch (err) {
+            log(`Auto-copy skip ${user}: ${err.reason || err.message?.substring(0, 60)}`);
+          }
+        }
+      } catch (err) {
+        logError("Auto-copy iteration", err);
+      }
     });
 
     // ── User copied a trade (deposit) ──
