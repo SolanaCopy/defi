@@ -158,7 +158,7 @@ function formatPrice(price) {
   return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const LINE = "——————————————";
+const LINE = "————————";
 const WEBSITE = "https://www.smarttradingclub.io";
 
 /**
