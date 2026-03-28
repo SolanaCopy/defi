@@ -574,16 +574,14 @@ class CloseWatcher {
 // ===== RUN =====
 const bot = new CloseWatcher();
 
-process.on("SIGINT", async () => {
+process.on("SIGINT", () => {
   log("Shutting down...");
-  await sendTelegram("⚠️ <b>Bot is offline</b>\n\nThe trading bot has stopped. Signals will not be auto-closed until the bot is back online.");
   bot.stop();
   process.exit(0);
 });
 
-process.on("SIGTERM", async () => {
+process.on("SIGTERM", () => {
   log("Terminated...");
-  await sendTelegram("⚠️ <b>Bot is offline</b>\n\nThe trading bot has stopped. Signals will not be auto-closed until the bot is back online.");
   bot.stop();
   process.exit(0);
 });
