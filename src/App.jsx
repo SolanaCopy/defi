@@ -5,11 +5,18 @@ import CountUp from 'react-countup';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
-import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw } from 'lucide-react';
+import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users } from 'lucide-react';
 import { LiFiWidget } from '@lifi/widget';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { createClient } from '@supabase/supabase-js';
 import CONTRACT_ABI from './contractABI.json';
 import './index.css';
+
+// ===== SUPABASE =====
+const supabase = createClient(
+  'https://iqrdexbrkhhmuzidlwni.supabase.co',
+  'sb_publishable_wj2j8y7-HVbaqx2CvEuDhQ_C3Oa09C9'
+);
 
 const queryClient = new QueryClient();
 
@@ -204,6 +211,12 @@ function App() {
   const [autoCopyAmount, setAutoCopyAmount] = useState('');
   const [autoCopyLoading, setAutoCopyLoading] = useState(false);
 
+  // Referral State
+  const [referrer, setReferrer] = useState('');
+  const [referralLink, setReferralLink] = useState('');
+  const [referralStats, setReferralStats] = useState({ count: 0, volume: 0 });
+  const [referralCopied, setReferralCopied] = useState(false);
+
   // Signal State
   const [activeSignal, setActiveSignal] = useState(null);
   const [signalHistory, setSignalHistory] = useState([]);
@@ -323,6 +336,43 @@ function App() {
       await loadSlim(engine);
     }).then(() => setParticlesReady(true));
   }, []);
+
+  // Read referrer from URL (?ref=0x...)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const ref = params.get('ref');
+    if (ref && ref.startsWith('0x') && ref.length === 42) {
+      setReferrer(ref.toLowerCase());
+      localStorage.setItem('stc_referrer', ref.toLowerCase());
+    } else {
+      const stored = localStorage.getItem('stc_referrer');
+      if (stored) setReferrer(stored);
+    }
+  }, []);
+
+  // Generate referral link + load stats when wallet connects
+  useEffect(() => {
+    if (!account) return;
+    setReferralLink(`https://www.smarttradingclub.io/?ref=${account}`);
+
+    const loadReferralStats = async () => {
+      try {
+        const { data } = await supabase
+          .from('referrals')
+          .select('amount')
+          .eq('referrer', account.toLowerCase());
+        if (data) {
+          setReferralStats({
+            count: data.length,
+            volume: data.reduce((sum, r) => sum + (Number(r.amount) || 0), 0),
+          });
+        }
+      } catch (err) {
+        console.error('Referral stats error:', err);
+      }
+    };
+    loadReferralStats();
+  }, [account]);
 
   // Scroll detection for navbar
   useEffect(() => {
@@ -960,6 +1010,21 @@ function App() {
       ]);
       setCopyAmount("");
       setShowCopyModal(false);
+
+      // Save referral to Supabase
+      if (referrer && referrer !== account.toLowerCase()) {
+        try {
+          await supabase.from('referrals').upsert({
+            referrer: referrer,
+            referred: account.toLowerCase(),
+            signal_id: Number(activeSignal.id),
+            amount: Number(copyAmount),
+          }, { onConflict: 'referred,signal_id' });
+        } catch (e) {
+          console.error('Referral save error:', e);
+        }
+      }
+
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Copy trade error:", err);
@@ -2556,6 +2621,96 @@ function App() {
           </div>
         </motion.div>
       </div>
+
+      {/* ===== REFERRAL BANNER ===== */}
+      {account && (
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginTop: '16px' }}
+        >
+          <div style={{
+            position: 'absolute', inset: '-1px', borderRadius: '20px',
+            background: 'conic-gradient(from 200deg, transparent, rgba(139,92,246,0.25), transparent, rgba(212,168,67,0.2), transparent)',
+            animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+          }} />
+          <div style={{
+            position: 'relative', zIndex: 1,
+            background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+            borderRadius: '20px', padding: '24px 28px',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '14px',
+                  background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(212,168,67,0.1))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  border: '1px solid rgba(139,92,246,0.15)',
+                }}>
+                  <Share2 size={22} style={{ color: '#8B5CF6' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em', marginBottom: '4px' }}>
+                    Invite Friends & Earn
+                  </div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                    Share your referral link — earn rewards when friends copy trades
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                {/* Stats */}
+                <div style={{
+                  display: 'flex', gap: '16px', padding: '8px 16px', borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: '#8B5CF6' }}>
+                      {referralStats.count}
+                    </div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>REFERRALS</div>
+                  </div>
+                  <div style={{ width: 1, background: 'rgba(255,255,255,0.06)' }} />
+                  <div style={{ textAlign: 'center' }}>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
+                      ${referralStats.volume.toFixed(0)}
+                    </div>
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>VOLUME</div>
+                  </div>
+                </div>
+
+                {/* Copy link button */}
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '8px 12px', borderRadius: '12px',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                  fontSize: '0.72rem', color: 'var(--text-secondary)',
+                  fontFamily: "'Space Grotesk', sans-serif',",
+                  maxWidth: '240px', overflow: 'hidden',
+                }}>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    smarttradingclub.io/?ref={account.slice(0, 6)}...
+                  </span>
+                </div>
+                <button
+                  className="btn btn-primary"
+                  style={{ padding: '10px 20px', fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap' }}
+                  onClick={() => {
+                    navigator.clipboard.writeText(referralLink);
+                    setReferralCopied(true);
+                    setTimeout(() => setReferralCopied(false), 2000);
+                  }}
+                >
+                  {referralCopied ? <><CheckCircle2 size={14} /> Copied!</> : <><Copy size={14} /> Copy Link</>}
+                </button>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* ===== BOTTOM: Protocol info + Signal History + Transactions ===== */}
       <div className="dash-bottom-grid">

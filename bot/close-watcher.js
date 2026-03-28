@@ -9,6 +9,7 @@
 
 import "dotenv/config";
 import { ethers } from "ethers";
+import { createClient } from "@supabase/supabase-js";
 import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage } from "./telegram-images.js";
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
@@ -21,7 +22,16 @@ const {
   GOLD_COPY_TRADER_ADDRESS,
   TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID,
+  SUPABASE_URL,
+  SUPABASE_KEY,
 } = process.env;
+
+// ===== SUPABASE =====
+const supabase = (SUPABASE_URL && SUPABASE_KEY)
+  ? createClient(SUPABASE_URL, SUPABASE_KEY)
+  : null;
+
+const REFERRAL_REWARD_PCT = 10; // 10% of fee goes to referrer
 
 const GTRADE_DIAMOND = "0xFF162c694eAA571f685030649814282eA457f169";
 const POLL_INTERVAL = 15_000; // 15s polling fallback
@@ -215,6 +225,11 @@ class CloseWatcher {
     this.httpProvider = new ethers.JsonRpcProvider(httpRpc);
     this.wallet = new ethers.Wallet(key, this.httpProvider);
     this.copyTrader = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, this.wallet);
+    this.usdc = new ethers.Contract(
+      "0xaf88d065e77c8cC2239327C5EDb3A432268e5831",
+      ["function transfer(address to, uint256 amount) returns (bool)", "function balanceOf(address) view returns (uint256)"],
+      this.wallet
+    );
 
     // Verify admin
     const adminAddr = await this.copyTrader.admin();
@@ -330,6 +345,38 @@ class CloseWatcher {
         `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
         Number(fee) > 0 ? `📊 Fee: $${feeStr} USDC` : "",
       ].filter(Boolean).join("\n"), buttons);
+
+      // ── Referral reward payout ──
+      if (supabase && Number(fee) > 0) {
+        try {
+          const { data } = await supabase
+            .from('referrals')
+            .select('referrer')
+            .eq('referred', user.toLowerCase())
+            .eq('signal_id', Number(signalId))
+            .limit(1);
+
+          if (data && data.length > 0) {
+            const referrerAddr = data[0].referrer;
+            const reward = (Number(fee) * REFERRAL_REWARD_PCT) / 100;
+            if (reward >= 10000) { // min 0.01 USDC (6 decimals)
+              log(`Referral reward: ${formatUSDC(BigInt(Math.floor(reward)))} USDC to ${shortAddr(referrerAddr)}`);
+              const rewardTx = await this.usdc.transfer(referrerAddr, BigInt(Math.floor(reward)));
+              await rewardTx.wait();
+              log(`Referral reward sent: tx ${rewardTx.hash}`);
+
+              // Update referral record with reward
+              await supabase
+                .from('referrals')
+                .update({ reward_paid: true, reward_amount: reward / 1e6 })
+                .eq('referred', user.toLowerCase())
+                .eq('signal_id', Number(signalId));
+            }
+          }
+        } catch (err) {
+          log(`Referral reward error: ${err.message}`);
+        }
+      }
     });
 
     // ── Signal closed (trade result) ──
