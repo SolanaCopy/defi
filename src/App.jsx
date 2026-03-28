@@ -165,6 +165,26 @@ function timeAgo(timestamp) {
   return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+// Helper: check if gold (XAU/USD) market is open
+// Gold trades Sun 23:00 UTC – Fri 22:00 UTC, with daily break 22:00–23:00 UTC
+function getGoldMarketStatus() {
+  const now = new Date();
+  const utcDay = now.getUTCDay(); // 0=Sun, 6=Sat
+  const utcHour = now.getUTCHours();
+  const utcMin = now.getUTCMinutes();
+  const utcTime = utcHour + utcMin / 60;
+
+  // Weekend: closed from Fri 22:00 UTC until Sun 23:00 UTC
+  if (utcDay === 6) return { open: false, reason: 'Weekend — market closed' };
+  if (utcDay === 0 && utcTime < 23) return { open: false, reason: 'Weekend — market opens Sunday 23:00 UTC' };
+  if (utcDay === 5 && utcTime >= 22) return { open: false, reason: 'Weekend — market closed until Sunday 23:00 UTC' };
+
+  // Daily maintenance break: 22:00–23:00 UTC (Mon–Thu)
+  if (utcTime >= 22 && utcTime < 23) return { open: false, reason: 'Daily break — reopens at 23:00 UTC' };
+
+  return { open: true, reason: '' };
+}
+
 function App() {
   const [account, setAccount] = useState("");
   const [activeTab, setActiveTab] = useState(() => {
@@ -175,10 +195,14 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [particlesReady, setParticlesReady] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [marketStatus, setMarketStatus] = useState(getGoldMarketStatus);
 
   // Blockchain State
   const [walletUSDC, setWalletUSDC] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [autoCopyConfig, setAutoCopyConfig] = useState({ enabled: false, amount: 0 });
+  const [autoCopyAmount, setAutoCopyAmount] = useState('');
+  const [autoCopyLoading, setAutoCopyLoading] = useState(false);
 
   // Signal State
   const [activeSignal, setActiveSignal] = useState(null);
@@ -305,6 +329,12 @@ function App() {
     const handleScroll = () => setScrolled(window.scrollY > 50);
     window.addEventListener('scroll', handleScroll);
     return () => window.removeEventListener('scroll', handleScroll);
+  }, []);
+
+  // Update gold market status every 30s
+  useEffect(() => {
+    const interval = setInterval(() => setMarketStatus(getGoldMarketStatus()), 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const { scrollYProgress } = useScroll();
@@ -632,6 +662,17 @@ function App() {
       } catch {
         setUserPositions({});
       }
+
+      // Auto-copy config
+      try {
+        const config = await contract.autoCopy(userAddress);
+        setAutoCopyConfig({
+          enabled: config.enabled,
+          amount: parseFloat(ethers.formatUnits(config.amount, USDC_DECIMALS)),
+        });
+      } catch {
+        setAutoCopyConfig({ enabled: false, amount: 0 });
+      }
     } catch (err) {
       console.error("Error loading data:", err);
     }
@@ -655,13 +696,17 @@ function App() {
         await switchToArbitrum();
       }
 
+      // Re-read chainId after potential switch
+      const currentChain = await window.ethereum.request({ method: 'eth_chainId' });
+      setCurrentChainId(currentChain);
+
       const provider = new ethers.BrowserProvider(window.ethereum);
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
       setAccount(address);
 
       // Only set up contract refs if on Arbitrum
-      if (chainId === ARBITRUM_CHAIN_ID) {
+      if (currentChain === ARBITRUM_CHAIN_ID) {
         const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
         const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
 
@@ -771,6 +816,54 @@ function App() {
       alert(err.reason || err.message || "Failed to close signal");
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // ===== USER: Auto-Copy =====
+  const handleEnableAutoCopy = async () => {
+    if (!account || !contractRef.current) return;
+    const amount = parseFloat(autoCopyAmount);
+    if (!amount || amount < 5) {
+      alert('Minimum $5 USDC per trade');
+      return;
+    }
+    try {
+      setAutoCopyLoading(true);
+      const contract = contractRef.current;
+      const usdcContract = usdcRef.current;
+      const amountWei = ethers.parseUnits(amount.toString(), USDC_DECIMALS);
+
+      // Approve max USDC to contract for auto-copy
+      const allowance = await usdcContract.allowance(account, CONTRACT_ADDRESS);
+      if (allowance < amountWei * 100n) {
+        const approveTx = await usdcContract.approve(CONTRACT_ADDRESS, ethers.MaxUint256);
+        await approveTx.wait();
+      }
+
+      const tx = await contract.enableAutoCopy(amountWei);
+      await tx.wait();
+      setAutoCopyConfig({ enabled: true, amount });
+      setAutoCopyAmount('');
+    } catch (err) {
+      console.error('Auto-copy enable error:', err);
+      alert('Failed to enable auto-copy');
+    } finally {
+      setAutoCopyLoading(false);
+    }
+  };
+
+  const handleDisableAutoCopy = async () => {
+    if (!account || !contractRef.current) return;
+    try {
+      setAutoCopyLoading(true);
+      const tx = await contractRef.current.disableAutoCopy();
+      await tx.wait();
+      setAutoCopyConfig({ enabled: false, amount: 0 });
+    } catch (err) {
+      console.error('Auto-copy disable error:', err);
+      alert('Failed to disable auto-copy');
+    } finally {
+      setAutoCopyLoading(false);
     }
   };
 
@@ -906,11 +999,29 @@ function App() {
                 {/* Header */}
                 <div className="hero-card-header">
                   <div className="hero-card-header-left">
-                    <span className="pulse-dot" />
+                    <span className={marketStatus.open ? "pulse-dot" : "pulse-dot pulse-dot-red"} />
                     <span className="hero-card-label">Live Trading Terminal</span>
                   </div>
-                  <span className="hero-card-live">LIVE</span>
+                  <span className={marketStatus.open ? "hero-card-live" : "hero-card-live hero-card-closed"}>
+                    {marketStatus.open ? 'LIVE' : 'CLOSED'}
+                  </span>
                 </div>
+
+                {/* Market closed banner */}
+                {!marketStatus.open && (
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '8px',
+                    padding: '10px 12px', margin: '12px 0 0',
+                    borderRadius: '10px',
+                    background: 'rgba(248,113,113,0.08)',
+                    border: '1px solid rgba(248,113,113,0.2)',
+                  }}>
+                    <Clock size={15} style={{ color: 'var(--danger)', flexShrink: 0 }} />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--danger)', fontWeight: 600 }}>
+                      {marketStatus.reason}
+                    </span>
+                  </div>
+                )}
 
                 {/* Active trade preview */}
                 <div style={{ padding: '16px 0 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
@@ -919,20 +1030,24 @@ function App() {
                       <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.3rem', fontWeight: 700 }}>XAU/USD</span>
                       <span style={{
                         padding: '2px 8px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 700,
-                        background: activeSignal ? (activeSignal.long ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)',
-                        color: activeSignal ? (activeSignal.long ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
+                        background: !marketStatus.open
+                          ? 'rgba(248,113,113,0.1)'
+                          : activeSignal ? (activeSignal.long ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)',
+                        color: !marketStatus.open
+                          ? 'var(--danger)'
+                          : activeSignal ? (activeSignal.long ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
                         letterSpacing: '0.05em'
                       }}>
-                        {activeSignal ? (activeSignal.long ? 'LONG' : 'SHORT') : 'WAITING'}
+                        {!marketStatus.open ? 'CLOSED' : activeSignal ? (activeSignal.long ? 'LONG' : 'SHORT') : 'WAITING'}
                       </span>
                     </div>
-                    {activeSignal && (
+                    {activeSignal && marketStatus.open && (
                       <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 600 }}>
                         {formatLeverage(activeSignal.leverage)}x
                       </span>
                     )}
                   </div>
-                  {activeSignal ? (
+                  {activeSignal && marketStatus.open ? (
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                       {[
                         { label: 'ENTRY', value: `$${formatGTradePrice(activeSignal.entryPrice)}`, color: 'var(--text-primary)' },
@@ -948,7 +1063,7 @@ function App() {
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
                       <Clock size={14} />
-                      <span>No active trade — waiting for next signal</span>
+                      <span>{!marketStatus.open ? 'Market is closed — no trading possible' : 'No active trade — waiting for next signal'}</span>
                     </div>
                   )}
                 </div>
@@ -1343,12 +1458,13 @@ function App() {
     const breakeven = closedSignals.filter(s => Number(s.resultPct) === 0);
     const winRate = closedSignals.length > 0 ? (wins.length / closedSignals.length * 100) : 0;
 
-    // Best & worst trade
+    // Best & worst trade (compare with leverage applied)
+    const getTradeResult = (s) => Number(s.resultPct) / 100 * Number(s.leverage) / 1000;
     const bestTrade = closedSignals.length > 0
-      ? closedSignals.reduce((a, b) => Number(a.resultPct) > Number(b.resultPct) ? a : b)
+      ? closedSignals.reduce((a, b) => getTradeResult(a) > getTradeResult(b) ? a : b)
       : null;
     const worstTrade = closedSignals.length > 0
-      ? closedSignals.reduce((a, b) => Number(a.resultPct) < Number(b.resultPct) ? a : b)
+      ? closedSignals.reduce((a, b) => getTradeResult(a) < getTradeResult(b) ? a : b)
       : null;
 
     // Group signals by period
@@ -1394,9 +1510,9 @@ function App() {
       }
     }
 
-    // Average result
+    // Average result (with leverage)
     const avgResult = closedSignals.length > 0
-      ? closedSignals.reduce((sum, s) => sum + Number(s.resultPct), 0) / closedSignals.length / 100
+      ? closedSignals.reduce((sum, s) => sum + getTradeResult(s), 0) / closedSignals.length
       : 0;
 
     const monthlyGroups = groupByPeriod(closedSignals, 30);
@@ -1449,7 +1565,7 @@ function App() {
             <div style={{ background: 'rgba(52, 211, 153, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(52, 211, 153, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Best Trade</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                +{(Number(bestTrade.resultPct) / 100).toFixed(2)}%
+                +{(Number(bestTrade.resultPct) / 100 * Number(bestTrade.leverage) / 1000).toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 #{Number(bestTrade.id)} &middot; {bestTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(bestTrade.leverage)}x
@@ -1458,7 +1574,7 @@ function App() {
             <div style={{ background: 'rgba(248, 113, 113, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(248, 113, 113, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Worst Trade</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                {(Number(worstTrade.resultPct) / 100).toFixed(2)}%
+                {(Number(worstTrade.resultPct) / 100 * Number(worstTrade.leverage) / 1000).toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 #{Number(worstTrade.id)} &middot; {worstTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(worstTrade.leverage)}x
@@ -1568,7 +1684,8 @@ function App() {
           {/* Trade Rows */}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {signalHistory.map((signal, index) => {
-              const result = Number(signal.resultPct) / 100;
+              const leverage = Number(signal.leverage) / 1000;
+              const result = Number(signal.resultPct) / 100 * leverage;
               const isClosed = signal.closed;
               return (
                 <motion.div
@@ -1815,8 +1932,85 @@ function App() {
           </div>
         </motion.div>
 
+        {/* Auto-Copy card */}
+        <motion.div className="dash-total-card" variants={fadeUp} custom={1}>
+          <div className="dash-total-card-glow" />
+          <div className="dash-total-card-inner">
+            <div className="dash-total-header">
+              <span className={autoCopyConfig.enabled ? "pulse-dot" : "pulse-dot pulse-dot-red"} />
+              <span className="dash-total-tag">Auto-Copy</span>
+              {autoCopyConfig.enabled && (
+                <span style={{
+                  marginLeft: 'auto', padding: '2px 8px', borderRadius: '6px',
+                  fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em',
+                  background: 'rgba(52,211,153,0.12)', color: 'var(--success)',
+                }}>ACTIVE</span>
+              )}
+            </div>
+
+            {autoCopyConfig.enabled ? (
+              <>
+                <div className="dash-total-amount">
+                  $<CountUp end={autoCopyConfig.amount} duration={1} decimals={2} />
+                </div>
+                <span className="dash-total-sub">per trade (automatic)</span>
+                <button
+                  className="btn btn-glass"
+                  style={{ marginTop: '12px', width: '100%', fontSize: '0.8rem', padding: '8px 12px', color: 'var(--danger)' }}
+                  onClick={handleDisableAutoCopy}
+                  disabled={autoCopyLoading}
+                >
+                  {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <X size={14} />}
+                  Disable Auto-Copy
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.5 }}>
+                  Automatically copy every signal. Set your amount per trade.
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <div style={{ position: 'relative', flex: 1 }}>
+                    <span style={{
+                      position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
+                      fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600,
+                    }}>$</span>
+                    <input
+                      type="number"
+                      min="5"
+                      step="1"
+                      placeholder="Amount"
+                      value={autoCopyAmount}
+                      onChange={(e) => setAutoCopyAmount(e.target.value)}
+                      style={{
+                        width: '100%', padding: '10px 10px 10px 24px',
+                        borderRadius: '10px', border: '1px solid var(--border)',
+                        background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)',
+                        fontSize: '0.85rem', fontFamily: "'Space Grotesk', sans-serif",
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <button
+                    className="btn btn-primary"
+                    style={{ padding: '10px 16px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
+                    onClick={handleEnableAutoCopy}
+                    disabled={autoCopyLoading || !account}
+                  >
+                    {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
+                    Enable
+                  </button>
+                </div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
+                  Min. $5 USDC &middot; Requires USDC approval
+                </div>
+              </>
+            )}
+          </div>
+        </motion.div>
+
         {/* Stat cards */}
-        <motion.div className="dash-stat-card" variants={fadeUp} custom={1}>
+        <motion.div className="dash-stat-card" variants={fadeUp} custom={3}>
           <BarChart3 size={18} className="dash-stat-card-icon" />
           <span className="dash-stat-card-label">Total Signals</span>
           <span className="dash-stat-card-value">
@@ -1825,14 +2019,14 @@ function App() {
           <span className="dash-stat-card-unit">signals</span>
         </motion.div>
 
-        <motion.div className="dash-stat-card dash-stat-card-accent" variants={fadeUp} custom={2}>
+        <motion.div className="dash-stat-card dash-stat-card-accent" variants={fadeUp} custom={4}>
           <Copy size={18} className="dash-stat-card-icon" />
           <span className="dash-stat-card-label">My Positions</span>
           <span className="dash-stat-card-value accent">{Object.keys(userPositions).length}</span>
           <span className="dash-stat-card-unit">trades</span>
         </motion.div>
 
-        <motion.div className="dash-stat-card" variants={fadeUp} custom={3}>
+        <motion.div className="dash-stat-card" variants={fadeUp} custom={5}>
           <Coins size={18} className="dash-stat-card-icon" />
           <span className="dash-stat-card-label">Fee</span>
           <span className="dash-stat-card-value">{(feePercent / 100).toFixed(1)}%</span>
@@ -2087,7 +2281,7 @@ function App() {
                           background: isClosed ? (result >= 0 ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)') : 'rgba(212, 168, 67, 0.1)',
                           color: isClosed ? (result >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
                         }}>
-                          {isClosed ? `${result >= 0 ? '+' : ''}${result.toFixed(2)}%` : 'OPEN'}
+                          {isClosed ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%` : 'OPEN'}
                         </span>
                       </div>
 
@@ -2214,7 +2408,7 @@ function App() {
                   {signal.closed ? (
                     <>
                       <span className={`dash-tx-amount ${Number(signal.resultPct) >= 0 ? 'green' : 'red'}`}>
-                        {Number(signal.resultPct) >= 0 ? '+' : ''}{(Number(signal.resultPct) / 100).toFixed(2)}%
+                        {Number(signal.resultPct) >= 0 ? '+' : ''}{(Number(signal.resultPct) / 100 * Number(signal.leverage) / 1000).toFixed(2)}%
                       </span>
                       <span className="dash-tx-unit">gesloten</span>
                     </>
