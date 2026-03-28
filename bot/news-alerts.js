@@ -88,9 +88,9 @@ async function checkNews() {
       alertedEvents.add(preAlertKey);
 
       const msg = [
-        `————————`,
+        ``,
         `\u26A0\uFE0F  <b>HIGH IMPACT NEWS IN 1 HOUR</b>`,
-        `————————`,
+        ``,
         ``,
         `\u{1F4C5} <b>${event.title}</b>`,
         `\u{1F553} ${formatEventTime(event.date)}`,
@@ -113,9 +113,9 @@ async function checkNews() {
       alertedEvents.add(nowAlertKey);
 
       const msg = [
-        `————————`,
+        ``,
         `\u{1F534}  <b>HIGH IMPACT NEWS NOW</b>`,
-        `————————`,
+        ``,
         ``,
         `\u{1F4C5} <b>${event.title}</b>`,
         `\u{1F4B5} USD | <b>HIGH IMPACT</b>`,
@@ -136,9 +136,9 @@ async function checkNews() {
       alertedEvents.add(clearKey);
 
       const msg = [
-        `————————`,
+        ``,
         `\u2705  <b>ALL CLEAR — SAFE TO TRADE</b>`,
-        `————————`,
+        ``,
         ``,
         `The no-trade zone for <b>${event.title}</b> has ended.`,
         `Trading signals can resume.`,
@@ -183,9 +183,9 @@ async function checkWeekendClose() {
     lastWeekendAlert = weekKey;
 
     const msg = [
-      "————————",
+      "",
       "\u{1F319}  <b>MARKET CLOSING SOON</b>",
-      "————————",
+      "",
       "",
       "The gold market closes in less than 1 hour.",
       "No new signals will be opened until Sunday evening.",
@@ -219,9 +219,9 @@ async function checkSundayOpen() {
     lastSundayAlert = weekKey;
 
     const msg = [
-      "————————",
+      "",
       "\u{1F680}  <b>MARKET OPENS SOON</b>",
-      "————————",
+      "",
       "",
       "The gold market reopens in about 2 hours!",
       "Get ready for a new week of trading.",

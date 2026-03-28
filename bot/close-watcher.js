@@ -158,7 +158,7 @@ function formatPrice(price) {
   return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const LINE = "————————";
+const LINE = "";
 const WEBSITE = "https://www.smarttradingclub.io";
 
 /**
@@ -226,12 +226,6 @@ class CloseWatcher {
     // Telegram status
     if (TELEGRAM_BOT_TOKEN && TELEGRAM_CHAT_ID) {
       log("Telegram notifications enabled");
-      const onlineImg = await botOnlineImage();
-      await sendTelegramPhoto(onlineImg, `🤖 <b>Smart Trading Bot</b> is online\n\n📡 Network: Arbitrum`, [
-        { text: "🚀 Open App", url: WEBSITE },
-        { text: "📄 Contract", url: `${ARBISCAN_ADDR}${GOLD_COPY_TRADER_ADDRESS}` },
-        { text: "💬 Community", url: "https://t.me/SmartTradingClubDapp" },
-      ]);
     } else {
       log("Telegram not configured — notifications disabled");
     }
