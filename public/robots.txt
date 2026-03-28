@@ -1,4 +1,5 @@
 User-agent: *
 Allow: /
+Disallow: /build/
 
 Sitemap: https://www.smarttradingclub.io/sitemap.xml

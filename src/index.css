@@ -773,7 +773,7 @@ input[type="number"] { -moz-appearance: textfield; }
 /* --- Top Bento: Portfolio Overview --- */
 .dash-bento-top {
   display: grid;
-  grid-template-columns: 1.2fr 1.2fr 1fr 1fr 1fr;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr;
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
@@ -791,7 +791,7 @@ input[type="number"] { -moz-appearance: textfield; }
 }
 .dash-total-card-inner {
   position: relative; z-index: 1;
-  background: rgba(8,10,15,0.92);
+  background: var(--bg-card);
   backdrop-filter: blur(24px);
   border-radius: 22px; padding: 2rem;
 }

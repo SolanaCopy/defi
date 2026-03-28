@@ -584,6 +584,73 @@ function App() {
     }
   };
 
+  // Load public data (no wallet needed) — for Results page & homepage stats
+  const loadPublicData = useCallback(async () => {
+    try {
+      const publicProvider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+      const publicContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, publicProvider);
+
+      const count = await publicContract.signalCount();
+      setSignalCount(Number(count));
+      const fee = await publicContract.feePercent();
+      setFeePercent(Number(fee));
+
+      // Helper to parse signal data
+      const parseSignal = (id, core, meta) => ({
+        id: Number(id),
+        long: core[0],
+        active: core[1],
+        closed: core[2],
+        entryPrice: core[3],
+        tp: core[4],
+        sl: core[5],
+        leverage: core[6],
+        resultPct: core[7],
+        feeAtCreation: core[8],
+        timestamp: meta[0],
+        closedAt: meta[1],
+        totalCopied: meta[2],
+        copierCount: meta[3],
+      });
+
+      // Active signal
+      try {
+        const activeId = await publicContract.getActiveSignalId();
+        if (Number(activeId) > 0) {
+          const core = await publicContract.signalCore(activeId);
+          const meta = await publicContract.signalMeta(activeId);
+          setActiveSignal(parseSignal(activeId, core, meta));
+        } else {
+          setActiveSignal(null);
+        }
+      } catch {
+        setActiveSignal(null);
+      }
+
+      // Signal history (last 20)
+      try {
+        const total = Number(count);
+        const histArr = [];
+        const start = Math.max(1, total - 19);
+        for (let i = total; i >= start; i--) {
+          const core = await publicContract.signalCore(i);
+          const meta = await publicContract.signalMeta(i);
+          histArr.push(parseSignal(i, core, meta));
+        }
+        setSignalHistory(histArr);
+      } catch {
+        // keep existing
+      }
+    } catch (err) {
+      console.error("Public data load error:", err);
+    }
+  }, []);
+
+  // Load public data on mount (no wallet needed)
+  useEffect(() => {
+    loadPublicData();
+  }, [loadPublicData]);
+
   // Load data from contract
   const loadData = useCallback(async (contract, usdcContract, userAddress) => {
     try {
@@ -1828,82 +1895,125 @@ function App() {
         variants={fadeUp}
         initial="hidden"
         animate="visible"
-        style={{
-          background: activeSignal
-            ? `linear-gradient(135deg, ${activeSignal.long ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)'}, rgba(212,168,67,0.08))`
-            : 'linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))',
-          border: `1px solid ${activeSignal
-            ? (activeSignal.long ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)')
-            : 'var(--border)'}`,
-          borderRadius: '16px',
-          padding: '20px 24px',
-          marginBottom: '16px',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          gap: '16px',
-          flexWrap: 'wrap',
-        }}
+        style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}
       >
-        {activeSignal ? (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px', flexWrap: 'wrap' }}>
-              <span className="pulse-dot" style={{ width: 10, height: 10, background: activeSignal.long ? 'var(--success)' : 'var(--danger)' }} />
-              <div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>
-                  Signal #{Number(activeSignal.id)} is LIVE
+        {/* Animated glow border */}
+        <div style={{
+          position: 'absolute', inset: '-1px', borderRadius: '20px',
+          background: activeSignal
+            ? `conic-gradient(from 200deg, transparent, ${activeSignal.long ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)'}, transparent, rgba(212,168,67,0.2), transparent)`
+            : 'conic-gradient(from 200deg, transparent, rgba(255,255,255,0.08), transparent, rgba(212,168,67,0.1), transparent)',
+          animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+        }} />
+
+        <div style={{
+          position: 'relative', zIndex: 1,
+          background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+          borderRadius: '20px', padding: '24px 28px',
+        }}>
+          {activeSignal ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '14px',
+                  background: `linear-gradient(135deg, ${activeSignal.long ? 'rgba(52,211,153,0.2), rgba(52,211,153,0.05)' : 'rgba(248,113,113,0.2), rgba(248,113,113,0.05)'})`,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  border: `1px solid ${activeSignal.long ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)'}`,
+                }}>
+                  {activeSignal.long ? <TrendingUp size={22} style={{ color: 'var(--success)' }} /> : <ArrowDownRight size={22} style={{ color: 'var(--danger)' }} />}
                 </div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  <span style={{
-                    color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
-                    fontWeight: 600,
-                  }}>{activeSignal.long ? 'LONG' : 'SHORT'}</span>
-                  {' '}XAU/USD · {formatLeverage(activeSignal.leverage)}x · Entry ${formatGTradePrice(activeSignal.entryPrice)}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '1.1rem', fontWeight: 700, letterSpacing: '-0.01em' }}>
+                      Signal #{Number(activeSignal.id)} is LIVE
+                    </span>
+                    <span className="pulse-dot" style={{ width: 8, height: 8, background: activeSignal.long ? 'var(--success)' : 'var(--danger)' }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{
+                      padding: '3px 10px', borderRadius: '8px', fontSize: '0.65rem', fontWeight: 700,
+                      background: activeSignal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                      color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
+                    }}>{activeSignal.long ? 'LONG' : 'SHORT'}</span>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                      XAU/USD &middot; {formatLeverage(activeSignal.leverage)}x &middot; Entry ${formatGTradePrice(activeSignal.entryPrice)}
+                    </span>
+                  </div>
                 </div>
+              </div>
+              {!userPositions[Number(activeSignal.id)] ? (
+                <button
+                  className="btn btn-primary btn-glow"
+                  style={{ padding: '12px 28px', fontSize: '0.95rem', fontWeight: 700 }}
+                  onClick={() => setShowCopyModal(true)}
+                  disabled={!account || isLoading}
+                >
+                  <Zap size={16} /> Copy Now
+                </button>
+              ) : (
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '8px',
+                  padding: '10px 16px', borderRadius: '12px',
+                  background: 'rgba(212,168,67,0.08)', border: '1px solid rgba(212,168,67,0.15)',
+                }}>
+                  <CheckCircle2 size={16} style={{ color: 'var(--accent)' }} />
+                  <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)' }}>
+                    Copied — {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '14px',
+                  background: 'linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  border: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <Clock size={22} style={{ color: 'var(--text-secondary)' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em', marginBottom: '4px' }}>
+                    Waiting for Signal
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      No active trade right now
+                    </span>
+                    <span style={{
+                      width: 4, height: 4, borderRadius: '50%', background: 'rgba(255,255,255,0.15)',
+                    }} />
+                    <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                      Alerts via Telegram
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  padding: '8px 14px', borderRadius: '10px',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                }}>
+                  <Eye size={13} style={{ color: 'var(--text-secondary)' }} />
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Monitoring 24/5</span>
+                </div>
+                <a
+                  href="https://t.me/SmartTradingClubDapp"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-glass"
+                  style={{ padding: '10px 20px', fontSize: '0.82rem', textDecoration: 'none', fontWeight: 600 }}
+                >
+                  <ExternalLink size={13} />
+                  Join Telegram
+                </a>
               </div>
             </div>
-            {!userPositions[Number(activeSignal.id)] ? (
-              <button
-                className="btn btn-primary btn-glow"
-                style={{ padding: '12px 28px', fontSize: '0.95rem', fontWeight: 700 }}
-                onClick={() => setShowCopyModal(true)}
-                disabled={!account || isLoading}
-              >
-                <Zap size={16} /> Copy Now
-              </button>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--accent)' }}>
-                <CheckCircle2 size={18} />
-                <span style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                  Copied — {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC
-                </span>
-              </div>
-            )}
-          </>
-        ) : (
-          <>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-              <Clock size={22} style={{ color: 'var(--text-secondary)', opacity: 0.6 }} />
-              <div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '2px' }}>
-                  No Active Signal
-                </div>
-                <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
-                  Waiting for the next trade signal. You'll be notified in Telegram.
-                </div>
-              </div>
-            </div>
-            <a
-              href="https://t.me/SmartTradingClubDapp"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn btn-glass"
-              style={{ padding: '10px 20px', fontSize: '0.85rem', textDecoration: 'none' }}
-            >
-              Join Telegram for alerts
-            </a>
-          </>
-        )}
+          )}
+        </div>
       </motion.div>
 
       {/* ===== TOP: Wallet + Stats ===== */}
@@ -1932,85 +2042,8 @@ function App() {
           </div>
         </motion.div>
 
-        {/* Auto-Copy card */}
-        <motion.div className="dash-total-card" variants={fadeUp} custom={1}>
-          <div className="dash-total-card-glow" />
-          <div className="dash-total-card-inner">
-            <div className="dash-total-header">
-              <span className={autoCopyConfig.enabled ? "pulse-dot" : "pulse-dot pulse-dot-red"} />
-              <span className="dash-total-tag">Auto-Copy</span>
-              {autoCopyConfig.enabled && (
-                <span style={{
-                  marginLeft: 'auto', padding: '2px 8px', borderRadius: '6px',
-                  fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em',
-                  background: 'rgba(52,211,153,0.12)', color: 'var(--success)',
-                }}>ACTIVE</span>
-              )}
-            </div>
-
-            {autoCopyConfig.enabled ? (
-              <>
-                <div className="dash-total-amount">
-                  $<CountUp end={autoCopyConfig.amount} duration={1} decimals={2} />
-                </div>
-                <span className="dash-total-sub">per trade (automatic)</span>
-                <button
-                  className="btn btn-glass"
-                  style={{ marginTop: '12px', width: '100%', fontSize: '0.8rem', padding: '8px 12px', color: 'var(--danger)' }}
-                  onClick={handleDisableAutoCopy}
-                  disabled={autoCopyLoading}
-                >
-                  {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <X size={14} />}
-                  Disable Auto-Copy
-                </button>
-              </>
-            ) : (
-              <>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '12px', lineHeight: 1.5 }}>
-                  Automatically copy every signal. Set your amount per trade.
-                </div>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <div style={{ position: 'relative', flex: 1 }}>
-                    <span style={{
-                      position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
-                      fontSize: '0.8rem', color: 'var(--text-secondary)', fontWeight: 600,
-                    }}>$</span>
-                    <input
-                      type="number"
-                      min="5"
-                      step="1"
-                      placeholder="Amount"
-                      value={autoCopyAmount}
-                      onChange={(e) => setAutoCopyAmount(e.target.value)}
-                      style={{
-                        width: '100%', padding: '10px 10px 10px 24px',
-                        borderRadius: '10px', border: '1px solid var(--border)',
-                        background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)',
-                        fontSize: '0.85rem', fontFamily: "'Space Grotesk', sans-serif",
-                        outline: 'none',
-                      }}
-                    />
-                  </div>
-                  <button
-                    className="btn btn-primary"
-                    style={{ padding: '10px 16px', fontSize: '0.8rem', whiteSpace: 'nowrap' }}
-                    onClick={handleEnableAutoCopy}
-                    disabled={autoCopyLoading || !account}
-                  >
-                    {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
-                    Enable
-                  </button>
-                </div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '6px' }}>
-                  Min. $5 USDC &middot; Requires USDC approval
-                </div>
-              </>
-            )}
-          </div>
-        </motion.div>
-
         {/* Stat cards */}
-        <motion.div className="dash-stat-card" variants={fadeUp} custom={3}>
+        <motion.div className="dash-stat-card" variants={fadeUp} custom={1}>
           <BarChart3 size={18} className="dash-stat-card-icon" />
           <span className="dash-stat-card-label">Total Signals</span>
           <span className="dash-stat-card-value">
@@ -2019,19 +2052,192 @@ function App() {
           <span className="dash-stat-card-unit">signals</span>
         </motion.div>
 
-        <motion.div className="dash-stat-card dash-stat-card-accent" variants={fadeUp} custom={4}>
+        <motion.div className="dash-stat-card dash-stat-card-accent" variants={fadeUp} custom={2}>
           <Copy size={18} className="dash-stat-card-icon" />
           <span className="dash-stat-card-label">My Positions</span>
           <span className="dash-stat-card-value accent">{Object.keys(userPositions).length}</span>
           <span className="dash-stat-card-unit">trades</span>
         </motion.div>
 
-        <motion.div className="dash-stat-card" variants={fadeUp} custom={5}>
+        <motion.div className="dash-stat-card" variants={fadeUp} custom={3}>
           <Coins size={18} className="dash-stat-card-icon" />
           <span className="dash-stat-card-label">Fee</span>
           <span className="dash-stat-card-value">{(feePercent / 100).toFixed(1)}%</span>
           <span className="dash-stat-card-unit">on profit</span>
         </motion.div>
+      </motion.div>
+
+      {/* ===== AUTO-COPY BANNER ===== */}
+      <motion.div
+        variants={fadeUp}
+        initial="hidden"
+        animate="visible"
+        className="autocopy-banner"
+        style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}
+      >
+        {/* Animated glow border */}
+        <div style={{
+          position: 'absolute', inset: '-1px', borderRadius: '20px',
+          background: autoCopyConfig.enabled
+            ? 'conic-gradient(from 200deg, transparent, rgba(52,211,153,0.3), transparent, rgba(52,211,153,0.15), transparent)'
+            : 'conic-gradient(from 200deg, transparent, rgba(212,168,67,0.25), transparent, rgba(139,92,246,0.15), transparent)',
+          animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+        }} />
+
+        {/* Inner content */}
+        <div style={{
+          position: 'relative', zIndex: 1,
+          background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+          borderRadius: '20px', padding: '24px 28px',
+        }}>
+          {autoCopyConfig.enabled ? (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '14px',
+                  background: 'linear-gradient(135deg, rgba(52,211,153,0.2), rgba(52,211,153,0.05))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  border: '1px solid rgba(52,211,153,0.15)',
+                }}>
+                  <BrainCircuit size={22} style={{ color: 'var(--success)' }} />
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em' }}>Auto-Copy Active</span>
+                    <span className="pulse-dot" style={{ width: 8, height: 8 }} />
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <span style={{
+                      fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.4rem', fontWeight: 700,
+                      color: 'var(--accent-light)',
+                    }}>
+                      ${autoCopyConfig.amount.toFixed(2)}
+                    </span>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>USDC per trade</span>
+                  </div>
+                </div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{
+                  padding: '8px 14px', borderRadius: '10px',
+                  background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.1)',
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                }}>
+                  <CheckCircle2 size={13} style={{ color: 'var(--success)' }} />
+                  <span style={{ fontSize: '0.7rem', color: 'var(--success)', fontWeight: 600 }}>Copying all signals</span>
+                </div>
+                <button
+                  className="btn btn-glass"
+                  style={{ padding: '10px 18px', fontSize: '0.78rem' }}
+                  onClick={handleDisableAutoCopy}
+                  disabled={autoCopyLoading}
+                >
+                  {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <Settings size={14} />}
+                  Manage
+                </button>
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Top row: info + badge */}
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                  <div style={{
+                    width: 48, height: 48, borderRadius: '14px',
+                    background: 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                    border: '1px solid rgba(212,168,67,0.15)',
+                  }}>
+                    <BrainCircuit size={22} style={{ color: 'var(--accent)' }} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em', marginBottom: '2px' }}>
+                      Auto-Copy Trading
+                    </div>
+                    <span style={{ fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+                      Never miss a trade — every signal gets copied automatically
+                    </span>
+                  </div>
+                </div>
+                <div style={{
+                  display: 'flex', alignItems: 'center', gap: '6px',
+                  padding: '5px 12px', borderRadius: '20px',
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  <Lock size={10} style={{ color: 'var(--text-secondary)' }} />
+                  <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', fontWeight: 600 }}>On-chain</span>
+                </div>
+              </div>
+
+              {/* Bottom row: amount selection + enable */}
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: '10px',
+                padding: '14px 16px', borderRadius: '14px',
+                background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
+              }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, flexShrink: 0 }}>
+                  Amount per trade:
+                </span>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[10, 25, 50, 100].map(amt => (
+                    <button
+                      key={amt}
+                      onClick={() => setAutoCopyAmount(String(amt))}
+                      style={{
+                        padding: '7px 16px', borderRadius: '10px', fontSize: '0.75rem',
+                        fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                        background: autoCopyAmount === String(amt)
+                          ? 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.08))'
+                          : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${autoCopyAmount === String(amt) ? 'rgba(212,168,67,0.35)' : 'rgba(255,255,255,0.06)'}`,
+                        color: autoCopyAmount === String(amt) ? 'var(--accent)' : 'var(--text-secondary)',
+                        cursor: 'pointer', transition: 'all 0.2s ease',
+                      }}
+                    >
+                      ${amt}
+                    </button>
+                  ))}
+                </div>
+                <div style={{ position: 'relative', marginLeft: '4px' }}>
+                  <span style={{
+                    position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)',
+                    fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 700,
+                    fontFamily: "'Space Grotesk', sans-serif", pointerEvents: 'none',
+                  }}>$</span>
+                  <input
+                    type="number"
+                    min="5"
+                    step="1"
+                    placeholder="Custom"
+                    value={autoCopyAmount}
+                    onChange={(e) => setAutoCopyAmount(e.target.value)}
+                    style={{
+                      width: '100px', padding: '7px 10px 7px 24px',
+                      borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
+                      background: 'rgba(255,255,255,0.03)', color: 'var(--text-primary)',
+                      fontSize: '0.8rem', fontFamily: "'Space Grotesk', sans-serif",
+                      fontWeight: 600, outline: 'none', transition: 'border-color 0.2s ease',
+                    }}
+                    onFocus={(e) => e.target.style.borderColor = 'rgba(212,168,67,0.4)'}
+                    onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+                  />
+                </div>
+                <button
+                  className="btn btn-primary btn-glow"
+                  style={{
+                    padding: '8px 24px', fontSize: '0.82rem', fontWeight: 700,
+                    whiteSpace: 'nowrap', marginLeft: 'auto',
+                  }}
+                  onClick={handleEnableAutoCopy}
+                  disabled={autoCopyLoading || !account}
+                >
+                  {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
+                  Enable Auto-Copy
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </motion.div>
 
       {/* ===== PERFORMANCE STATS ===== */}
