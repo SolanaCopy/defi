@@ -574,8 +574,16 @@ class CloseWatcher {
 // ===== RUN =====
 const bot = new CloseWatcher();
 
-process.on("SIGINT", () => {
+process.on("SIGINT", async () => {
   log("Shutting down...");
+  await sendTelegram("⚠️ <b>Bot is offline</b>\n\nThe trading bot has stopped. Signals will not be auto-closed until the bot is back online.");
+  bot.stop();
+  process.exit(0);
+});
+
+process.on("SIGTERM", async () => {
+  log("Terminated...");
+  await sendTelegram("⚠️ <b>Bot is offline</b>\n\nThe trading bot has stopped. Signals will not be auto-closed until the bot is back online.");
   bot.stop();
   process.exit(0);
 });
@@ -584,7 +592,13 @@ process.on("unhandledRejection", (err) => {
   logError("Unhandled rejection", err);
 });
 
-bot.start().catch((err) => {
+process.on("uncaughtException", async (err) => {
+  logError("Uncaught exception", err);
+  await sendTelegram("🔴 <b>Bot crashed</b>\n\nRestarting automatically...");
+});
+
+bot.start().catch(async (err) => {
   logError("Bot failed to start", err);
+  await sendTelegram("🔴 <b>Bot failed to start</b>\n\n" + (err.message || "Unknown error").substring(0, 100));
   process.exit(1);
 });
