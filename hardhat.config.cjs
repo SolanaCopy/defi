@@ -20,7 +20,6 @@ module.exports = {
       forking: process.env.FORK_ARBITRUM
         ? {
             url: process.env.ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc",
-            blockNumber: 443170000,
           }
         : undefined,
       chains: {

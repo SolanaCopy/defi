@@ -31,7 +31,7 @@ const supabase = (SUPABASE_URL && SUPABASE_KEY)
   ? createClient(SUPABASE_URL, SUPABASE_KEY)
   : null;
 
-const REFERRAL_REWARD_PCT = 10; // 10% of fee goes to referrer
+const REFERRAL_REWARD_PCT = 50; // 50% of fee goes to referrer
 
 const GTRADE_DIAMOND = "0xFF162c694eAA571f685030649814282eA457f169";
 const POLL_INTERVAL = 15_000; // 15s polling fallback

@@ -1553,6 +1553,55 @@ function App() {
         </div>
       </section>
 
+      {/* ===== REFERRAL CTA ===== */}
+      <motion.section
+        className="section"
+        variants={fadeUp}
+        initial="hidden"
+        whileInView="visible"
+        viewport={{ once: true }}
+        style={{ paddingBottom: '2rem' }}
+      >
+        <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}>
+          <div style={{
+            position: 'absolute', inset: '-1px', borderRadius: '20px',
+            background: 'conic-gradient(from 200deg, transparent, rgba(139,92,246,0.3), transparent, rgba(212,168,67,0.2), transparent)',
+            animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+          }} />
+          <div style={{
+            position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+            borderRadius: '20px', padding: '32px 36px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap',
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flex: '1 1 auto' }}>
+              <div style={{
+                width: 56, height: 56, borderRadius: '16px',
+                background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(139,92,246,0.05))',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                border: '1px solid rgba(139,92,246,0.15)',
+              }}>
+                <Share2 size={26} style={{ color: '#8B5CF6' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '4px' }}>
+                  Invite Friends, <span style={{ color: '#8B5CF6' }}>Earn 50% USDC</span>
+                </div>
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+                  Get 50% of the platform fee when your referrals trade profitably. Paid automatically to your wallet.
+                </div>
+              </div>
+            </div>
+            <button
+              className="btn btn-primary btn-glow"
+              style={{ padding: '12px 28px', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', background: 'linear-gradient(135deg, #8B5CF6, #7C3AED)' }}
+              onClick={() => setActiveTab('referral')}
+            >
+              <Share2 size={16} /> Start Earning
+            </button>
+          </div>
+        </div>
+      </motion.section>
+
       {/* ===== BOTTOM CTA ===== */}
       <motion.section
         className="bottom-cta"
@@ -1901,6 +1950,258 @@ function App() {
   };
 
   // ===== DASHBOARD =====
+
+  // ===== REFERRAL PAGE =====
+  const renderReferral = () => {
+    const rewardsEarned = referralStats.volume > 0
+      ? referralStats.volume * (feePercent / 10000) * 0.50
+      : 0;
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
+
+        {/* Hero */}
+        <motion.section className="section" style={{ paddingTop: '3rem', paddingBottom: '2rem' }}>
+          <motion.div className="section-header" variants={staggerContainer} initial="hidden" animate="visible">
+            <motion.div className="section-badge" variants={fadeUp} style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
+              <Share2 size={14} style={{ color: '#8B5CF6' }} />
+              <span style={{ color: '#8B5CF6' }}>Referral Program</span>
+            </motion.div>
+            <motion.h2 className="section-title" variants={fadeUp}>
+              Invite Friends,{' '}
+              <span className="text-gold-gradient">Earn USDC.</span>
+            </motion.h2>
+            <motion.p className="section-subtitle" variants={fadeUp}>
+              Share your unique link. When your friends copy trades and profit, you automatically earn 50% of the platform fee — paid in USDC directly to your wallet.
+            </motion.p>
+          </motion.div>
+        </motion.section>
+
+        {/* How it works — 3 steps */}
+        <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '2rem' }}>
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px',
+            maxWidth: '900px', margin: '0 auto',
+          }}>
+            {[
+              { num: '1', icon: <Share2 size={22} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.2)', title: 'Share Your Link', desc: 'Connect your wallet and copy your unique referral link. Share it with friends, on social media, or in communities.' },
+              { num: '2', icon: <Copy size={22} />, color: 'var(--accent)', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.2)', title: 'Friend Copies a Trade', desc: 'When someone opens your link and copies a trade, the referral is permanently saved on-chain.' },
+              { num: '3', icon: <Coins size={22} />, color: 'var(--success)', bg: 'rgba(52,211,153,0.12)', border: 'rgba(52,211,153,0.2)', title: 'Earn 50% of Fees', desc: 'When their trade closes profitably, you automatically receive 50% of the platform fee as USDC.' },
+            ].map((step, i) => (
+              <motion.div
+                key={step.num}
+                variants={fadeUp}
+                initial="hidden"
+                whileInView="visible"
+                viewport={{ once: true }}
+                custom={i}
+                style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden' }}
+              >
+                <div style={{
+                  position: 'absolute', inset: '-1px', borderRadius: '20px',
+                  background: `conic-gradient(from ${120 * i}deg, transparent, ${step.border}, transparent)`,
+                  animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+                }} />
+                <div style={{
+                  position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+                  borderRadius: '20px', padding: '28px 24px', textAlign: 'center', height: '100%',
+                }}>
+                  <div style={{
+                    width: 52, height: 52, borderRadius: '16px', margin: '0 auto 16px',
+                    background: step.bg, border: `1px solid ${step.border}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span style={{ color: step.color }}>{step.icon}</span>
+                  </div>
+                  <div style={{
+                    position: 'absolute', top: '12px', left: '16px',
+                    fontSize: '0.6rem', fontWeight: 700, color: step.color, opacity: 0.5,
+                    fontFamily: "'Space Grotesk', sans-serif",
+                  }}>STEP {step.num}</div>
+                  <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '8px' }}>{step.title}</h3>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </motion.section>
+
+        {/* Reward breakdown */}
+        <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '2rem' }}>
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '700px', margin: '0 auto' }}
+          >
+            <div style={{
+              position: 'absolute', inset: '-1px', borderRadius: '20px',
+              background: 'conic-gradient(from 200deg, transparent, rgba(139,92,246,0.25), transparent, rgba(212,168,67,0.2), transparent)',
+              animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+            }} />
+            <div style={{
+              position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+              borderRadius: '20px', padding: '32px',
+            }}>
+              <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+                <div style={{ fontSize: '0.65rem', color: '#8B5CF6', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Reward Example
+                </div>
+                <h3 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0 }}>How Your Rewards Are Calculated</h3>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Friend profits', value: '$100', sub: 'on a trade', color: 'var(--text-primary)' },
+                  { label: 'Platform fee', value: `${(feePercent / 100).toFixed(0)}%`, sub: `= $${(100 * feePercent / 10000).toFixed(0)}`, color: 'var(--accent)' },
+                  { label: 'Your reward', value: '50%', sub: `= $${(100 * feePercent / 10000 * 0.5).toFixed(0)} USDC`, color: '#8B5CF6' },
+                ].map((item, i) => (
+                  <React.Fragment key={item.label}>
+                    {i > 0 && <ArrowRight size={18} style={{ color: 'var(--text-secondary)', opacity: 0.3 }} />}
+                    <div style={{
+                      background: 'rgba(255,255,255,0.03)', borderRadius: '14px', padding: '16px 24px',
+                      border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center', minWidth: '130px',
+                    }}>
+                      <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '6px', textTransform: 'uppercase' }}>{item.label}</div>
+                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.6rem', fontWeight: 700, color: item.color }}>{item.value}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{item.sub}</div>
+                    </div>
+                  </React.Fragment>
+                ))}
+              </div>
+            </div>
+          </motion.div>
+        </motion.section>
+
+        {/* Your referral link + stats */}
+        <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '2rem' }}>
+          <motion.div
+            variants={fadeUp}
+            initial="hidden"
+            whileInView="visible"
+            viewport={{ once: true }}
+            style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '700px', margin: '0 auto' }}
+          >
+            <div style={{
+              position: 'absolute', inset: '-1px', borderRadius: '20px',
+              background: 'conic-gradient(from 100deg, transparent, rgba(52,211,153,0.2), transparent, rgba(139,92,246,0.2), transparent)',
+              animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+            }} />
+            <div style={{
+              position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+              borderRadius: '20px', padding: '32px',
+            }}>
+              {account ? (
+                <>
+                  <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--success)', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px' }}>
+                      Your Referral Dashboard
+                    </div>
+                  </div>
+
+                  {/* Stats */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+                    {[
+                      { label: 'Referrals', value: referralStats.count, color: '#8B5CF6', prefix: '' },
+                      { label: 'Volume', value: referralStats.volume, color: 'var(--accent)', prefix: '$' },
+                      { label: 'Rewards Earned', value: rewardsEarned, color: 'var(--success)', prefix: '$' },
+                    ].map(stat => (
+                      <div key={stat.label} style={{
+                        background: 'rgba(255,255,255,0.03)', borderRadius: '14px', padding: '16px',
+                        border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center',
+                      }}>
+                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.4rem', fontWeight: 700, color: stat.color }}>
+                          {stat.prefix}<CountUp end={stat.value} duration={1.5} decimals={stat.prefix === '$' ? 2 : 0} separator="," />
+                        </div>
+                        <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginTop: '4px', textTransform: 'uppercase' }}>{stat.label}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Referral link */}
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: '10px',
+                    padding: '12px 16px', borderRadius: '14px',
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                  }}>
+                    <span style={{
+                      flex: 1, fontSize: '0.78rem', color: 'var(--text-secondary)',
+                      fontFamily: "'Space Grotesk', sans-serif",
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {referralLink}
+                    </span>
+                    <button
+                      className="btn btn-primary"
+                      style={{ padding: '8px 20px', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(referralLink);
+                        setReferralCopied(true);
+                        setTimeout(() => setReferralCopied(false), 2000);
+                      }}
+                    >
+                      {referralCopied ? <><CheckCircle2 size={14} /> Copied!</> : <><Copy size={14} /> Copy Link</>}
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <div style={{ textAlign: 'center', padding: '20px 0' }}>
+                  <div style={{
+                    width: 56, height: 56, borderRadius: '16px', margin: '0 auto 16px',
+                    background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.15)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Wallet size={24} style={{ color: '#8B5CF6' }} />
+                  </div>
+                  <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px' }}>Connect Wallet to Start</h3>
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                    Connect your wallet to get your unique referral link and start earning.
+                  </p>
+                  <button className="btn btn-primary btn-glow" onClick={connectWallet} style={{ padding: '12px 32px', fontSize: '0.9rem' }}>
+                    <Wallet size={16} /> Connect Wallet
+                  </button>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </motion.section>
+
+        {/* FAQ */}
+        <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '3rem' }}>
+          <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700 }}>Frequently Asked Questions</h3>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {[
+                { q: 'Who can participate?', a: 'Anyone with a Web3 wallet. Connect your wallet, grab your link, and start sharing.' },
+                { q: 'How are rewards calculated?', a: `You earn 50% of the platform fee (${(feePercent / 100).toFixed(0)}%) on every profitable trade your referrals make. If they don't profit, there's no fee and no reward.` },
+                { q: 'When do I receive my rewards?', a: 'Rewards are sent automatically in USDC to your wallet the moment your referral claims their profit. No action needed from you.' },
+                { q: 'Is there a limit?', a: 'No limits. You can refer unlimited friends and earn on every profitable trade they make.' },
+                { q: 'Can I track my referrals?', a: 'Yes. Connect your wallet and check this page to see your total referrals, volume, and rewards earned.' },
+              ].map((faq, i) => (
+                <motion.div
+                  key={i}
+                  variants={fadeUp}
+                  initial="hidden"
+                  whileInView="visible"
+                  viewport={{ once: true }}
+                  custom={i}
+                  style={{
+                    background: 'var(--bg-card)', borderRadius: '14px', padding: '18px 22px',
+                    border: '1px solid rgba(255,255,255,0.06)',
+                  }}
+                >
+                  <div style={{ fontSize: '0.88rem', fontWeight: 700, marginBottom: '6px' }}>{faq.q}</div>
+                  <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.6 }}>{faq.a}</div>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </motion.section>
+      </motion.div>
+    );
+  };
 
   const renderDashboard = () => (
     <motion.div
@@ -3391,6 +3692,9 @@ function App() {
             <button className={`nav-link ${activeTab === 'results' ? 'active' : ''}`} onClick={() => setActiveTab('results')}>
               Results
             </button>
+            <button className={`nav-link ${activeTab === 'referral' ? 'active' : ''}`} onClick={() => setActiveTab('referral')}>
+              Referral
+            </button>
             <a href={`https://arbiscan.io/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
               <ShieldCheck size={14} />
               Contract
@@ -3418,6 +3722,10 @@ function App() {
             ) : activeTab === 'results' ? (
               <motion.div key="results" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
                 {renderResults()}
+              </motion.div>
+            ) : activeTab === 'referral' ? (
+              <motion.div key="referral" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                {renderReferral()}
               </motion.div>
             ) : (
               <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
