@@ -316,9 +316,20 @@ class CloseWatcher {
       }
     });
 
-    // ── User copied a trade (deposit) — log only, no Telegram notification ──
+    // ── User copied a trade — log + whale alert for big deposits ──
     contract.on("TradeCopied", async (user, signalId, amount) => {
-      log(`TradeCopied: ${shortAddr(user)} deposited $${formatUSDC(amount)} on signal #${signalId}`);
+      const amtStr = formatUSDC(amount);
+      log(`TradeCopied: ${shortAddr(user)} deposited $${amtStr} on signal #${signalId}`);
+
+      // Whale alert for deposits >= $500
+      if (Number(amount) >= 500_000_000) { // 500 USDC in 6 decimals
+        await sendTelegram([
+          `🐋 <b>Whale Alert!</b>`,
+          ``,
+          `💰 <b>$${amtStr} USDC</b> deposit on Signal #${signalId}`,
+          `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
+        ].join("\n"));
+      }
     });
 
     // ── User claimed proceeds (withdrawal) ──
@@ -373,6 +384,9 @@ class CloseWatcher {
     });
 
     // ── Signal closed (trade result) ──
+    // Track win streak
+    this.winStreak = 0;
+
     contract.on("SignalClosed", async (signalId, resultPct) => {
       const pct = Number(resultPct) / 100;
       const win = pct >= 0;
@@ -389,15 +403,26 @@ class CloseWatcher {
       const leveragedPct = pct * levNum;
       log(`SignalClosed #${signalId} result=${pct}% x${levNum} = ${leveragedPct.toFixed(1)}%`);
 
+      // Streak tracking
+      if (win) {
+        this.winStreak++;
+      } else {
+        this.winStreak = 0;
+      }
+
       const img = await signalClosedImage({
         signalId: String(signalId), resultPct: leveragedPct, direction: dir, leverage: `${levNum}x`,
       });
+
+      const streakText = this.winStreak >= 3 ? `\n🔥 <b>${this.winStreak} wins in a row!</b>` : "";
+
       await sendTelegramPhoto(img, [
         win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
         ``,
         `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
         `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${levNum}x`,
-      ].join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
+        streakText,
+      ].filter(Boolean).join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
     });
 
     // ── Fees withdrawn by admin ──
@@ -432,8 +457,9 @@ class CloseWatcher {
 
     log("Contract event listeners active");
 
-    // Start daily summary + milestone tracking
+    // Start daily/weekly summary + milestone tracking
     this.startDailySummary();
+    this.startWeeklySummary();
     this.startMilestoneTracker();
   }
 
@@ -518,6 +544,88 @@ class CloseWatcher {
   }
 
   // ===== MILESTONE TRACKER =====
+  // ===== WEEKLY SUMMARY (every Sunday at 20:00 UTC) =====
+  startWeeklySummary() {
+    const scheduleNext = () => {
+      const now = new Date();
+      const next = new Date(now);
+      // Find next Sunday
+      const daysUntilSunday = (7 - now.getUTCDay()) % 7 || 7;
+      next.setUTCDate(now.getUTCDate() + daysUntilSunday);
+      next.setUTCHours(20, 0, 0, 0);
+      if (now >= next) next.setUTCDate(next.getUTCDate() + 7);
+      const ms = next - now;
+      log(`Weekly summary scheduled in ${Math.round(ms / 86400000)}d ${Math.round((ms % 86400000) / 3600000)}h`);
+      setTimeout(() => {
+        this.sendWeeklySummary();
+        scheduleNext();
+      }, ms);
+    };
+    scheduleNext();
+  }
+
+  async sendWeeklySummary() {
+    try {
+      const contract = this.copyTrader;
+      const total = Number(await contract.signalCount());
+      const now = Math.floor(Date.now() / 1000);
+      const weekAgo = now - 7 * 86400;
+
+      let trades = 0, wins = 0, losses = 0, volume = 0;
+      let totalResultPct = 0;
+
+      for (let i = total; i >= 1; i--) {
+        const meta = await contract.signalMeta(i);
+        const closedAt = Number(meta.closedAt);
+        if (closedAt === 0 || closedAt < weekAgo) continue;
+
+        const core = await contract.signalCore(i);
+        if (!core.closed) continue;
+
+        trades++;
+        const resultPct = Number(core.resultPct) / 100;
+        const leverage = Number(core.leverage) / 1000;
+        totalResultPct += resultPct * leverage;
+
+        if (Number(core.resultPct) >= 0) wins++;
+        else losses++;
+        volume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+      }
+
+      const copierCount = Number(await contract.getAutoCopyUserCount());
+      const avgPct = trades > 0 ? (totalResultPct / trades).toFixed(2) : "0.00";
+
+      if (trades === 0) {
+        log("Weekly summary: no trades this week, skipping");
+        return;
+      }
+
+      const img = await dailySummaryImage({
+        trades: String(trades),
+        wins: String(wins),
+        losses: String(losses),
+        volume: volume.toFixed(0),
+        profit: `${totalResultPct >= 0 ? '+' : ''}${avgPct}%`,
+        copiers: String(copierCount),
+      });
+
+      await sendTelegramPhoto(img, [
+        `📊 <b>Weekly Recap</b>`,
+        ``,
+        `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
+        `💰 Volume: <b>$${volume.toFixed(0)} USDC</b>`,
+        `🎯 Avg result: <b>${totalResultPct >= 0 ? '+' : ''}${avgPct}%</b>`,
+        `👥 Copiers: <b>${copierCount}</b>`,
+        ``,
+        `See you next week! 🚀`,
+      ].join("\n"), [BTN_APP, BTN_TG]);
+
+      log(`Weekly summary sent: ${trades} trades, $${volume.toFixed(0)} volume`);
+    } catch (err) {
+      log(`Weekly summary error: ${err.message}`);
+    }
+  }
+
   async startMilestoneTracker() {
     // Read current state so we don't re-fire milestones on restart
     try {
