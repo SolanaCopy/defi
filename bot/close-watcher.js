@@ -10,7 +10,7 @@
 import "dotenv/config";
 import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
-import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage } from "./telegram-images.js";
+import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage, dailySummaryImage, milestoneImage } from "./telegram-images.js";
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
 
@@ -58,6 +58,8 @@ const COPY_TRADER_ABI = [
   "event AutoCopyEnabled(address indexed user, uint256 amount)",
   "event AutoCopyDisabled(address indexed user)",
   "function getAutoCopyUserCount() view returns (uint256)",
+  "function signalCount() view returns (uint256)",
+  "function signalMeta(uint256) view returns (uint256 timestamp, uint256 closedAt, uint256 totalCopied, uint32 copierCount)",
 ];
 
 // gTrade events — we only need the fields we care about
@@ -429,6 +431,164 @@ class CloseWatcher {
     });
 
     log("Contract event listeners active");
+
+    // Start daily summary + milestone tracking
+    this.startDailySummary();
+    this.startMilestoneTracker();
+  }
+
+  // ===== DAILY SUMMARY (every day at 22:00 UTC) =====
+  startDailySummary() {
+    const checkDaily = () => {
+      const now = new Date();
+      if (now.getUTCHours() === 22 && now.getUTCMinutes() === 0) {
+        this.sendDailySummary();
+      }
+    };
+    setInterval(checkDaily, 60_000); // check every minute
+    log("Daily summary scheduled for 22:00 UTC");
+  }
+
+  async sendDailySummary() {
+    try {
+      const contract = this.copyTrader;
+      const total = Number(await contract.signalCount());
+      const now = Math.floor(Date.now() / 1000);
+      const dayAgo = now - 86400;
+
+      let trades = 0, wins = 0, losses = 0, volume = 0, copiers = new Set();
+
+      for (let i = total; i >= 1; i--) {
+        const meta = await contract.signalMeta(i);
+        const closedAt = Number(meta.closedAt);
+        if (closedAt === 0 || closedAt < dayAgo) continue;
+
+        const core = await contract.signalCore(i);
+        if (!core.closed) continue;
+
+        trades++;
+        if (Number(core.resultPct) >= 0) wins++;
+        else losses++;
+        volume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+      }
+
+      // Get active copier count
+      const copierCount = Number(await contract.getAutoCopyUserCount());
+      const profit = (volume * 0.10 * (wins / Math.max(trades, 1))).toFixed(2); // rough estimate
+
+      if (trades === 0) {
+        log("Daily summary: no trades today, skipping");
+        return;
+      }
+
+      const img = await dailySummaryImage({
+        trades: String(trades),
+        wins: String(wins),
+        losses: String(losses),
+        volume: volume.toFixed(0),
+        profit,
+        copiers: String(copierCount),
+      });
+
+      await sendTelegramPhoto(img, [
+        `📊 <b>Daily Recap</b>`,
+        ``,
+        `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
+        `💰 Volume: <b>$${volume.toFixed(0)} USDC</b>`,
+        `👥 Copiers: <b>${copierCount}</b>`,
+      ].join("\n"), [BTN_APP, BTN_TG]);
+
+      log(`Daily summary sent: ${trades} trades, $${volume.toFixed(0)} volume`);
+    } catch (err) {
+      log(`Daily summary error: ${err.message}`);
+    }
+  }
+
+  // ===== MILESTONE TRACKER =====
+  startMilestoneTracker() {
+    this.lastVolumeMilestone = 0;
+    this.lastCopierMilestone = 0;
+    this.lastTradeMilestone = 0;
+    setInterval(() => this.checkMilestones(), 300_000); // check every 5 min
+    log("Milestone tracker started");
+  }
+
+  async checkMilestones() {
+    try {
+      const contract = this.copyTrader;
+      const total = Number(await contract.signalCount());
+
+      // Calculate total volume
+      let totalVolume = 0;
+      for (let i = 1; i <= total; i++) {
+        const meta = await contract.signalMeta(i);
+        totalVolume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+      }
+
+      const copierCount = Number(await contract.getAutoCopyUserCount());
+
+      // Volume milestones
+      const volumeMilestones = [1000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
+      for (const m of volumeMilestones) {
+        if (totalVolume >= m && this.lastVolumeMilestone < m) {
+          this.lastVolumeMilestone = m;
+          const label = m >= 1000000 ? `$${m / 1000000}M` : m >= 1000 ? `$${m / 1000}K` : `$${m}`;
+          log(`Milestone: volume ${label}`);
+          const img = await milestoneImage({
+            milestone: `Total copy volume reached ${label} USDC`,
+            value: `${label}`,
+            label: 'TOTAL VOLUME',
+          });
+          await sendTelegramPhoto(img, [
+            `🏆 <b>Milestone Reached!</b>`,
+            ``,
+            `💰 Total volume: <b>${label} USDC</b>`,
+            `📈 Keep growing!`,
+          ].join("\n"), [BTN_APP, BTN_TG]);
+        }
+      }
+
+      // Copier milestones
+      const copierMilestones = [5, 10, 25, 50, 100, 250, 500, 1000];
+      for (const m of copierMilestones) {
+        if (copierCount >= m && this.lastCopierMilestone < m) {
+          this.lastCopierMilestone = m;
+          log(`Milestone: ${m} copiers`);
+          const img = await milestoneImage({
+            milestone: `We now have ${m} auto-copy traders!`,
+            value: `${m}`,
+            label: 'TOTAL COPIERS',
+          });
+          await sendTelegramPhoto(img, [
+            `🏆 <b>Milestone Reached!</b>`,
+            ``,
+            `👥 Total copiers: <b>${m}</b>`,
+            `🚀 Growing fast!`,
+          ].join("\n"), [BTN_APP, BTN_TG]);
+        }
+      }
+
+      // Trade milestones
+      const tradeMilestones = [10, 25, 50, 100, 250, 500, 1000];
+      for (const m of tradeMilestones) {
+        if (total >= m && this.lastTradeMilestone < m) {
+          this.lastTradeMilestone = m;
+          log(`Milestone: ${m} signals`);
+          const img = await milestoneImage({
+            milestone: `${m} trade signals posted and executed!`,
+            value: `${m}`,
+            label: 'TOTAL SIGNALS',
+          });
+          await sendTelegramPhoto(img, [
+            `🏆 <b>Milestone Reached!</b>`,
+            ``,
+            `📡 Total signals: <b>${m}</b>`,
+          ].join("\n"), [BTN_APP, BTN_TG]);
+        }
+      }
+    } catch (err) {
+      log(`Milestone check error: ${err.message}`);
+    }
   }
 
   // ===== WEBSOCKET (real-time) =====

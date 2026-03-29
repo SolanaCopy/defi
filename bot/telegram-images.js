@@ -682,7 +682,101 @@ export async function welcomeImage({ username }) {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-// ===== 8. BOT ONLINE IMAGE =====
+// ===== 8. DAILY SUMMARY IMAGE =====
+export async function dailySummaryImage({ trades, wins, losses, volume, profit, copiers }) {
+  const h = 470;
+  const winRate = Number(trades) > 0 ? Math.round((Number(wins) / Number(trades)) * 100) : 0;
+
+  const svg = `
+  <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${defs()}
+    <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
+    ${topBar()}
+    ${brandHeader()}
+
+    <!-- Title -->
+    <text x="400" y="108" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">DAILY RECAP</text>
+    <rect x="300" y="118" width="200" height="3" rx="1.5" fill="url(#gold)" opacity="0.5"/>
+
+    <!-- Big volume -->
+    ${card(60, 135, 680, 100, `${GOLD}33`)}
+    <text x="400" y="168" font-family="${FONT}" font-size="13" fill="${WHITE}" text-anchor="middle" opacity="0.9" letter-spacing="2">TOTAL VOLUME TODAY</text>
+    <text x="400" y="218" font-family="${FONT}" font-size="42" fill="url(#gold)" font-weight="700" text-anchor="middle">$${esc(volume)}</text>
+
+    <!-- Stats grid -->
+    ${card(60, 255, 160, 80, "#1C1C2C")}
+    <text x="140" y="280" font-family="${FONT}" font-size="12" fill="${WHITE}" letter-spacing="1.5" font-weight="600" text-anchor="middle">TRADES</text>
+    <text x="140" y="315" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle">${esc(trades)}</text>
+
+    ${card(235, 255, 160, 80, "#1C1C2C")}
+    <text x="315" y="280" font-family="${FONT}" font-size="12" fill="${WHITE}" letter-spacing="1.5" font-weight="600" text-anchor="middle">WIN RATE</text>
+    <text x="315" y="315" font-family="${FONT}" font-size="28" fill="${winRate >= 60 ? GREEN : RED}" font-weight="700" text-anchor="middle">${winRate}%</text>
+
+    ${card(410, 255, 160, 80, "#1C1C2C")}
+    <text x="490" y="280" font-family="${FONT}" font-size="12" fill="${WHITE}" letter-spacing="1.5" font-weight="600" text-anchor="middle">W / L</text>
+    <text x="490" y="315" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle"><tspan fill="${GREEN}">${esc(wins)}</tspan> / <tspan fill="${RED}">${esc(losses)}</tspan></text>
+
+    ${card(585, 255, 155, 80, "#1C1C2C")}
+    <text x="662" y="280" font-family="${FONT}" font-size="12" fill="${WHITE}" letter-spacing="1.5" font-weight="600" text-anchor="middle">COPIERS</text>
+    <text x="662" y="315" font-family="${FONT}" font-size="28" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(copiers)}</text>
+
+    <!-- Profit bar -->
+    ${card(60, 355, 680, 60, `${Number(profit) >= 0 ? GREEN : RED}33`)}
+    <text x="90" y="392" font-family="${FONT}" font-size="13" fill="${WHITE}" opacity="0.9" font-weight="600">Platform Profit</text>
+    <text x="710" y="392" font-family="${FONT}" font-size="22" fill="${Number(profit) >= 0 ? GREEN : RED}" font-weight="700" text-anchor="end">${Number(profit) >= 0 ? '+' : ''}$${esc(profit)}</text>
+
+    ${footerText(h - 8)}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ===== 9. MILESTONE IMAGE =====
+export async function milestoneImage({ milestone, value, label }) {
+  const h = 420;
+
+  const svg = `
+  <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${defs(`
+      <radialGradient id="glowM" cx="50%" cy="45%" r="40%">
+        <stop offset="0%" stop-color="${GOLD}" stop-opacity="0.12"/>
+        <stop offset="100%" stop-color="${GOLD}" stop-opacity="0"/>
+      </radialGradient>
+    `)}
+    <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h, 0.2)}
+    ${topBar()}
+    <rect width="${W}" height="${h}" fill="url(#glowM)"/>
+    ${brandHeader()}
+
+    <!-- Trophy / celebration -->
+    <text x="400" y="115" font-family="${FONT}" font-size="40" text-anchor="middle">🏆</text>
+
+    <!-- Milestone title -->
+    <text x="400" y="155" font-family="${FONT}" font-size="14" fill="${GOLD}" text-anchor="middle" letter-spacing="4" font-weight="700">MILESTONE REACHED</text>
+
+    <!-- Big value -->
+    ${card(100, 175, 600, 120, `${GOLD}33`)}
+    <text x="400" y="238" font-family="${FONT}" font-size="56" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(value)}</text>
+    <text x="400" y="275" font-family="${FONT}" font-size="16" fill="${LIGHT_GRAY}" text-anchor="middle">${esc(label)}</text>
+
+    <!-- Decorative line -->
+    <line x1="250" y1="318" x2="350" y2="318" stroke="${GOLD}" stroke-width="1" opacity="0.3"/>
+    <circle cx="400" cy="318" r="3" fill="${GOLD}" opacity="0.5"/>
+    <line x1="450" y1="318" x2="550" y2="318" stroke="${GOLD}" stroke-width="1" opacity="0.3"/>
+
+    <!-- Subtitle -->
+    <text x="400" y="350" font-family="${FONT}" font-size="15" fill="${WHITE}" text-anchor="middle" opacity="0.8">${esc(milestone)}</text>
+    <text x="400" y="375" font-family="${FONT}" font-size="13" fill="${LIGHT_GRAY}" text-anchor="middle">Thank you to our amazing community!</text>
+
+    ${footerText(h - 8)}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ===== 10. BOT ONLINE IMAGE =====
 export async function botOnlineImage() {
   const h = 375;
 
