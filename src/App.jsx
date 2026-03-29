@@ -337,6 +337,24 @@ function App() {
     }).then(() => setParticlesReady(true));
   }, []);
 
+  // Update canonical, title, meta per tab
+  useEffect(() => {
+    const base = 'https://www.smarttradingclub.io';
+    const meta = {
+      invest: { url: base + '/', title: 'Smart Trading Club — Copy Gold Trades on Arbitrum', desc: 'Copy live gold (XAU/USD) trades on Arbitrum with one click. Auto-copy, 50% referral rewards. Powered by gTrade.' },
+      dashboard: { url: base + '/?tab=dashboard', title: 'Dashboard — Smart Trading Club', desc: 'Copy live gold signals, manage positions, and track your profits on Arbitrum.' },
+      results: { url: base + '/?tab=results', title: 'Results — Smart Trading Club', desc: 'View our verified trade results, win rate, and performance history on Arbitrum.' },
+      referral: { url: base + '/?tab=referral', title: 'Referral Program — Smart Trading Club', desc: 'Earn 50% of platform fees by referring friends. Share your link and earn USDC.' },
+    };
+    const m = meta[activeTab] || meta.invest;
+    document.title = m.title;
+    document.querySelector('link[rel="canonical"]')?.setAttribute('href', m.url);
+    document.querySelector('meta[name="description"]')?.setAttribute('content', m.desc);
+    document.querySelector('meta[property="og:url"]')?.setAttribute('content', m.url);
+    document.querySelector('meta[property="og:title"]')?.setAttribute('content', m.title);
+    document.querySelector('meta[property="og:description"]')?.setAttribute('content', m.desc);
+  }, [activeTab]);
+
   // Read referrer from URL (?ref=0x...)
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
