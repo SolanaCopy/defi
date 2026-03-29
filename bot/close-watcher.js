@@ -228,6 +228,8 @@ class CloseWatcher {
     // Set up HTTP provider for transactions (always needed)
     const httpRpc = ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc";
     this.httpProvider = new ethers.JsonRpcProvider(httpRpc);
+    // Separate provider for log queries (no block range limits)
+    this.logProvider = new ethers.JsonRpcProvider("https://arbitrum.drpc.org");
     this.wallet = new ethers.Wallet(key, this.httpProvider);
     this.copyTrader = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, this.wallet);
     this.usdc = new ethers.Contract(
@@ -905,7 +907,7 @@ class CloseWatcher {
           return;
         }
 
-        const gTradeRead = new ethers.Contract(GTRADE_DIAMOND, GTRADE_ABI, this.httpProvider);
+        const gTradeRead = new ethers.Contract(GTRADE_DIAMOND, GTRADE_ABI, this.logProvider);
 
         // Query MarketExecuted events
         const marketFilter = gTradeRead.filters.MarketExecuted(null, GOLD_COPY_TRADER_ADDRESS);
