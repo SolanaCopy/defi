@@ -722,9 +722,9 @@ export async function dailySummaryImage({ trades, wins, losses, volume, profit, 
     <text x="662" y="315" font-family="${FONT}" font-size="28" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(copiers)}</text>
 
     <!-- Profit bar -->
-    ${card(60, 355, 680, 60, `${Number(profit) >= 0 ? GREEN : RED}33`)}
-    <text x="90" y="392" font-family="${FONT}" font-size="13" fill="${WHITE}" opacity="0.9" font-weight="600">Platform Profit</text>
-    <text x="710" y="392" font-family="${FONT}" font-size="22" fill="${Number(profit) >= 0 ? GREEN : RED}" font-weight="700" text-anchor="end">${Number(profit) >= 0 ? '+' : ''}$${esc(profit)}</text>
+    ${card(60, 355, 680, 60, `${String(profit).includes('-') ? RED : GREEN}33`)}
+    <text x="90" y="392" font-family="${FONT}" font-size="13" fill="${WHITE}" opacity="0.9" font-weight="600">Average Result</text>
+    <text x="710" y="392" font-family="${FONT}" font-size="26" fill="${String(profit).includes('-') ? RED : GREEN}" font-weight="700" text-anchor="end">${esc(profit)}</text>
 
     ${footerText(h - 8)}
   </svg>`;

@@ -439,14 +439,19 @@ class CloseWatcher {
 
   // ===== DAILY SUMMARY (every day at 22:00 UTC) =====
   startDailySummary() {
-    const checkDaily = () => {
+    const scheduleNext = () => {
       const now = new Date();
-      if (now.getUTCHours() === 22 && now.getUTCMinutes() === 0) {
+      const next = new Date(now);
+      next.setUTCHours(22, 0, 0, 0);
+      if (now >= next) next.setUTCDate(next.getUTCDate() + 1);
+      const ms = next - now;
+      log(`Daily summary scheduled in ${Math.round(ms / 3600000)}h ${Math.round((ms % 3600000) / 60000)}m`);
+      setTimeout(() => {
         this.sendDailySummary();
-      }
+        scheduleNext();
+      }, ms);
     };
-    setInterval(checkDaily, 60_000); // check every minute
-    log("Daily summary scheduled for 22:00 UTC");
+    scheduleNext();
   }
 
   async sendDailySummary() {
@@ -456,7 +461,8 @@ class CloseWatcher {
       const now = Math.floor(Date.now() / 1000);
       const dayAgo = now - 86400;
 
-      let trades = 0, wins = 0, losses = 0, volume = 0, copiers = new Set();
+      let trades = 0, wins = 0, losses = 0, volume = 0;
+      let totalResultPct = 0;
 
       for (let i = total; i >= 1; i--) {
         const meta = await contract.signalMeta(i);
@@ -467,14 +473,19 @@ class CloseWatcher {
         if (!core.closed) continue;
 
         trades++;
+        const resultPct = Number(core.resultPct) / 100;
+        const leverage = Number(core.leverage) / 1000;
+        const leveragedPct = resultPct * leverage;
+        totalResultPct += leveragedPct;
+
         if (Number(core.resultPct) >= 0) wins++;
         else losses++;
         volume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
       }
 
-      // Get active copier count
       const copierCount = Number(await contract.getAutoCopyUserCount());
-      const profit = (volume * 0.10 * (wins / Math.max(trades, 1))).toFixed(2); // rough estimate
+      const dayProfitPct = trades > 0 ? (totalResultPct / trades).toFixed(2) : "0.00";
+      const dayProfitUsd = (volume * totalResultPct / 100).toFixed(2);
 
       if (trades === 0) {
         log("Daily summary: no trades today, skipping");
@@ -486,7 +497,7 @@ class CloseWatcher {
         wins: String(wins),
         losses: String(losses),
         volume: volume.toFixed(0),
-        profit,
+        profit: `${totalResultPct >= 0 ? '+' : ''}${dayProfitPct}%`,
         copiers: String(copierCount),
       });
 
@@ -495,6 +506,8 @@ class CloseWatcher {
         ``,
         `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
         `💰 Volume: <b>$${volume.toFixed(0)} USDC</b>`,
+        `🎯 Avg result: <b>${totalResultPct >= 0 ? '+' : ''}${dayProfitPct}%</b>`,
+        `💵 Profit: <b>${totalResultPct >= 0 ? '+' : ''}$${dayProfitUsd}</b>`,
         `👥 Copiers: <b>${copierCount}</b>`,
       ].join("\n"), [BTN_APP, BTN_TG]);
 
