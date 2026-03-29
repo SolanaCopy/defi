@@ -10,7 +10,7 @@
 import "dotenv/config";
 import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
-import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage, dailySummaryImage, weeklyRecapImage, milestoneImage } from "./telegram-images.js";
+import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage, dailySummaryImage, weeklyRecapImage, milestoneImage, winStreakImage } from "./telegram-images.js";
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
 
@@ -414,15 +414,30 @@ class CloseWatcher {
         signalId: String(signalId), resultPct: leveragedPct, direction: dir, leverage: `${levNum}x`,
       });
 
-      const streakText = this.winStreak >= 3 ? `\n🔥 <b>${this.winStreak} wins in a row!</b>` : "";
-
       await sendTelegramPhoto(img, [
         win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
         ``,
         `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
         `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${levNum}x`,
-        streakText,
-      ].filter(Boolean).join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
+      ].join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
+
+      // Send streak image at 3, 5, 7, 10, 15, 20, 25...
+      if (this.winStreak >= 3 && (this.winStreak <= 10 || this.winStreak % 5 === 0)) {
+        try {
+          const streakImg = await winStreakImage({
+            streak: this.winStreak,
+            resultPct: leveragedPct.toFixed(1),
+            signalId: String(signalId),
+          });
+          await sendTelegramPhoto(streakImg, [
+            `🔥 <b>${this.winStreak} WIN STREAK!</b>`,
+            ``,
+            `${this.winStreak} profitable trades without a single loss!`,
+          ].join("\n"), [BTN_APP, BTN_TG]);
+        } catch (err) {
+          log(`Streak image error: ${err.message}`);
+        }
+      }
     });
 
     // ── Fees withdrawn by admin ──

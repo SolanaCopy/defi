@@ -787,7 +787,57 @@ export async function weeklyRecapImage({ days, totalVolume, totalProfit, copiers
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-// ===== 10. MILESTONE IMAGE =====
+// ===== 10. WIN STREAK IMAGE =====
+export async function winStreakImage({ streak, resultPct, signalId }) {
+  const h = 420;
+  const fireCount = Math.min(streak, 10);
+  const title = streak >= 10 ? 'UNSTOPPABLE' : streak >= 7 ? 'ON FIRE' : streak >= 5 ? 'KILLING IT' : 'HOT STREAK';
+  const FIRE_B64 = "iVBORw0KGgoAAAANSUhEUgAAAEgAAABICAMAAABiM0N1AAAAh1BMVEVHcEz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz0kAz/zE3/zE3/zE3/zE3/zE3/zE3/zE3/zE39wkL/zE3/zE3/zE3/zE30kAz/zE36ri33nxz+yEn+xUX5qij8vT32mxj9wUH3oyD1mBT6sjH1lBD7tjX8uTmQeifTAAAAHXRSTlMAMEBQv++PEM+A359gryBwzxDvv4CPUK9gIN9gMOUtXcUAAAKrSURBVHjarZfZkoIwEEWDLEkAcXfWDpu78//fN4OMqdAkJFCeJy3LI919OwJxJAtm5DUkENGXiGYAof8SUwwAERkPxV+K4I+AjvawoFdbAxtrYpAQBDiacB1c06SG+RiPBxpRAC2cuDMHgMQkgszZkz2a0W/bP4GzaAENuKsg8dwra0hJBx8kiXuIG2K8bJLQVaQbjwcKM3cRLo7KVlsTEGX9ti56Hnso/Vg3H5bSRsNDkFgCkIUJEklXwAATm0UBcPWNDaMn7UwimiyicUfkTxZxtIoxaLEnMkQ/YqstMHUIb6I/UcRw7Gegw7q1nkyxq2jR/b7X6UjiXBpeWj9SK4OQujcbzZz9h6i30jSEQRg+B2mnjtBzXZE5Pgd9mcbW1JbuMbDA8aw4/n3GOceao21oi2euLBdwqvLb4NDiZ9NgmFqIMscinDkX0VH8cToaSwtcRVA2pvJs2JCFDFYGFg7iQXtNOLteKEUULNxbUXlBlyQ9rqXlouWgFkcf18ABJohEAQoB5/MQpokOYEQfSJS/H/HkMrzFAW5uAR0qKaqHj14OHa7ijAIp+RneYh9UzkLkaPqSExjwSS9IlxI19SgUwMB/QBnu7E1p/Ela0Aeo1+iELkRDjj2aJBXK6+iZc+NeFYoHieqD5i6XqRfUUNa3pu93gcjV4Rb9/4JUM6GqFH2uarrumlvNUB49w1Sdc1Nza8JlZRZqNRRF/z+FxnI9nUy10rGYEoVUzsxGlefXSj0NUs0zVCVGUelulbKm32IkTaczgvCniXzSI5oiioiG+XjR3PCoP1ZkenSny3GeJSUGVm9jPG8rYmbn7tmRQfZrN816Tyx8bFw8mw9i5/3Tpvl8J06stuvBqraUOPO1NM78i4zje7fUWHbfZAKr/XazlI7Ndj8UnF+YwEpCshNBaAAAAABJRU5ErkJggg==";
+
+  const svg = `
+  <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${defs(`
+      <linearGradient id="fireGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#FF6B00"/>
+        <stop offset="50%" stop-color="#FF3D00"/>
+        <stop offset="100%" stop-color="${GOLD}"/>
+      </linearGradient>
+      <radialGradient id="glowFire" cx="50%" cy="40%" r="40%">
+        <stop offset="0%" stop-color="#FF6B00" stop-opacity="0.1"/>
+        <stop offset="100%" stop-color="#FF6B00" stop-opacity="0"/>
+      </radialGradient>
+    `)}
+    <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
+    <rect x="0" y="0" width="${W}" height="5" fill="url(#fireGrad)"/>
+    <rect width="${W}" height="${h}" fill="url(#glowFire)"/>
+    ${brandHeader()}
+
+    <!-- Trophy emoji -->
+    <image x="382" y="90" width="36" height="36" href="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAEgAAABICAMAAABiM0N1AAAAq1BMVEVHcEz/zE3/zE3/zE3/zE3/zE3/zE3/zE3/zE3/zE3/rDP/rDP/rDP/rjX/vkL/rDP/rDP/rDP/tDr/xEf/rDP/vED/rDP/rDP/wEP/sDb/rDP/rDP/zE3/zE3/rDP/rDP/rDP/zE3/zE3/zE3/zE3/zE3/rDP/rDP/wkX/ykv/xkj/tjv/sjj/uD3BaU/BaU/BaU/BaU/BaU/BaU/BaU/BaU/BaU/BaU/BaU/Lbtl5AAAAOXRSTlMAIHCAj79g/zCvgN/////vEM///6//v0D//2CfQO8gcI9Qz5/fEDBQ////////MK//72BQv99AzyD2svjjAAACS0lEQVR4AdXWB5azOgwF4JvqDCgPMyEwkz6997r/jU0RKRbnkMjw2v8t4B5LyDIoQqPZ+tXulGs1G9ipa1Ta2KFnWP2kPaPVAIqCkFb6Ru0vWokCCwA2po19ozagjdgCSMgxNHrkSIGMXAdG75AcI4zJNTB6++SIEdUPYqClJLMAOkZvAtgsKAYlYH5Bv4JCUAZmvINsIQi5qXcQKIeYmK1aGohFGBPLqgbNiKWYEwu87izr4deI2ALZKpG1jB7Ygth8UyM7MmrHYPG6NSGxGX41jNoJGOUskBAbgZ0arS5+ZcTCzWguwE48N2RALN1kxp5NOgZLiAXujLMzz+UfOY0JxUjueU3RjHLnAJASC7zetVOwC8q5/Uq87m1TjGPspobItY3GGVhKLBF1WrCGxzSCRFsi0W109CvkXK7FVIwkJmanDnIjys3gdju06iNNkIspV8gda4/UQW5OYgfhXD5JQEdzIJuNiWRTEJG0r/99YCMsBVRwqX30WYQVG5N0eKX6MVq6wNp5RNLQlLrqlxTGbErStSlzQ0I0gpQl5Lo1JS7JFQYWO7RK1scZfHXK95mfs9PyNeSnNy3dHp56pmAPFXWNcHyGqiZXsq7qbjeDOUQNM+oP80MNbgk1ZETUvzsYDG/5EaxuLi95dWNyBKguJkeKyiwJqGxErH6TEhIW1SuTojofXxihmpAK0jqtFjJ4uX943OrpWZnz9LjLCzReH3d6g8ajwh8YdP/6qPT0jm0+HtWeFGXp/G1B99ji6VHvE1s865NeIXwDBvTA37rZqRcAAAAASUVORK5CYII="/>
+
+    <!-- Big streak number -->
+    <text x="400" y="190" font-family="${FONT}" font-size="72" fill="url(#fireGrad)" font-weight="700" text-anchor="middle">${streak}</text>
+    <text x="400" y="218" font-family="${FONT}" font-size="16" fill="${WHITE}" text-anchor="middle" font-weight="700" letter-spacing="4">WIN STREAK</text>
+
+    <!-- Title -->
+    <text x="400" y="262" font-family="${FONT}" font-size="22" fill="url(#gold)" text-anchor="middle" font-weight="700" letter-spacing="2">${title}</text>
+
+    <!-- Latest result -->
+    ${card(160, 280, 480, 55, '#FF6B0033')}
+    <text x="400" y="305" font-family="${FONT}" font-size="13" fill="${WHITE}" text-anchor="middle" opacity="0.9">Latest: Signal #${esc(signalId)}</text>
+    <text x="400" y="328" font-family="${FONT}" font-size="18" fill="${GREEN}" text-anchor="middle" font-weight="700">+${esc(resultPct)}% profit</text>
+
+    <!-- Bottom text -->
+    <text x="400" y="375" font-family="${FONT}" font-size="16" fill="${WHITE}" text-anchor="middle" font-weight="700">${streak} profitable trades without a single loss!</text>
+
+    ${footerText(h - 8)}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ===== 11. MILESTONE IMAGE =====
 export async function milestoneImage({ milestone, value, label }) {
   const h = 420;
 
