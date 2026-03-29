@@ -612,7 +612,77 @@ export async function newCopierImage({ trader, amount, totalCopiers }) {
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-// ===== 7. BOT ONLINE IMAGE =====
+// ===== 7. WELCOME IMAGE =====
+export async function welcomeImage({ username }) {
+  const h = 500;
+
+  const svg = `
+  <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${defs(`
+      <radialGradient id="glowCenter" cx="50%" cy="45%" r="45%">
+        <stop offset="0%" stop-color="${GOLD}" stop-opacity="0.12"/>
+        <stop offset="60%" stop-color="${GOLD}" stop-opacity="0.03"/>
+        <stop offset="100%" stop-color="${GOLD}" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="glowLeft" cx="15%" cy="60%" r="30%">
+        <stop offset="0%" stop-color="${GOLD}" stop-opacity="0.06"/>
+        <stop offset="100%" stop-color="${GOLD}" stop-opacity="0"/>
+      </radialGradient>
+      <radialGradient id="glowRight" cx="85%" cy="40%" r="30%">
+        <stop offset="0%" stop-color="${GOLD}" stop-opacity="0.06"/>
+        <stop offset="100%" stop-color="${GOLD}" stop-opacity="0"/>
+      </radialGradient>
+    `)}
+    <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h, 0.15)}
+    ${topBar()}
+    <rect width="${W}" height="${h}" fill="url(#glowCenter)"/>
+    <rect width="${W}" height="${h}" fill="url(#glowLeft)"/>
+    <rect width="${W}" height="${h}" fill="url(#glowRight)"/>
+
+    <!-- Large centered logo -->
+    <image x="340" y="25" width="120" height="120" href="data:image/png;base64,${LOGO_B64}"/>
+
+    <!-- Brand name -->
+    <text x="400" y="170" font-family="${FONT}" font-size="16" fill="${GOLD}" font-weight="700" text-anchor="middle" letter-spacing="6">SMART TRADING CLUB</text>
+
+    <!-- Decorative line -->
+    <line x1="250" y1="188" x2="350" y2="188" stroke="${GOLD}" stroke-width="1" opacity="0.3"/>
+    <circle cx="400" cy="188" r="3" fill="${GOLD}" opacity="0.5"/>
+    <line x1="450" y1="188" x2="550" y2="188" stroke="${GOLD}" stroke-width="1" opacity="0.3"/>
+
+    <!-- Welcome text -->
+    <text x="400" y="228" font-family="${FONT}" font-size="14" fill="${LIGHT_GRAY}" text-anchor="middle" letter-spacing="4">WELCOME TO THE CLUB</text>
+
+    <!-- Username big -->
+    <text x="400" y="285" font-family="${FONT}" font-size="44" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(username)}</text>
+
+    <!-- Tagline -->
+    <text x="400" y="325" font-family="${FONT}" font-size="15" fill="${WHITE}" text-anchor="middle" opacity="0.8">Copy live gold trades on Arbitrum</text>
+    <text x="400" y="348" font-family="${FONT}" font-size="13" fill="${LIGHT_GRAY}" text-anchor="middle">One click. Fully on-chain. No trust required.</text>
+
+    <!-- Feature pills row -->
+    <rect x="120" y="380" width="140" height="36" rx="18" fill="${GOLD}" opacity="0.06" stroke="${GOLD}" stroke-width="1" stroke-opacity="0.2"/>
+    <text x="190" y="403" font-family="${FONT}" font-size="12" fill="${GOLD}" font-weight="600" text-anchor="middle" letter-spacing="1">XAU/USD</text>
+
+    <rect x="280" y="380" width="100" height="36" rx="18" fill="${GOLD}" opacity="0.06" stroke="${GOLD}" stroke-width="1" stroke-opacity="0.2"/>
+    <text x="330" y="403" font-family="${FONT}" font-size="12" fill="${GOLD}" font-weight="600" text-anchor="middle" letter-spacing="1">gTrade</text>
+
+    <rect x="400" y="380" width="120" height="36" rx="18" fill="#28A0F0" opacity="0.06" stroke="#28A0F0" stroke-width="1" stroke-opacity="0.2"/>
+    <text x="460" y="403" font-family="${FONT}" font-size="12" fill="#28A0F0" font-weight="600" text-anchor="middle" letter-spacing="1">Arbitrum</text>
+
+    <rect x="540" y="380" width="140" height="36" rx="18" fill="${GREEN}" opacity="0.06" stroke="${GREEN}" stroke-width="1" stroke-opacity="0.2"/>
+    <text x="610" y="403" font-family="${FONT}" font-size="12" fill="${GREEN}" font-weight="600" text-anchor="middle" letter-spacing="1">On-Chain</text>
+
+    <!-- Footer -->
+    <text x="400" y="455" font-family="${FONT}" font-size="13" fill="${WHITE}" text-anchor="middle" opacity="0.5">Check the pinned message to get started</text>
+    ${footerText(h - 10)}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ===== 8. BOT ONLINE IMAGE =====
 export async function botOnlineImage() {
   const h = 375;
 

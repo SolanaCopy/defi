@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { welcomeImage } from "./telegram-images.js";
 
 const {
   TELEGRAM_BOT_TOKEN,
@@ -140,8 +141,55 @@ function shouldRespond(update) {
   return false;
 }
 
+async function sendWelcomePhoto(chatId, img, caption) {
+  try {
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
+    const boundary = "b" + Date.now();
+    const body = Buffer.concat([
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="chat_id"\r\n\r\n${chatId}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="caption"\r\n\r\n${caption}\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="parse_mode"\r\n\r\nHTML\r\n`),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="photo"; filename="welcome.png"\r\nContent-Type: image/png\r\n\r\n`),
+      img,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": `multipart/form-data; boundary=${boundary}` },
+      body,
+    });
+  } catch (err) {
+    console.error("[AI] Welcome photo error:", err.message);
+  }
+}
+
 async function handleUpdate(update) {
   const msg = update.message;
+
+  // New member joined
+  if (msg?.new_chat_members?.length > 0) {
+    for (const member of msg.new_chat_members) {
+      if (member.is_bot) continue;
+      const name = member.first_name || "Trader";
+      console.log(`[AI] New member joined: ${name}`);
+      try {
+        const img = await welcomeImage({ username: name });
+        await sendWelcomePhoto(msg.chat.id, img, [
+          `🔥 Welcome <b>${name}</b> to Smart Trading Club!`,
+          ``,
+          `Copy our gold trades fully on-chain, fully transparent.`,
+          `No trust required. Just results. 📈`,
+          ``,
+          `👉 Check the pinned message to get started`,
+          `❓ Questions? Just ask!`,
+        ].join("\n"));
+      } catch (err) {
+        console.error("[AI] Welcome image error:", err.message);
+      }
+    }
+    return;
+  }
+
   if (!msg || !msg.text) return;
 
   if (!shouldRespond(update)) return;
@@ -169,7 +217,7 @@ async function pollUpdates() {
   if (!TELEGRAM_BOT_TOKEN) return;
 
   try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30&allowed_updates=["message"]`;
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30&allowed_updates=["message","chat_member"]`;
     const res = await fetch(url, { signal: AbortSignal.timeout(35000) });
     const data = await res.json();
 
@@ -179,6 +227,9 @@ async function pollUpdates() {
         const msg = update.message;
         if (msg?.text) {
           console.log(`[AI] Message from ${msg.from?.first_name}: "${msg.text}"`);
+        }
+        if (msg?.new_chat_members?.length > 0) {
+          console.log(`[AI] New member(s) joined: ${msg.new_chat_members.map(m => m.first_name).join(", ")}`);
         }
         try {
           await handleUpdate(update);
