@@ -345,10 +345,10 @@ function App() {
   useEffect(() => {
     const base = 'https://www.smarttradingclub.io';
     const meta = {
-      invest: { url: base + '/', title: 'Smart Trading Club — Copy Gold Trades on Arbitrum', desc: 'Copy live gold (XAU/USD) trades on Arbitrum with one click. Auto-copy, 50% referral rewards. Powered by gTrade.' },
-      dashboard: { url: base + '/?tab=dashboard', title: 'Dashboard — Smart Trading Club', desc: 'Copy live gold signals, manage positions, and track your profits on Arbitrum.' },
-      results: { url: base + '/?tab=results', title: 'Results — Smart Trading Club', desc: 'View our verified trade results, win rate, and performance history on Arbitrum.' },
-      referral: { url: base + '/?tab=referral', title: 'Referral Program — Smart Trading Club', desc: 'Earn 50% of platform fees by referring friends. Share your link and earn USDC.' },
+      invest: { url: base + '/', title: 'Smart Trading Club — Best On-Chain Gold Copy Trading Platform 2026', desc: 'Copy live gold (XAU/USD) trades on Arbitrum. Best crypto copy trading platform. Auto-copy, 50% referral rewards, USDC profits.' },
+      dashboard: { url: base + '/?tab=dashboard', title: 'Copy Gold Trades Dashboard — Smart Trading Club', desc: 'Copy live gold signals on Arbitrum. Auto-copy mode, manage positions, track profits. On-chain copy trading with USDC.' },
+      results: { url: base + '/?tab=results', title: 'Gold Trading Results & Performance — Smart Trading Club', desc: 'Verified on-chain gold trading results. Win rate, profit history, and trade performance on Arbitrum.' },
+      referral: { url: base + '/?tab=referral', title: 'Earn 50% Referral Rewards — Smart Trading Club', desc: 'Earn 50% of platform fees by referring friends to Smart Trading Club. Share your link, earn USDC automatically.' },
     };
     const m = meta[activeTab] || meta.invest;
     document.title = m.title;
