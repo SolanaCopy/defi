@@ -4044,6 +4044,9 @@ function App() {
             <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
               Community
             </a>
+            <a href="https://x.com/SmartTradi37020" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
+              𝕏
+            </a>
           </div>
 
           <button className="connect-wallet-btn" onClick={connectWallet} disabled={isConnecting}>
