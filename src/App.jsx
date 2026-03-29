@@ -1693,6 +1693,40 @@ function App() {
           </button>
         </div>
       </motion.section>
+
+      {/* ===== SOCIAL LINKS ===== */}
+      <div style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px',
+        padding: '2rem 0 3rem',
+      }}>
+        <a href="https://x.com/SmartTradi37020" target="_blank" rel="noopener noreferrer" style={{
+          display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
+          borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+          color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none',
+          transition: 'all 0.2s ease',
+        }}>
+          <span style={{ fontSize: '1.1rem' }}>𝕏</span>
+          Twitter
+        </a>
+        <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" style={{
+          display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
+          borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+          color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none',
+          transition: 'all 0.2s ease',
+        }}>
+          <ExternalLink size={14} />
+          Telegram
+        </a>
+        <a href={`https://arbiscan.io/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" style={{
+          display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
+          borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+          color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none',
+          transition: 'all 0.2s ease',
+        }}>
+          <ShieldCheck size={14} />
+          Contract
+        </a>
+      </div>
     </>
   );
 
@@ -4043,9 +4077,6 @@ function App() {
             </a>
             <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
               Community
-            </a>
-            <a href="https://x.com/SmartTradi37020" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
-              𝕏
             </a>
           </div>
 
