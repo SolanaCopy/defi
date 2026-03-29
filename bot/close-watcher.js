@@ -505,10 +505,28 @@ class CloseWatcher {
   }
 
   // ===== MILESTONE TRACKER =====
-  startMilestoneTracker() {
-    this.lastVolumeMilestone = 0;
-    this.lastCopierMilestone = 0;
-    this.lastTradeMilestone = 0;
+  async startMilestoneTracker() {
+    // Read current state so we don't re-fire milestones on restart
+    try {
+      const contract = this.copyTrader;
+      const total = Number(await contract.signalCount());
+      let totalVolume = 0;
+      for (let i = 1; i <= total; i++) {
+        const meta = await contract.signalMeta(i);
+        totalVolume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+      }
+      const copierCount = Number(await contract.getAutoCopyUserCount());
+
+      this.lastVolumeMilestone = totalVolume;
+      this.lastCopierMilestone = copierCount;
+      this.lastTradeMilestone = total;
+      log(`Milestones initialized: vol=$${totalVolume.toFixed(0)}, copiers=${copierCount}, trades=${total}`);
+    } catch (err) {
+      this.lastVolumeMilestone = 0;
+      this.lastCopierMilestone = 0;
+      this.lastTradeMilestone = 0;
+      log(`Milestone init error: ${err.message}`);
+    }
     setInterval(() => this.checkMilestones(), 300_000); // check every 5 min
     log("Milestone tracker started");
   }
@@ -528,7 +546,7 @@ class CloseWatcher {
       const copierCount = Number(await contract.getAutoCopyUserCount());
 
       // Volume milestones
-      const volumeMilestones = [1000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
+      const volumeMilestones = [100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000];
       for (const m of volumeMilestones) {
         if (totalVolume >= m && this.lastVolumeMilestone < m) {
           this.lastVolumeMilestone = m;
@@ -549,7 +567,7 @@ class CloseWatcher {
       }
 
       // Copier milestones
-      const copierMilestones = [5, 10, 25, 50, 100, 250, 500, 1000];
+      const copierMilestones = [2, 3, 5, 10, 15, 25, 50, 100, 250, 500, 1000];
       for (const m of copierMilestones) {
         if (copierCount >= m && this.lastCopierMilestone < m) {
           this.lastCopierMilestone = m;
@@ -569,7 +587,7 @@ class CloseWatcher {
       }
 
       // Trade milestones
-      const tradeMilestones = [10, 25, 50, 100, 250, 500, 1000];
+      const tradeMilestones = [5, 10, 15, 25, 50, 100, 250, 500, 1000];
       for (const m of tradeMilestones) {
         if (total >= m && this.lastTradeMilestone < m) {
           this.lastTradeMilestone = m;
