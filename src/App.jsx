@@ -1721,7 +1721,7 @@ function App() {
         display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px',
         padding: '2rem 0 3rem',
       }}>
-        <a href="https://x.com/SmartTradi37020" target="_blank" rel="noopener noreferrer" style={{
+        <a href="https://x.com/STCprotocol" target="_blank" rel="noopener noreferrer" style={{
           display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
           borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
           color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none',
