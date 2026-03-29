@@ -584,8 +584,8 @@ export async function newCopierImage({ trader, amount, totalCopiers }) {
     <text x="90" y="192" font-family="${FONT}" font-size="20" fill="${WHITE}" font-weight="600">${esc(trader)}</text>
 
     <!-- Amount per trade -->
-    <text x="90" y="232" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">AMOUNT PER TRADE</text>
-    <text x="90" y="268" font-family="${FONT}" font-size="36" fill="url(#gold)" font-weight="700">$${esc(amount)} USDC</text>
+    <text x="90" y="260" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">AMOUNT PER TRADE</text>
+    <text x="90" y="298" font-family="${FONT}" font-size="36" fill="url(#gold)" font-weight="700">$${esc(amount)} USDC</text>
 
     <!-- Right side: copier count -->
     <rect x="560" y="155" width="160" height="140" rx="16" fill="${PURPLE}" opacity="0.05" stroke="${PURPLE}" stroke-width="1" stroke-opacity="0.15"/>
