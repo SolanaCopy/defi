@@ -335,6 +335,10 @@ function App() {
     initParticlesEngine(async (engine) => {
       await loadSlim(engine);
     }).then(() => setParticlesReady(true));
+
+    // Hide SEO content once React mounts
+    const seo = document.getElementById('seo-content');
+    if (seo) seo.style.display = 'none';
   }, []);
 
   // Update canonical, title, meta per tab
