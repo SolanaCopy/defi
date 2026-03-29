@@ -683,7 +683,7 @@ export async function welcomeImage({ username }) {
 }
 
 // ===== 8. DAILY SUMMARY IMAGE =====
-export async function dailySummaryImage({ trades, wins, losses, volume, profit, copiers }) {
+export async function dailySummaryImage({ trades, wins, losses, volume, profit, copiers, title = 'DAILY RECAP', volumeLabel = 'TOTAL VOLUME TODAY' }) {
   const h = 470;
   const winRate = Number(trades) > 0 ? Math.round((Number(wins) / Number(trades)) * 100) : 0;
 
@@ -696,12 +696,12 @@ export async function dailySummaryImage({ trades, wins, losses, volume, profit, 
     ${brandHeader()}
 
     <!-- Title -->
-    <text x="400" y="108" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">DAILY RECAP</text>
+    <text x="400" y="108" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">${esc(title)}</text>
     <rect x="300" y="118" width="200" height="3" rx="1.5" fill="url(#gold)" opacity="0.5"/>
 
     <!-- Big volume -->
     ${card(60, 135, 680, 100, `${GOLD}33`)}
-    <text x="400" y="168" font-family="${FONT}" font-size="13" fill="${WHITE}" text-anchor="middle" opacity="0.9" letter-spacing="2">TOTAL VOLUME TODAY</text>
+    <text x="400" y="168" font-family="${FONT}" font-size="13" fill="${WHITE}" text-anchor="middle" opacity="0.9" letter-spacing="2">${esc(volumeLabel)}</text>
     <text x="400" y="218" font-family="${FONT}" font-size="42" fill="url(#gold)" font-weight="700" text-anchor="middle">$${esc(volume)}</text>
 
     <!-- Stats grid -->
@@ -732,7 +732,62 @@ export async function dailySummaryImage({ trades, wins, losses, volume, profit, 
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
-// ===== 9. MILESTONE IMAGE =====
+// ===== 9. WEEKLY RECAP IMAGE =====
+export async function weeklyRecapImage({ days, totalVolume, totalProfit, copiers }) {
+  // days = [{ name: 'MON', profit: '+5.20%', volume: '$320', trades: 3, win: true }, ...]
+  const h = 545;
+
+  const svg = `
+  <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${defs()}
+    <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
+    ${topBar()}
+    ${brandHeader()}
+
+    <!-- Title -->
+    <text x="400" y="108" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">WEEKLY RECAP</text>
+    <rect x="300" y="118" width="200" height="3" rx="1.5" fill="url(#gold)" opacity="0.5"/>
+
+    <!-- Total stats bar -->
+    ${card(60, 135, 680, 55, `${GOLD}33`)}
+    <text x="175" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">TOTAL VOLUME</text>
+    <text x="175" y="180" font-family="${FONT}" font-size="20" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(totalVolume)}</text>
+    <text x="400" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">PROFIT</text>
+    <text x="400" y="180" font-family="${FONT}" font-size="20" fill="${String(totalProfit).includes('-') ? RED : GREEN}" font-weight="700" text-anchor="middle">${esc(totalProfit)}</text>
+    <text x="625" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">COPIERS</text>
+    <text x="625" y="180" font-family="${FONT}" font-size="20" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(copiers)}</text>
+
+    <!-- Column headers -->
+    <text x="90" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">DAY</text>
+    <text x="250" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">TRADES</text>
+    <text x="400" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">VOLUME</text>
+    <text x="560" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">RESULT</text>
+    <text x="680" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">STATUS</text>
+    <line x1="60" y1="228" x2="740" y2="228" stroke="${WHITE}" stroke-width="0.5" opacity="0.1"/>
+
+    <!-- Day rows -->
+    ${days.map((d, i) => {
+      const y = 255 + i * 52;
+      const profitColor = String(d.profit).includes('-') ? RED : GREEN;
+      const hasData = d.trades > 0;
+      return `
+        ${card(60, y - 20, 680, 48, hasData ? '#1C1C2C' : '#12121A')}
+        <text x="90" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${GOLD}" font-weight="700">${esc(d.name)}</text>
+        <text x="250" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${WHITE}" font-weight="600">${hasData ? d.trades : '—'}</text>
+        <text x="400" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${WHITE}" font-weight="600">${hasData ? esc(d.volume) : '—'}</text>
+        <text x="560" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${hasData ? profitColor : GRAY}" font-weight="700">${hasData ? esc(d.profit) : '—'}</text>
+        <text x="680" y="${y + 7}" font-family="${FONT}" font-size="13" fill="${hasData ? (String(d.profit).includes('-') ? RED : GREEN) : GRAY}" font-weight="600">${hasData ? (String(d.profit).includes('-') ? 'LOSS' : 'WIN') : '—'}</text>
+      `;
+    }).join('')}
+
+    ${footerText(h - 8)}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ===== 10. MILESTONE IMAGE =====
 export async function milestoneImage({ milestone, value, label }) {
   const h = 420;
 

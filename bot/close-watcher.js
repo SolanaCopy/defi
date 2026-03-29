@@ -10,7 +10,7 @@
 import "dotenv/config";
 import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
-import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage, dailySummaryImage, milestoneImage } from "./telegram-images.js";
+import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage, dailySummaryImage, weeklyRecapImage, milestoneImage } from "./telegram-images.js";
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
 
@@ -568,59 +568,89 @@ class CloseWatcher {
     try {
       const contract = this.copyTrader;
       const total = Number(await contract.signalCount());
-      const now = Math.floor(Date.now() / 1000);
-      const weekAgo = now - 7 * 86400;
 
-      let trades = 0, wins = 0, losses = 0, volume = 0;
-      let totalResultPct = 0;
+      const now = new Date();
+      const dayOfWeek = now.getUTCDay();
+      const monday = new Date(now);
+      monday.setUTCDate(now.getUTCDate() - ((dayOfWeek + 6) % 7));
+      monday.setUTCHours(0, 0, 0, 0);
+
+      const dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI'];
+      const days = dayNames.map((name, idx) => {
+        const dayStart = new Date(monday);
+        dayStart.setUTCDate(monday.getUTCDate() + idx);
+        dayStart.setUTCHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setUTCHours(23, 59, 59, 999);
+        return { name, start: Math.floor(dayStart.getTime() / 1000), end: Math.floor(dayEnd.getTime() / 1000), trades: 0, volume: 0, resultPct: 0 };
+      });
+
+      let totalTrades = 0, totalVolume = 0, totalResultPct = 0;
 
       for (let i = total; i >= 1; i--) {
         const meta = await contract.signalMeta(i);
         const closedAt = Number(meta.closedAt);
-        if (closedAt === 0 || closedAt < weekAgo) continue;
+        if (closedAt === 0 || closedAt < days[0].start) continue;
+        if (closedAt > days[4].end) continue;
 
         const core = await contract.signalCore(i);
         if (!core.closed) continue;
 
-        trades++;
+        const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
         const resultPct = Number(core.resultPct) / 100;
         const leverage = Number(core.leverage) / 1000;
-        totalResultPct += resultPct * leverage;
+        const leveragedPct = resultPct * leverage;
 
-        if (Number(core.resultPct) >= 0) wins++;
-        else losses++;
-        volume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+        totalTrades++;
+        totalVolume += vol;
+        totalResultPct += leveragedPct;
+
+        for (const day of days) {
+          if (closedAt >= day.start && closedAt <= day.end) {
+            day.trades++;
+            day.volume += vol;
+            day.resultPct += leveragedPct;
+            break;
+          }
+        }
       }
 
       const copierCount = Number(await contract.getAutoCopyUserCount());
-      const avgPct = trades > 0 ? (totalResultPct / trades).toFixed(2) : "0.00";
 
-      if (trades === 0) {
+      if (totalTrades === 0) {
         log("Weekly summary: no trades this week, skipping");
         return;
       }
 
-      const img = await dailySummaryImage({
-        trades: String(trades),
-        wins: String(wins),
-        losses: String(losses),
-        volume: volume.toFixed(0),
-        profit: `${totalResultPct >= 0 ? '+' : ''}${avgPct}%`,
+      const daysData = days.map(d => ({
+        name: d.name,
+        trades: d.trades,
+        volume: `$${d.volume.toFixed(0)}`,
+        profit: d.trades > 0 ? `${d.resultPct >= 0 ? '+' : ''}${(d.resultPct / d.trades).toFixed(2)}%` : '—',
+      }));
+
+      const avgPct = (totalResultPct / totalTrades).toFixed(2);
+
+      const img = await weeklyRecapImage({
+        days: daysData,
+        totalVolume: `$${totalVolume.toFixed(0)}`,
+        totalProfit: `${totalResultPct >= 0 ? '+' : ''}${avgPct}%`,
         copiers: String(copierCount),
       });
 
       await sendTelegramPhoto(img, [
-        `📊 <b>Weekly Recap</b>`,
+        `📊 <b>Weekly Recap — Mon to Fri</b>`,
         ``,
-        `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
-        `💰 Volume: <b>$${volume.toFixed(0)} USDC</b>`,
-        `🎯 Avg result: <b>${totalResultPct >= 0 ? '+' : ''}${avgPct}%</b>`,
+        ...daysData.map(d => d.trades > 0 ? `${d.name}: <b>${d.profit}</b> (${d.trades} trades, ${d.volume})` : `${d.name}: No trades`),
+        ``,
+        `📈 Avg result: <b>${totalResultPct >= 0 ? '+' : ''}${avgPct}%</b>`,
+        `💰 Volume: <b>$${totalVolume.toFixed(0)} USDC</b>`,
         `👥 Copiers: <b>${copierCount}</b>`,
         ``,
         `See you next week! 🚀`,
       ].join("\n"), [BTN_APP, BTN_TG]);
 
-      log(`Weekly summary sent: ${trades} trades, $${volume.toFixed(0)} volume`);
+      log(`Weekly summary sent: ${totalTrades} trades, $${totalVolume.toFixed(0)} volume`);
     } catch (err) {
       log(`Weekly summary error: ${err.message}`);
     }
