@@ -517,14 +517,29 @@ class CloseWatcher {
       }
       const copierCount = Number(await contract.getAutoCopyUserCount());
 
+      // Also calc current profit
+      let initProfit = 0;
+      for (let i = 1; i <= total; i++) {
+        const meta = await contract.signalMeta(i);
+        const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+        const core = await contract.signalCore(i);
+        if (core.closed) {
+          const resultPct = Number(core.resultPct) / 100;
+          const leverage = Number(core.leverage) / 1000;
+          initProfit += vol * (resultPct / 100) * leverage;
+        }
+      }
+
       this.lastVolumeMilestone = totalVolume;
       this.lastCopierMilestone = copierCount;
       this.lastTradeMilestone = total;
-      log(`Milestones initialized: vol=$${totalVolume.toFixed(0)}, copiers=${copierCount}, trades=${total}`);
+      this.lastProfitMilestone = initProfit;
+      log(`Milestones initialized: vol=$${totalVolume.toFixed(0)}, copiers=${copierCount}, trades=${total}, profit=$${initProfit.toFixed(0)}`);
     } catch (err) {
       this.lastVolumeMilestone = 0;
       this.lastCopierMilestone = 0;
       this.lastTradeMilestone = 0;
+      this.lastProfitMilestone = 0;
       log(`Milestone init error: ${err.message}`);
     }
     setInterval(() => this.checkMilestones(), 300_000); // check every 5 min
@@ -536,11 +551,19 @@ class CloseWatcher {
       const contract = this.copyTrader;
       const total = Number(await contract.signalCount());
 
-      // Calculate total volume
+      // Calculate total volume + profit
       let totalVolume = 0;
+      let totalProfit = 0;
       for (let i = 1; i <= total; i++) {
         const meta = await contract.signalMeta(i);
-        totalVolume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+        const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+        totalVolume += vol;
+        const core = await contract.signalCore(i);
+        if (core.closed) {
+          const resultPct = Number(core.resultPct) / 100;
+          const leverage = Number(core.leverage) / 1000;
+          totalProfit += vol * (resultPct / 100) * leverage;
+        }
       }
 
       const copierCount = Number(await contract.getAutoCopyUserCount());
@@ -601,6 +624,26 @@ class CloseWatcher {
             `🏆 <b>Milestone Reached!</b>`,
             ``,
             `📡 Total signals: <b>${m}</b>`,
+          ].join("\n"), [BTN_APP, BTN_TG]);
+        }
+      }
+      // Profit milestones
+      const profitMilestones = [50, 100, 250, 500, 1000, 2500, 5000, 10000, 25000, 50000, 100000];
+      for (const m of profitMilestones) {
+        if (totalProfit >= m && this.lastProfitMilestone < m) {
+          this.lastProfitMilestone = m;
+          const label = m >= 1000 ? `$${m / 1000}K` : `$${m}`;
+          log(`Milestone: profit ${label}`);
+          const img = await milestoneImage({
+            milestone: `Our traders have earned ${label} USDC in profit!`,
+            value: `${label}`,
+            label: 'TOTAL PROFIT',
+          });
+          await sendTelegramPhoto(img, [
+            `🏆 <b>Milestone Reached!</b>`,
+            ``,
+            `💰 Total profit generated: <b>${label} USDC</b>`,
+            `🔥 Profitable trading!`,
           ].join("\n"), [BTN_APP, BTN_TG]);
         }
       }
