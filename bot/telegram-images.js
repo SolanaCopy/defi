@@ -68,13 +68,13 @@ const LOGO_B64 = "iVBORw0KGgoAAAANSUhEUgAAAHgAAAB4CAYAAAA5ZDbSAAAACXBIWXMAAAsTAA
 
 function brandHeader() {
   return `
-    <image x="28" y="14" width="32" height="32" href="data:image/png;base64,${LOGO_B64}"/>
-    <text x="72" y="34" font-family="${FONT}" font-size="13" fill="${GRAY}" font-weight="600" letter-spacing="3" dominant-baseline="middle">SMART TRADING CLUB</text>
+    <image x="375" y="10" width="50" height="50" href="data:image/png;base64,${LOGO_B64}"/>
+    <text x="400" y="76" font-family="${FONT}" font-size="12" fill="${GRAY}" font-weight="600" letter-spacing="4" text-anchor="middle">SMART TRADING CLUB</text>
   `;
 }
 
 function card(x, y, w, h, stroke = "#1C1C2C") {
-  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${BG_CARD}" stroke="${stroke}" stroke-width="1"/>`;
+  return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="14" fill="${BG_CARD}" fill-opacity="0.5" stroke="${stroke}" stroke-width="1"/>`;
 }
 
 function line(y) {
@@ -83,6 +83,64 @@ function line(y) {
 
 function footerText(y) {
   return `<text x="400" y="${y}" font-family="${FONT}" font-size="12" fill="${GRAY}" text-anchor="middle" letter-spacing="1">smarttradingclub.io</text>`;
+}
+
+// Realistic gold candlestick chart background
+function candlestickBg(h, opacity = 0.28) {
+  const candles = [
+    { x: 35, wt: 58, bt: 62, bb: 78, wb: 82, bull: false },
+    { x: 60, wt: 48, bt: 52, bb: 68, wb: 74, bull: false },
+    { x: 85, wt: 42, bt: 46, bb: 60, wb: 66, bull: true },
+    { x: 110, wt: 38, bt: 42, bb: 55, wb: 62, bull: true },
+    { x: 135, wt: 44, bt: 50, bb: 58, wb: 64, bull: false },
+    { x: 160, wt: 35, bt: 38, bb: 52, wb: 58, bull: true },
+    { x: 185, wt: 28, bt: 32, bb: 46, wb: 52, bull: true },
+    { x: 210, wt: 22, bt: 26, bb: 38, wb: 44, bull: true },
+    { x: 235, wt: 18, bt: 22, bb: 32, wb: 38, bull: true },
+    { x: 260, wt: 24, bt: 28, bb: 40, wb: 46, bull: false },
+    { x: 285, wt: 20, bt: 24, bb: 36, wb: 42, bull: true },
+    { x: 310, wt: 15, bt: 18, bb: 28, wb: 34, bull: true },
+    { x: 335, wt: 18, bt: 22, bb: 34, wb: 40, bull: false },
+    { x: 360, wt: 22, bt: 26, bb: 42, wb: 48, bull: false },
+    { x: 385, wt: 16, bt: 20, bb: 30, wb: 36, bull: true },
+    { x: 410, wt: 20, bt: 24, bb: 38, wb: 44, bull: false },
+    { x: 435, wt: 24, bt: 28, bb: 40, wb: 45, bull: true },
+    { x: 460, wt: 18, bt: 22, bb: 35, wb: 40, bull: true },
+    { x: 485, wt: 22, bt: 26, bb: 38, wb: 44, bull: false },
+    { x: 510, wt: 26, bt: 30, bb: 44, wb: 50, bull: false },
+    { x: 535, wt: 20, bt: 24, bb: 36, wb: 42, bull: true },
+    { x: 560, wt: 24, bt: 28, bb: 42, wb: 48, bull: true },
+    { x: 585, wt: 18, bt: 22, bb: 32, wb: 38, bull: true },
+    { x: 610, wt: 22, bt: 26, bb: 40, wb: 46, bull: false },
+    { x: 635, wt: 26, bt: 30, bb: 45, wb: 52, bull: false },
+    { x: 660, wt: 20, bt: 24, bb: 35, wb: 40, bull: true },
+    { x: 685, wt: 24, bt: 28, bb: 42, wb: 48, bull: true },
+    { x: 710, wt: 28, bt: 32, bb: 48, wb: 54, bull: false },
+    { x: 735, wt: 22, bt: 26, bb: 38, wb: 44, bull: true },
+    { x: 760, wt: 26, bt: 30, bb: 44, wb: 50, bull: true },
+  ];
+
+  return `<g opacity="${opacity}">
+    <!-- Grid lines -->
+    ${[30, 40, 50, 60, 70, 80].map(pct =>
+      `<line x1="20" y1="${h * pct / 100}" x2="780" y2="${h * pct / 100}" stroke="${GOLD}" stroke-width="0.3" opacity="0.3"/>`
+    ).join('')}
+    <!-- Candles -->
+    ${candles.map(c => {
+      const wt = h * c.wt / 100;
+      const bt = h * c.bt / 100;
+      const bb = h * c.bb / 100;
+      const wb = h * c.wb / 100;
+      const bodyH = bb - bt;
+      return `
+        <line x1="${c.x}" y1="${wt}" x2="${c.x}" y2="${wb}" stroke="${c.bull ? GOLD : GOLD_DARK}" stroke-width="1.2" opacity="0.7"/>
+        <rect x="${c.x - 6}" y="${bt}" width="12" height="${bodyH}" rx="1.5" fill="${c.bull ? GOLD : GOLD_DARK}" opacity="${c.bull ? 0.9 : 0.6}"/>
+        <rect x="${c.x - 6}" y="${bt}" width="12" height="${Math.min(3, bodyH)}" rx="1.5" fill="${GOLD_LIGHT}" opacity="0.3"/>
+      `;
+    }).join('')}
+    <!-- Trend line -->
+    <polyline points="${candles.map(c => `${c.x},${h * (c.bt + c.bb) / 200}`).join(' ')}" fill="none" stroke="${GOLD}" stroke-width="1.5" opacity="0.15"/>
+  </g>`;
 }
 
 function ctaButton(y, text, gradId = "gold", textColor = "#0A0A0F") {
@@ -192,7 +250,7 @@ export async function signalImage({ signalId, direction, leverage, entry, tp, sl
   const isLong = direction === "LONG";
   const dirColor = isLong ? GREEN : RED;
   const dirGradH = isLong ? "green" : "red";
-  const h = 620;
+  const h = 655;
 
   // Parse prices (remove commas)
   const entryNum = parseFloat(String(entry).replace(/,/g, ""));
@@ -201,48 +259,49 @@ export async function signalImage({ signalId, direction, leverage, entry, tp, sl
 
   // Fetch real 5min gold candles
   const realCandles = await fetchGoldCandles();
-  const chartSvg = generateCandleChart(entryNum, tpNum, slNum, isLong, 50, 200, 680, 220, realCandles);
+  const chartSvg = generateCandleChart(entryNum, tpNum, slNum, isLong, 50, 235, 680, 220, realCandles);
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
     ${defs()}
     <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
     ${topBar(dirGradH)}
     ${brandHeader()}
 
     <!-- Title section -->
-    <text x="400" y="80" font-family="${FONT}" font-size="13" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}</text>
-    <text x="400" y="110" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">NEW TRADE SIGNAL</text>
+    <text x="400" y="115" font-family="${FONT}" font-size="13" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}</text>
+    <text x="400" y="145" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">NEW TRADE SIGNAL</text>
 
     <!-- Direction pill -->
-    <rect x="250" y="128" width="300" height="42" rx="21" fill="${dirColor}" opacity="0.1" stroke="${dirColor}" stroke-width="1" stroke-opacity="0.3"/>
-    <circle cx="288" cy="149" r="6" fill="${dirColor}"/>
-    <text x="408" y="156" font-family="${FONT}" font-size="18" fill="${dirColor}" font-weight="700" text-anchor="middle">${esc(direction)}   ·   XAU/USD   ·   ${esc(leverage)}</text>
+    <rect x="250" y="163" width="300" height="42" rx="21" fill="${dirColor}" opacity="0.1" stroke="${dirColor}" stroke-width="1" stroke-opacity="0.3"/>
+    <circle cx="288" cy="184" r="6" fill="${dirColor}"/>
+    <text x="408" y="191" font-family="${FONT}" font-size="18" fill="${dirColor}" font-weight="700" text-anchor="middle">${esc(direction)}   ·   XAU/USD   ·   ${esc(leverage)}</text>
 
-    ${line(185)}
+    ${line(220)}
 
     <!-- Chart -->
-    ${card(40, 192, 720, 240)}
-    <text x="60" y="210" font-family="${FONT}" font-size="10" fill="${GRAY}" letter-spacing="1">XAU/USD · 5M</text>
-    <text x="740" y="210" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="end">${realCandles ? "LIVE" : ""}${realCandles ? "" : ""}</text>
-    ${realCandles ? `<circle cx="726" cy="206" r="3" fill="${GREEN}" opacity="0.8"/>` : ""}
+    ${card(40, 227, 720, 240)}
+    <text x="60" y="245" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">XAU/USD · 5M</text>
+    <text x="740" y="245" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="end">${realCandles ? "LIVE" : ""}${realCandles ? "" : ""}</text>
+    ${realCandles ? `<circle cx="726" cy="241" r="3" fill="${GREEN}" opacity="0.8"/>` : ""}
     ${chartSvg}
 
     <!-- Price cards -->
-    ${card(45, 448, 220, 75)}
-    <text x="155" y="474" font-family="${FONT}" font-size="11" fill="${LIGHT_GRAY}" text-anchor="middle" letter-spacing="2">ENTRY PRICE</text>
-    <text x="155" y="505" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle">$${esc(entry)}</text>
+    ${card(45, 483, 220, 75)}
+    <text x="155" y="509" font-family="${FONT}" font-size="11" fill="${LIGHT_GRAY}" text-anchor="middle" letter-spacing="2">ENTRY PRICE</text>
+    <text x="155" y="540" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle">$${esc(entry)}</text>
 
-    ${card(290, 448, 220, 75, "#1a3a1a")}
-    <text x="400" y="474" font-family="${FONT}" font-size="11" fill="${GREEN}" text-anchor="middle" letter-spacing="2">TAKE PROFIT</text>
-    <text x="400" y="505" font-family="${FONT}" font-size="26" fill="${GREEN}" font-weight="700" text-anchor="middle">$${esc(tp)}</text>
+    ${card(290, 483, 220, 75, "#1a3a1a")}
+    <text x="400" y="509" font-family="${FONT}" font-size="11" fill="${GREEN}" text-anchor="middle" letter-spacing="2">TAKE PROFIT</text>
+    <text x="400" y="540" font-family="${FONT}" font-size="26" fill="${GREEN}" font-weight="700" text-anchor="middle">$${esc(tp)}</text>
 
-    ${card(535, 448, 220, 75, "#3a1a1a")}
-    <text x="645" y="474" font-family="${FONT}" font-size="11" fill="${RED}" text-anchor="middle" letter-spacing="2">STOP LOSS</text>
-    <text x="645" y="505" font-family="${FONT}" font-size="26" fill="${RED}" font-weight="700" text-anchor="middle">$${esc(sl)}</text>
+    ${card(535, 483, 220, 75, "#3a1a1a")}
+    <text x="645" y="509" font-family="${FONT}" font-size="11" fill="${RED}" text-anchor="middle" letter-spacing="2">STOP LOSS</text>
+    <text x="645" y="540" font-family="${FONT}" font-size="26" fill="${RED}" font-weight="700" text-anchor="middle">$${esc(sl)}</text>
 
     <!-- CTA -->
-    ${ctaButton(545, "COPY THIS TRADE NOW")}
+    ${ctaButton(580, "COPY THIS TRADE NOW")}
 
     ${footerText(h - 8)}
   </svg>`;
@@ -252,33 +311,34 @@ export async function signalImage({ signalId, direction, leverage, entry, tp, sl
 
 // ===== 2. DEPOSIT IMAGE =====
 export async function depositImage({ trader, amount, signalId }) {
-  const h = 370;
+  const h = 405;
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
     ${defs()}
     <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
     ${topBar()}
     ${brandHeader()}
 
     <!-- Title -->
-    <text x="400" y="82" font-family="${FONT}" font-size="14" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}</text>
-    <text x="400" y="115" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">NEW DEPOSIT</text>
+    <text x="400" y="117" font-family="${FONT}" font-size="14" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}</text>
+    <text x="400" y="150" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">NEW DEPOSIT</text>
 
-    ${line(135)}
+    ${line(170)}
 
     <!-- Dollar icon circle -->
-    <circle cx="400" cy="180" r="28" fill="${GOLD}" opacity="0.1" stroke="${GOLD}" stroke-width="1.5" stroke-opacity="0.4"/>
-    <text x="400" y="192" font-family="${FONT}" font-size="28" fill="${GOLD}" font-weight="700" text-anchor="middle">$</text>
+    <circle cx="400" cy="215" r="28" fill="${GOLD}" opacity="0.1" stroke="${GOLD}" stroke-width="1.5" stroke-opacity="0.4"/>
+    <text x="400" y="227" font-family="${FONT}" font-size="28" fill="${GOLD}" font-weight="700" text-anchor="middle">$</text>
 
     <!-- Big amount -->
-    <text x="400" y="248" font-family="${FONT}" font-size="46" fill="url(#gold)" font-weight="700" text-anchor="middle">$${esc(amount)}</text>
-    <text x="400" y="275" font-family="${FONT}" font-size="16" fill="${LIGHT_GRAY}" text-anchor="middle">USDC</text>
+    <text x="400" y="283" font-family="${FONT}" font-size="46" fill="url(#gold)" font-weight="700" text-anchor="middle">$${esc(amount)}</text>
+    <text x="400" y="310" font-family="${FONT}" font-size="16" fill="${LIGHT_GRAY}" text-anchor="middle">USDC</text>
 
     <!-- Info bar -->
-    ${card(50, 300, 700, 44)}
-    <text x="80" y="328" font-family="${FONT}" font-size="13" fill="${LIGHT_GRAY}">Trader: ${esc(trader)}</text>
-    <text x="720" y="328" font-family="${FONT}" font-size="13" fill="${GOLD_LIGHT}" text-anchor="end">+1 new copier</text>
+    ${card(50, 335, 700, 44)}
+    <text x="80" y="363" font-family="${FONT}" font-size="13" fill="${LIGHT_GRAY}">Trader: ${esc(trader)}</text>
+    <text x="720" y="363" font-family="${FONT}" font-size="13" fill="${GOLD_LIGHT}" text-anchor="end">+1 new copier</text>
 
     ${footerText(h - 6)}
   </svg>`;
@@ -291,69 +351,65 @@ export async function signalClosedImage({ signalId, resultPct, direction, levera
   const pct = Number(resultPct);
   const win = pct >= 0;
   const color = win ? GREEN : RED;
-  const dimColor = win ? GREEN_DIM : RED_DIM;
   const gradH = win ? "green" : "red";
+  const gradId = win ? "green" : "red";
   const sign = win ? "+" : "";
-  const h = 480;
-
-  // Circular progress ring
-  const radius = 70;
-  const circumference = 2 * Math.PI * radius;
-  const progress = Math.min(Math.abs(pct) / 50, 1); // 50% = full ring
-  const dashOffset = circumference * (1 - progress);
+  const h = 470;
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-    ${defs()}
+    ${defs(`
+      <radialGradient id="glowResult" cx="50%" cy="40%" r="35%">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.06"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </radialGradient>
+    `)}
     <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
     ${topBar(gradH)}
+    <rect width="${W}" height="${h}" fill="url(#glowResult)"/>
     ${brandHeader()}
 
-    <!-- Status badge -->
-    <rect x="300" y="60" width="200" height="30" rx="15" fill="${color}" opacity="0.1" stroke="${color}" stroke-width="1" stroke-opacity="0.3"/>
-    <text x="400" y="80" font-family="${FONT}" font-size="12" fill="${color}" font-weight="700" text-anchor="middle" letter-spacing="2">${win ? "PROFIT" : "LOSS"}</text>
+    <!-- Title -->
+    <text x="400" y="108" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">SIGNAL CLOSED</text>
+    <rect x="300" y="118" width="200" height="3" rx="1.5" fill="url(#${gradId})" opacity="0.5"/>
 
-    <!-- Signal info -->
-    <text x="400" y="115" font-family="${FONT}" font-size="13" fill="${GRAY}" text-anchor="middle" letter-spacing="1">Signal #${esc(signalId)}${direction ? `  ·  ${esc(direction)}` : ""}${leverage ? `  ·  ${esc(leverage)}` : ""}</text>
+    <!-- Main card -->
+    ${card(60, 135, 680, 200, `${color}33`)}
 
-    <!-- Result card -->
-    <g transform="translate(400, 215)">
-      <!-- Outer ring background -->
-      <circle cx="0" cy="0" r="${radius}" fill="none" stroke="#1A1A28" stroke-width="6"/>
-      <!-- Progress ring -->
-      <circle cx="0" cy="0" r="${radius}" fill="none" stroke="${color}" stroke-width="6"
-        stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"
-        stroke-linecap="round" transform="rotate(-90)" opacity="0.8"/>
-      <!-- Glow -->
-      <circle cx="0" cy="0" r="${radius}" fill="none" stroke="${color}" stroke-width="2"
-        stroke-dasharray="${circumference}" stroke-dashoffset="${dashOffset}"
-        stroke-linecap="round" transform="rotate(-90)" opacity="0.15" filter="url(#glow)"/>
-      <!-- Inner fill -->
-      <circle cx="0" cy="0" r="${radius - 10}" fill="${color}" opacity="0.04"/>
-    </g>
+    <!-- Left: result -->
+    <text x="90" y="170" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">SIGNAL #${esc(signalId)}</text>
 
-    <!-- Percentage (outside ring, centered) -->
-    <text x="400" y="210" font-family="${FONT}" font-size="38" fill="${color}" font-weight="700" text-anchor="middle">${sign}${pct.toFixed(2)}%</text>
-    <text x="400" y="235" font-family="${FONT}" font-size="13" fill="${GRAY}" text-anchor="middle">RESULT</text>
+    <text x="90" y="205" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">RESULT</text>
+    <text x="90" y="255" font-family="${FONT}" font-size="54" fill="url(#${gradId})" font-weight="700">${sign}${pct.toFixed(2)}%</text>
+    <text x="90" y="280" font-family="${FONT}" font-size="14" fill="${LIGHT_GRAY}">${win ? 'Closed in profit' : 'Closed in loss'}</text>
 
-    <!-- Stats row -->
-    ${card(50, 340, 220, 60)}
-    <text x="160" y="365" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="middle" letter-spacing="2">STATUS</text>
-    <text x="160" y="388" font-family="${FONT}" font-size="18" fill="${color}" font-weight="700" text-anchor="middle">${win ? "CLOSED IN PROFIT" : "CLOSED IN LOSS"}</text>
+    <!-- Right: status panel -->
+    <rect x="560" y="155" width="160" height="160" rx="16" fill="${color}" opacity="0.04" stroke="${color}" stroke-width="1" stroke-opacity="0.15"/>
 
-    ${card(290, 340, 220, 60)}
-    <text x="400" y="365" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="middle" letter-spacing="2">SIGNAL</text>
-    <text x="400" y="388" font-family="${FONT}" font-size="18" fill="${WHITE}" font-weight="700" text-anchor="middle">#${esc(signalId)}</text>
-
-    ${card(530, 340, 220, 60)}
-    <text x="640" y="365" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="middle" letter-spacing="2">TRADE</text>
-    <text x="640" y="388" font-family="${FONT}" font-size="18" fill="${WHITE}" font-weight="700" text-anchor="middle">${esc(direction || "XAU/USD")} ${esc(leverage || "")}</text>
-
-    <!-- CTA -->
     ${win
-      ? ctaButton(418, "CLAIM YOUR PROFITS")
-      : `<text x="400" y="445" font-family="${FONT}" font-size="16" fill="${GRAY}" text-anchor="middle">Next trade will be better</text>`
+      ? `<circle cx="640" cy="205" r="26" fill="${GREEN}" opacity="0.1" stroke="${GREEN}" stroke-width="2" stroke-opacity="0.4"/>
+         <polyline points="627,205 636,216 655,193" fill="none" stroke="${GREEN}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+         <text x="640" y="255" font-family="${FONT}" font-size="14" fill="${GREEN}" text-anchor="middle" font-weight="700" letter-spacing="1">WIN</text>`
+      : `<circle cx="640" cy="205" r="26" fill="${RED}" opacity="0.1" stroke="${RED}" stroke-width="2" stroke-opacity="0.4"/>
+         <line x1="628" y1="193" x2="652" y2="217" stroke="${RED}" stroke-width="4" stroke-linecap="round"/>
+         <line x1="652" y1="193" x2="628" y2="217" stroke="${RED}" stroke-width="4" stroke-linecap="round"/>
+         <text x="640" y="255" font-family="${FONT}" font-size="14" fill="${RED}" text-anchor="middle" font-weight="700" letter-spacing="1">LOSS</text>`
     }
+    <text x="640" y="290" font-family="${FONT}" font-size="11" fill="${LIGHT_GRAY}" text-anchor="middle">On-chain verified</text>
+
+    <!-- Bottom stats row -->
+    ${card(60, 355, 218, 55, "#1C1C2C")}
+    <text x="100" y="380" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">DIRECTION</text>
+    <text x="100" y="398" font-family="${FONT}" font-size="15" fill="${win ? GREEN : RED}" font-weight="600">${esc(direction || 'XAU/USD')}</text>
+
+    ${card(292, 355, 218, 55, "#1C1C2C")}
+    <text x="332" y="380" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">LEVERAGE</text>
+    <text x="332" y="398" font-family="${FONT}" font-size="15" fill="${GOLD}" font-weight="600">${esc(leverage || '50x')}</text>
+
+    ${card(524, 355, 216, 55, "#1C1C2C")}
+    <text x="564" y="380" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">PAIR</text>
+    <text x="564" y="398" font-family="${FONT}" font-size="15" fill="${WHITE}" font-weight="600">XAU/USD</text>
 
     ${footerText(h - 8)}
   </svg>`;
@@ -364,33 +420,50 @@ export async function signalClosedImage({ signalId, resultPct, direction, levera
 // ===== 4. CLAIM IMAGE =====
 export async function claimImage({ trader, payout, fee, signalId }) {
   const hasFee = Number(fee) > 0;
-  const h = 400;
+  const h = 470;
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-    ${defs()}
+    ${defs(`
+      <radialGradient id="glowG" cx="50%" cy="40%" r="35%">
+        <stop offset="0%" stop-color="${GREEN}" stop-opacity="0.06"/>
+        <stop offset="100%" stop-color="${GREEN}" stop-opacity="0"/>
+      </radialGradient>
+    `)}
     <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
     ${topBar("green")}
+    <rect width="${W}" height="${h}" fill="url(#glowG)"/>
     ${brandHeader()}
 
     <!-- Title -->
-    <text x="400" y="82" font-family="${FONT}" font-size="14" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}</text>
-    <text x="400" y="115" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">PROFIT CLAIMED</text>
+    <text x="400" y="110" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">PROFIT CLAIMED</text>
+    <rect x="300" y="120" width="200" height="3" rx="1.5" fill="url(#green)" opacity="0.5"/>
 
-    ${line(135)}
+    <!-- Main card -->
+    ${card(60, 138, 680, 200, `${GREEN}33`)}
 
-    <!-- Checkmark circle -->
-    <circle cx="400" cy="185" r="30" fill="${GREEN}" opacity="0.1" stroke="${GREEN}" stroke-width="2" stroke-opacity="0.4"/>
-    <polyline points="385,185 396,198 418,172" fill="none" stroke="${GREEN}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Left: payout info -->
+    <text x="90" y="172" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">SIGNAL #${esc(signalId)}</text>
+    <text x="90" y="200" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">PAYOUT</text>
+    <text x="90" y="248" font-family="${FONT}" font-size="50" fill="url(#green)" font-weight="700">$${esc(payout)}</text>
+    <text x="90" y="275" font-family="${FONT}" font-size="15" fill="${LIGHT_GRAY}">USDC claimed to wallet</text>
 
-    <!-- Payout -->
-    <text x="400" y="258" font-family="${FONT}" font-size="50" fill="${GREEN}" font-weight="700" text-anchor="middle">$${esc(payout)}</text>
-    <text x="400" y="285" font-family="${FONT}" font-size="16" fill="${LIGHT_GRAY}" text-anchor="middle">USDC</text>
+    <!-- Right: checkmark + status -->
+    <rect x="560" y="158" width="160" height="160" rx="16" fill="${GREEN}" opacity="0.04" stroke="${GREEN}" stroke-width="1" stroke-opacity="0.15"/>
+    <circle cx="640" cy="210" r="28" fill="${GREEN}" opacity="0.1" stroke="${GREEN}" stroke-width="2" stroke-opacity="0.4"/>
+    <polyline points="626,210 636,222 656,198" fill="none" stroke="${GREEN}" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+    <text x="640" y="265" font-family="${FONT}" font-size="13" fill="${GREEN}" text-anchor="middle" font-weight="600" letter-spacing="1">SUCCESS</text>
+    <text x="640" y="290" font-family="${FONT}" font-size="11" fill="${LIGHT_GRAY}" text-anchor="middle">Verified on-chain</text>
 
-    <!-- Details card -->
-    ${card(50, 310, 700, 50)}
-    <text x="80" y="341" font-family="${FONT}" font-size="14" fill="${LIGHT_GRAY}">Trader: ${esc(trader)}</text>
-    ${hasFee ? `<text x="720" y="341" font-family="${FONT}" font-size="14" fill="${GRAY}" text-anchor="end">Fee: $${esc(fee)} USDC</text>` : ""}
+    <!-- Bottom stats row -->
+    ${card(60, 358, 330, 55, "#1C1C2C")}
+    <text x="100" y="383" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">TRADER</text>
+    <text x="100" y="401" font-family="${FONT}" font-size="15" fill="${WHITE}" font-weight="600">${esc(trader)}</text>
+
+    ${card(404, 358, 336, 55, "#1C1C2C")}
+    <text x="444" y="383" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">PLATFORM FEE</text>
+    <text x="444" y="401" font-family="${FONT}" font-size="15" fill="${hasFee ? GOLD : GREEN}" font-weight="600">${hasFee ? `$${esc(fee)} USDC` : 'No fee (loss)'}</text>
 
     ${footerText(h - 8)}
   </svg>`;
@@ -404,59 +477,163 @@ export async function autoCloseImage({ signalId, direction, leverage, resultPct 
   const win = pct >= 0;
   const color = win ? GREEN : RED;
   const gradH = win ? "green" : "red";
+  const gradId = win ? "green" : "red";
   const sign = win ? "+" : "";
-  const h = 400;
+  const h = 470;
+  const triggerLabel = win ? "TAKE PROFIT HIT" : "STOP LOSS HIT";
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
-    ${defs()}
+    ${defs(`
+      <radialGradient id="glowAC" cx="50%" cy="40%" r="35%">
+        <stop offset="0%" stop-color="${color}" stop-opacity="0.06"/>
+        <stop offset="100%" stop-color="${color}" stop-opacity="0"/>
+      </radialGradient>
+    `)}
     <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
     ${topBar(gradH)}
+    <rect width="${W}" height="${h}" fill="url(#glowAC)"/>
     ${brandHeader()}
 
     <!-- Title -->
-    <text x="400" y="80" font-family="${FONT}" font-size="14" fill="${GRAY}" text-anchor="middle" letter-spacing="3">SIGNAL #${esc(signalId)}  ·  ${esc(direction)}  ·  ${esc(leverage)}</text>
-    <text x="400" y="112" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">AUTO-CLOSE TRIGGERED</text>
+    <text x="400" y="108" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">AUTO-CLOSE</text>
+    <rect x="300" y="118" width="200" height="3" rx="1.5" fill="url(#${gradId})" opacity="0.5"/>
 
-    ${line(130)}
+    <!-- Main card -->
+    ${card(60, 135, 680, 200, `${color}33`)}
 
-    <!-- Lightning bolt -->
-    <polygon points="390,155 380,190 395,188 388,225 415,180 398,182 408,155" fill="${color}" opacity="0.8"/>
+    <!-- Left: result -->
+    <text x="90" y="170" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">SIGNAL #${esc(signalId)}</text>
 
-    <!-- Result -->
-    <text x="400" y="280" font-family="${FONT}" font-size="54" fill="${color}" font-weight="700" text-anchor="middle" filter="url(#glow)">${sign}${pct.toFixed(2)}%</text>
+    <text x="90" y="205" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">RESULT</text>
+    <text x="90" y="255" font-family="${FONT}" font-size="54" fill="url(#${gradId})" font-weight="700">${sign}${pct.toFixed(2)}%</text>
 
-    <!-- Status pill -->
-    <rect x="280" y="300" width="240" height="42" rx="21" fill="${color}" opacity="0.1" stroke="${color}" stroke-width="1" stroke-opacity="0.3"/>
-    <text x="400" y="327" font-family="${FONT}" font-size="15" fill="${color}" font-weight="600" text-anchor="middle" letter-spacing="1">${win ? "TP HIT — PROFIT" : "SL HIT — LOSS"}</text>
+    <!-- Trigger pill -->
+    <rect x="90" y="270" width="${triggerLabel.length * 10 + 30}" height="28" rx="14" fill="${color}" opacity="0.1" stroke="${color}" stroke-width="1" stroke-opacity="0.25"/>
+    <text x="${105 + triggerLabel.length * 5}" y="289" font-family="${FONT}" font-size="11" fill="${color}" font-weight="700" text-anchor="middle" letter-spacing="1">${triggerLabel}</text>
 
-    ${footerText(h - 10)}
+    <!-- Right: lightning + auto badge -->
+    <rect x="560" y="155" width="160" height="160" rx="16" fill="${color}" opacity="0.04" stroke="${color}" stroke-width="1" stroke-opacity="0.15"/>
+
+    <!-- Lightning icon -->
+    <polygon points="632,190 622,215 635,213 628,240 650,205 636,207 646,190" fill="${color}" opacity="0.8"/>
+
+    <text x="640" y="268" font-family="${FONT}" font-size="13" fill="${color}" text-anchor="middle" font-weight="700" letter-spacing="1">AUTO</text>
+    <text x="640" y="290" font-family="${FONT}" font-size="11" fill="${LIGHT_GRAY}" text-anchor="middle">Bot triggered</text>
+
+    <!-- Bottom stats row -->
+    ${card(60, 355, 218, 55, "#1C1C2C")}
+    <text x="100" y="380" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">DIRECTION</text>
+    <text x="100" y="398" font-family="${FONT}" font-size="15" fill="${win ? GREEN : RED}" font-weight="600">${esc(direction || 'XAU/USD')}</text>
+
+    ${card(292, 355, 218, 55, "#1C1C2C")}
+    <text x="332" y="380" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">LEVERAGE</text>
+    <text x="332" y="398" font-family="${FONT}" font-size="15" fill="${GOLD}" font-weight="600">${esc(leverage || '50x')}</text>
+
+    ${card(524, 355, 216, 55, "#1C1C2C")}
+    <text x="564" y="380" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">TRIGGER</text>
+    <text x="564" y="398" font-family="${FONT}" font-size="15" fill="${color}" font-weight="600">${win ? 'Take Profit' : 'Stop Loss'}</text>
+
+    ${footerText(h - 8)}
   </svg>`;
 
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
 
 // ===== 6. BOT ONLINE IMAGE =====
+// ===== 6. NEW AUTO-COPIER IMAGE =====
+export async function newCopierImage({ trader, amount, totalCopiers }) {
+  const h = 440;
+  const PURPLE = "#8B5CF6";
+  const PURPLE_DIM = "#6D28D9";
+
+  const svg = `
+  <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${defs(`
+      <linearGradient id="purple" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="#A78BFA"/>
+        <stop offset="50%" stop-color="${PURPLE}"/>
+        <stop offset="100%" stop-color="${PURPLE_DIM}"/>
+      </linearGradient>
+      <radialGradient id="glow1" cx="50%" cy="35%" r="40%">
+        <stop offset="0%" stop-color="${PURPLE}" stop-opacity="0.08"/>
+        <stop offset="100%" stop-color="${PURPLE}" stop-opacity="0"/>
+      </radialGradient>
+    `)}
+    <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
+
+    <!-- Purple accent top bar -->
+    <rect x="0" y="0" width="${W}" height="5" fill="url(#purple)"/>
+
+    <!-- Subtle glow -->
+    <rect width="${W}" height="${h}" fill="url(#glow1)"/>
+
+    ${brandHeader()}
+
+    <!-- Title -->
+    <text x="400" y="108" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="1">NEW COPIER JOINED</text>
+    <rect x="300" y="118" width="200" height="3" rx="1.5" fill="url(#purple)" opacity="0.5"/>
+
+    <!-- Main card area -->
+    ${card(60, 135, 680, 180, `${PURPLE}33`)}
+
+    <!-- Wallet address -->
+    <text x="90" y="168" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">WALLET</text>
+    <text x="90" y="192" font-family="${FONT}" font-size="20" fill="${WHITE}" font-weight="600">${esc(trader)}</text>
+
+    <!-- Amount per trade -->
+    <text x="90" y="232" font-family="${FONT}" font-size="11" fill="${WHITE}" letter-spacing="1" opacity="0.9">AMOUNT PER TRADE</text>
+    <text x="90" y="268" font-family="${FONT}" font-size="36" fill="url(#gold)" font-weight="700">$${esc(amount)} USDC</text>
+
+    <!-- Right side: copier count -->
+    <rect x="560" y="155" width="160" height="140" rx="16" fill="${PURPLE}" opacity="0.05" stroke="${PURPLE}" stroke-width="1" stroke-opacity="0.15"/>
+    <text x="640" y="210" font-family="${FONT}" font-size="48" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(totalCopiers)}</text>
+    <text x="640" y="237" font-family="${FONT}" font-size="13" fill="${WHITE}" text-anchor="middle" letter-spacing="2" font-weight="600">TOTAL COPIERS</text>
+    <text x="640" y="262" font-family="${FONT}" font-size="12" fill="${GREEN}" text-anchor="middle" font-weight="600">+1 joined</text>
+
+    <!-- Bottom stats row -->
+    ${card(60, 335, 218, 55, "#1C1C2C")}
+    <text x="100" y="360" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">MODE</text>
+    <text x="100" y="378" font-family="${FONT}" font-size="15" fill="${PURPLE}" font-weight="600">Auto-Copy</text>
+
+    ${card(292, 335, 218, 55, "#1C1C2C")}
+    <text x="332" y="360" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">PAIR</text>
+    <text x="332" y="378" font-family="${FONT}" font-size="15" fill="${GOLD}" font-weight="600">XAU/USD</text>
+
+    ${card(524, 335, 216, 55, "#1C1C2C")}
+    <text x="564" y="360" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">NETWORK</text>
+    <text x="564" y="378" font-family="${FONT}" font-size="15" fill="#28A0F0" font-weight="600">Arbitrum</text>
+
+    ${footerText(h - 6)}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}
+
+// ===== 7. BOT ONLINE IMAGE =====
 export async function botOnlineImage() {
-  const h = 340;
+  const h = 375;
 
   const svg = `
   <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
     ${defs()}
     <rect width="${W}" height="${h}" fill="url(#bg)" rx="0"/>
+    ${candlestickBg(h)}
     ${topBar()}
     ${brandHeader()}
 
     <!-- Center logo -->
-    <image x="350" y="65" width="100" height="100" href="data:image/png;base64,${LOGO_B64}"/>
+    <image x="350" y="100" width="100" height="100" href="data:image/png;base64,${LOGO_B64}"/>
 
     <!-- Title -->
-    <text x="400" y="200" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="2">SMART TRADING BOT</text>
+    <text x="400" y="235" font-family="${FONT}" font-size="28" fill="${WHITE}" font-weight="700" text-anchor="middle" letter-spacing="2">SMART TRADING BOT</text>
 
     <!-- Online status pill (centered) -->
-    <rect x="248" y="225" width="304" height="36" rx="18" fill="${GREEN}" opacity="0.06" stroke="${GREEN}" stroke-width="1" stroke-opacity="0.2"/>
-    <circle cx="280" cy="243" r="5" fill="${GREEN}"/>
-    <text x="410" y="249" font-family="${FONT}" font-size="14" fill="${GREEN}" font-weight="600" text-anchor="middle" letter-spacing="1">Online  ·  Monitoring Trades</text>
+    <rect x="248" y="260" width="304" height="36" rx="18" fill="${GREEN}" opacity="0.06" stroke="${GREEN}" stroke-width="1" stroke-opacity="0.2"/>
+    <circle cx="280" cy="278" r="5" fill="${GREEN}"/>
+    <text x="410" y="284" font-family="${FONT}" font-size="14" fill="${GREEN}" font-weight="600" text-anchor="middle" letter-spacing="1">Online  ·  Monitoring Trades</text>
 
     ${footerText(h - 10)}
   </svg>`;

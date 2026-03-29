@@ -10,7 +10,7 @@
 import "dotenv/config";
 import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
-import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage } from "./telegram-images.js";
+import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage } from "./telegram-images.js";
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
 
@@ -55,6 +55,9 @@ const COPY_TRADER_ABI = [
   "event AutoCopied(address indexed user, uint256 indexed signalId, uint256 amount)",
   "event ProceedsClaimed(address indexed user, uint256 indexed signalId, uint256 payout, uint256 fee)",
   "event FeesWithdrawn(uint256 amount)",
+  "event AutoCopyEnabled(address indexed user, uint256 amount)",
+  "event AutoCopyDisabled(address indexed user)",
+  "function getAutoCopyUserCount() view returns (uint256)",
 ];
 
 // gTrade events — we only need the fields we care about
@@ -311,21 +314,9 @@ class CloseWatcher {
       }
     });
 
-    // ── User copied a trade (deposit) ──
-    contract.on("TradeCopied", async (user, signalId, amount, event) => {
-      const tx = event.log?.transactionHash || "";
-      const amtStr = formatUSDC(amount);
-      log(`TradeCopied: ${shortAddr(user)} deposited $${amtStr}`);
-      const img = await depositImage({
-        trader: shortAddr(user), amount: amtStr, signalId: String(signalId),
-      });
-      const buttons = [BTN_COPY, BTN_TG];
-      if (tx) buttons.push(txBtn(tx));
-      await sendTelegramPhoto(img, [
-        `💵 <b>New Deposit — $${amtStr} USDC</b>`,
-        ``,
-        `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a> · Signal #${signalId}`,
-      ].join("\n"), buttons);
+    // ── User copied a trade (deposit) — log only, no Telegram notification ──
+    contract.on("TradeCopied", async (user, signalId, amount) => {
+      log(`TradeCopied: ${shortAddr(user)} deposited $${formatUSDC(amount)} on signal #${signalId}`);
     });
 
     // ── User claimed proceeds (withdrawal) ──
@@ -411,6 +402,30 @@ class CloseWatcher {
     contract.on("FeesWithdrawn", async (amount) => {
       log(`FeesWithdrawn: $${formatUSDC(amount)}`);
       await sendTelegram(`💎 <b>Platform Fees Collected</b>\n\nAmount: <b>$${formatUSDC(amount)} USDC</b>`);
+    });
+
+    // ── New auto-copier joined ──
+    contract.on("AutoCopyEnabled", async (user, amount) => {
+      const amtStr = formatUSDC(amount);
+      log(`AutoCopyEnabled: ${shortAddr(user)} with $${amtStr}/trade`);
+      try {
+        const totalCopiers = await contract.getAutoCopyUserCount();
+        const img = await newCopierImage({
+          trader: shortAddr(user),
+          amount: amtStr,
+          totalCopiers: String(totalCopiers),
+        });
+        await sendTelegramPhoto(img, [
+          `🤖 <b>New Auto-Copier Joined!</b>`,
+          ``,
+          `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
+          `💰 <b>$${amtStr} USDC</b> per trade`,
+          `👥 Total copiers: <b>${totalCopiers}</b>`,
+        ].join("\n"), [BTN_APP, BTN_TG]);
+      } catch (err) {
+        log(`AutoCopy image error: ${err.message}`);
+        await sendTelegram(`🤖 <b>New Auto-Copier!</b>\n\n👤 ${shortAddr(user)}\n💰 $${amtStr} USDC/trade`);
+      }
     });
 
     log("Contract event listeners active");
