@@ -5,7 +5,7 @@ import CountUp from 'react-countup';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
-import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users } from 'lucide-react';
+import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown } from 'lucide-react';
 import { LiFiWidget } from '@lifi/widget';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
@@ -1076,7 +1076,7 @@ function App() {
           <motion.div className="hero-left" variants={staggerContainer} initial="hidden" animate="visible">
             <motion.div className="hero-tag" variants={fadeUp} custom={0}>
               <span className="pulse-dot" />
-              <span>Live op Arbitrum</span>
+              <span>Live on Arbitrum</span>
               <span className="hero-tag-badge">v3.0</span>
             </motion.div>
 
@@ -1562,42 +1562,108 @@ function App() {
         viewport={{ once: true }}
         style={{ paddingBottom: '2rem' }}
       >
-        <div style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}>
+        <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}>
+          {/* Animated glow border */}
           <div style={{
-            position: 'absolute', inset: '-1px', borderRadius: '20px',
-            background: 'conic-gradient(from 200deg, transparent, rgba(139,92,246,0.3), transparent, rgba(212,168,67,0.2), transparent)',
-            animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+            position: 'absolute', inset: '-2px', borderRadius: '24px',
+            background: 'conic-gradient(from 180deg, #8B5CF6, #D4A843, #8B5CF6, #34D399, #8B5CF6)',
+            animation: 'spin 6s linear infinite', filter: 'blur(3px)', opacity: 0.5,
           }} />
+
+          {/* Inner card */}
           <div style={{
-            position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-            borderRadius: '20px', padding: '32px 36px',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap',
+            position: 'relative', zIndex: 1,
+            background: 'linear-gradient(135deg, rgba(12,15,21,0.95), rgba(20,15,35,0.95))',
+            backdropFilter: 'blur(24px)',
+            borderRadius: '24px', padding: '40px 44px',
+            overflow: 'hidden',
           }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flex: '1 1 auto' }}>
-              <div style={{
-                width: 56, height: 56, borderRadius: '16px',
-                background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(139,92,246,0.05))',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                border: '1px solid rgba(139,92,246,0.15)',
-              }}>
-                <Share2 size={26} style={{ color: '#8B5CF6' }} />
-              </div>
-              <div>
-                <div style={{ fontSize: '1.2rem', fontWeight: 700, marginBottom: '4px' }}>
-                  Invite Friends, <span style={{ color: '#8B5CF6' }}>Earn 50% USDC</span>
+            {/* Background decoration */}
+            <div style={{
+              position: 'absolute', top: '-60px', right: '-40px', width: '220px', height: '220px',
+              borderRadius: '50%', background: 'radial-gradient(circle, rgba(139,92,246,0.12), transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+            <div style={{
+              position: 'absolute', bottom: '-40px', left: '-20px', width: '160px', height: '160px',
+              borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.08), transparent 70%)',
+              pointerEvents: 'none',
+            }} />
+
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '32px', flexWrap: 'wrap', position: 'relative' }}>
+              {/* Left: content */}
+              <div style={{ flex: '1 1 auto' }}>
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: '8px',
+                  padding: '5px 14px', borderRadius: '20px', marginBottom: '16px',
+                  background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)',
+                }}>
+                  <Share2 size={12} style={{ color: '#8B5CF6' }} />
+                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Referral Program</span>
                 </div>
-                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                  Get 50% of the platform fee when your referrals trade profitably. Paid automatically to your wallet.
+
+                <h3 style={{ fontSize: '1.6rem', fontWeight: 800, lineHeight: 1.2, marginBottom: '10px', letterSpacing: '-0.02em' }}>
+                  Share. Refer.{' '}
+                  <span style={{
+                    background: 'linear-gradient(135deg, #8B5CF6, #D4A843)',
+                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                  }}>Earn 50%.</span>
+                </h3>
+
+                <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 20px', maxWidth: '420px' }}>
+                  Invite friends and earn <strong style={{ color: 'var(--text-primary)' }}>50% of all platform fees</strong> from their profitable trades. Paid instantly in USDC.
+                </p>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                  <button
+                    className="btn btn-primary btn-glow"
+                    style={{
+                      padding: '13px 28px', fontSize: '0.9rem', fontWeight: 700,
+                      background: 'linear-gradient(135deg, #8B5CF6, #7C3AED)',
+                      boxShadow: '0 8px 32px rgba(139,92,246,0.3)',
+                    }}
+                    onClick={() => setActiveTab('referral')}
+                  >
+                    <Share2 size={16} /> Start Earning
+                  </button>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <CheckCircle2 size={14} style={{ color: 'var(--success)' }} />
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>No limits, instant payout</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right: big 50% highlight */}
+              <div style={{
+                textAlign: 'center', flexShrink: 0,
+                padding: '24px 32px', borderRadius: '20px',
+                background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)',
+              }}>
+                <div style={{
+                  fontFamily: "'Space Grotesk', sans-serif", fontSize: '3.5rem', fontWeight: 800, lineHeight: 1,
+                  background: 'linear-gradient(135deg, #8B5CF6, #D4A843)',
+                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
+                }}>50%</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.06em', marginTop: '6px', textTransform: 'uppercase' }}>
+                  of platform fees
+                </div>
+                <div style={{
+                  display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '14px',
+                  padding: '10px 0 0', borderTop: '1px solid rgba(255,255,255,0.06)',
+                }}>
+                  {[
+                    { icon: <Zap size={12} />, text: 'Instant' },
+                    { icon: <Coins size={12} />, text: 'USDC' },
+                    { icon: <Shield size={12} />, text: 'On-chain' },
+                  ].map(item => (
+                    <div key={item.text} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ color: '#8B5CF6' }}>{item.icon}</span>
+                      <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{item.text}</span>
+                    </div>
+                  ))}
                 </div>
               </div>
             </div>
-            <button
-              className="btn btn-primary btn-glow"
-              style={{ padding: '12px 28px', fontSize: '0.9rem', fontWeight: 700, whiteSpace: 'nowrap', background: 'linear-gradient(135deg, #8B5CF6, #7C3AED)' }}
-              onClick={() => setActiveTab('referral')}
-            >
-              <Share2 size={16} /> Start Earning
-            </button>
           </div>
         </div>
       </motion.section>
@@ -1950,6 +2016,282 @@ function App() {
   };
 
   // ===== DASHBOARD =====
+
+  // ===== STRATEGIES / TRADERS PAGE (hidden tab) =====
+  const renderStrategies = () => {
+    // Dummy trader data for design preview
+    const dummyTraders = [
+      { address: '0xD27e...38e6', name: 'GoldMaster', avatar: 'GM', winRate: 83, totalTrades: 47, pnl: 2840, followers: 12, badge: 'top', verified: true, recent: [8.5, 12.3, -4.2, 6.1, 3.8] },
+      { address: '0x8A3f...c1D2', name: 'CryptoGold', avatar: 'CG', winRate: 71, totalTrades: 32, pnl: 1560, followers: 8, badge: 'rising', verified: true, recent: [5.2, 3.8, -2.1, 9.4, 1.5] },
+      { address: '0x4F2b...7eA9', name: 'BullionTrader', avatar: 'BT', winRate: 65, totalTrades: 19, pnl: 680, followers: 3, badge: null, verified: false, recent: [-3.5, 7.2, 4.1, 2.3, -1.8] },
+      { address: '0x9C1d...4bF3', name: 'XauKing', avatar: 'XK', winRate: 77, totalTrades: 58, pnl: 4120, followers: 21, badge: 'top', verified: true, recent: [15.2, -3.1, 8.7, 4.5, 11.2] },
+      { address: '0x2E8a...d9C1', name: 'SafeGold', avatar: 'SG', winRate: 69, totalTrades: 24, pnl: 920, followers: 5, badge: null, verified: true, recent: [2.1, 1.8, -0.9, 3.2, 2.5] },
+      { address: '0x7B3c...e2A8', name: 'LeverageKing', avatar: 'LK', winRate: 62, totalTrades: 41, pnl: 1890, followers: 14, badge: 'rising', verified: true, recent: [22.5, -12.3, 18.1, -8.4, 15.7] },
+    ];
+
+    const badgeConfig = {
+      top: { label: 'TOP TRADER', color: '#D4A843', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.25)', icon: <Crown size={10} /> },
+      rising: { label: 'RISING STAR', color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.25)', icon: <Star size={10} /> },
+    };
+
+    return (
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
+
+        {/* Hero */}
+        <motion.section className="section" style={{ paddingTop: '3rem', paddingBottom: '1.5rem' }}>
+          <motion.div className="section-header" variants={staggerContainer} initial="hidden" animate="visible">
+            <motion.div className="section-badge" variants={fadeUp} style={{ background: 'rgba(212,168,67,0.1)', border: '1px solid rgba(212,168,67,0.2)' }}>
+              <Trophy size={14} style={{ color: 'var(--accent)' }} />
+              <span style={{ color: 'var(--accent)' }}>Strategy Marketplace</span>
+            </motion.div>
+            <motion.h2 className="section-title" variants={fadeUp}>
+              Follow the Best.{' '}
+              <span className="text-gold-gradient">Trade Smarter.</span>
+            </motion.h2>
+            <motion.p className="section-subtitle" variants={fadeUp}>
+              Browse top-performing traders, analyze their track record, and copy their trades automatically or per signal.
+            </motion.p>
+          </motion.div>
+        </motion.section>
+
+        {/* Become a Provider CTA */}
+        <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '1.5rem' }}>
+          <motion.div
+            variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
+            style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}
+          >
+            <div style={{
+              position: 'absolute', inset: '-1px', borderRadius: '20px',
+              background: 'conic-gradient(from 200deg, transparent, rgba(212,168,67,0.3), transparent, rgba(52,211,153,0.15), transparent)',
+              animation: 'spin 8s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+            }} />
+            <div style={{
+              position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
+              borderRadius: '20px', padding: '28px 32px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                <div style={{
+                  width: 48, height: 48, borderRadius: '14px',
+                  background: 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                  border: '1px solid rgba(212,168,67,0.15)',
+                }}>
+                  <Target size={22} style={{ color: 'var(--accent)' }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.05rem', fontWeight: 700, marginBottom: '3px' }}>
+                    Become a Strategy Provider
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    Share your trades, build a following, and earn fees from your copiers.
+                  </div>
+                </div>
+              </div>
+              <button
+                className="btn btn-primary btn-glow"
+                style={{ padding: '11px 24px', fontSize: '0.85rem', fontWeight: 700, whiteSpace: 'nowrap' }}
+                onClick={connectWallet}
+                disabled={!!account}
+              >
+                {account ? <><CheckCircle2 size={14} /> Wallet Connected</> : <><Wallet size={14} /> Connect to Start</>}
+              </button>
+            </div>
+          </motion.div>
+        </motion.section>
+
+        {/* Filter bar */}
+        <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '0.5rem' }}>
+          <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              {['All Traders', 'Top Performers', 'Rising Stars', 'Most Followed'].map((filter, i) => (
+                <button
+                  key={filter}
+                  style={{
+                    padding: '7px 16px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 600,
+                    background: i === 0 ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${i === 0 ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                    color: i === 0 ? 'var(--accent)' : 'var(--text-secondary)',
+                    cursor: 'pointer', transition: 'all 0.15s ease',
+                  }}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--accent)' }}>{dummyTraders.length}</span> traders
+            </div>
+          </div>
+        </motion.section>
+
+        {/* Trader cards — compact grid */}
+        <motion.section className="section" style={{ paddingTop: '0.5rem', paddingBottom: '2rem' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', maxWidth: '900px', margin: '0 auto' }}>
+            {dummyTraders.map((trader, idx) => {
+              const badge = trader.badge ? badgeConfig[trader.badge] : null;
+              const wins = trader.recent.filter(r => r >= 0).length;
+              return (
+                <motion.div
+                  key={trader.address}
+                  variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} custom={idx}
+                  style={{
+                    background: 'var(--bg-card)', borderRadius: '16px', padding: '20px',
+                    border: `1px solid ${badge ? badge.border : 'rgba(255,255,255,0.06)'}`,
+                    cursor: 'pointer', transition: 'all 0.2s ease',
+                    position: 'relative', overflow: 'hidden',
+                  }}
+                >
+                  {/* Badge ribbon */}
+                  {badge && (
+                    <div style={{
+                      position: 'absolute', top: '12px', right: '12px',
+                      display: 'flex', alignItems: 'center', gap: '3px',
+                      padding: '3px 8px', borderRadius: '20px', fontSize: '0.45rem', fontWeight: 700,
+                      letterSpacing: '0.08em', background: badge.bg, color: badge.color,
+                      border: `1px solid ${badge.border}`,
+                    }}>
+                      {badge.icon} {badge.label}
+                    </div>
+                  )}
+
+                  {/* Avatar + name */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: '12px',
+                      background: badge
+                        ? `linear-gradient(135deg, ${badge.bg}, rgba(255,255,255,0.02))`
+                        : 'linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
+                      border: `1px solid ${badge ? badge.border : 'rgba(255,255,255,0.08)'}`,
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.8rem',
+                      color: badge ? badge.color : 'var(--text-secondary)',
+                    }}>
+                      {trader.avatar}
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: 700 }}>{trader.name}</span>
+                        {trader.verified && <ShieldCheck size={12} style={{ color: 'var(--success)' }} />}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                        <span style={{
+                          fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                          padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)',
+                        }}>
+                          {trader.address}
+                        </span>
+                        <span style={{
+                          display: 'inline-flex', alignItems: 'center', gap: '3px',
+                          fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6',
+                        }}>
+                          <Users size={10} />
+                          {trader.followers}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Key stats row */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                      <div style={{
+                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700,
+                        color: trader.winRate >= 70 ? 'var(--success)' : 'var(--accent)',
+                      }}>{trader.winRate}%</div>
+                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>WIN RATE</div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                      <div style={{
+                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700,
+                        color: trader.pnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                      }}>+${trader.pnl >= 1000 ? `${(trader.pnl / 1000).toFixed(1)}k` : trader.pnl}</div>
+                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>PNL</div>
+                    </div>
+                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
+                      <div style={{
+                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700,
+                      }}>{trader.totalTrades}</div>
+                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TRADES</div>
+                    </div>
+                  </div>
+
+                  {/* Mini performance bar */}
+                  <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '32px', marginBottom: '12px' }}>
+                    {trader.recent.map((r, i) => (
+                      <div key={i} style={{
+                        flex: 1, borderRadius: '3px 3px 0 0',
+                        height: `${Math.min(100, Math.abs(r) * 2.5 + 15)}%`,
+                        background: r >= 0
+                          ? 'linear-gradient(to top, rgba(52,211,153,0.25), rgba(52,211,153,0.7))'
+                          : 'linear-gradient(to top, rgba(248,113,113,0.2), rgba(248,113,113,0.5))',
+                        transition: 'height 0.3s ease',
+                      }} />
+                    ))}
+                  </div>
+
+                  {/* Recent results row */}
+                  <div style={{ display: 'flex', gap: '4px', marginBottom: '14px' }}>
+                    {trader.recent.map((r, i) => (
+                      <span key={i} style={{
+                        flex: 1, textAlign: 'center', padding: '3px 0', borderRadius: '6px', fontSize: '0.6rem',
+                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                        background: r >= 0 ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
+                        color: r >= 0 ? 'var(--success)' : 'var(--danger)',
+                      }}>
+                        {r >= 0 ? '+' : ''}{r}%
+                      </span>
+                    ))}
+                  </div>
+
+                  {/* Action buttons */}
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button className="btn btn-glass" style={{ flex: 1, padding: '8px', fontSize: '0.7rem', fontWeight: 600 }}>
+                      <Copy size={12} /> Copy
+                    </button>
+                    <button className="btn btn-primary" style={{ flex: 1, padding: '8px', fontSize: '0.7rem', fontWeight: 700 }}>
+                      <BrainCircuit size={12} /> Auto-Copy
+                    </button>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </motion.section>
+
+        {/* Bottom info */}
+        <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '3rem' }}>
+          <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
+              {[
+                { icon: <Shield size={20} />, color: 'var(--success)', bg: 'rgba(52,211,153,0.1)', title: 'Fully Transparent', desc: 'All trades are on-chain. Verify every result on Arbiscan.' },
+                { icon: <Zap size={20} />, color: 'var(--accent)', bg: 'rgba(212,168,67,0.1)', title: 'Instant Copy', desc: 'Auto-copy or choose per signal. Your funds, your control.' },
+                { icon: <Users size={20} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.1)', title: 'Open to Everyone', desc: 'Anyone can become a strategy provider. Just connect and trade.' },
+              ].map(item => (
+                <motion.div
+                  key={item.title}
+                  variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
+                  style={{
+                    background: 'var(--bg-card)', borderRadius: '16px', padding: '24px 20px',
+                    border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center',
+                  }}
+                >
+                  <div style={{
+                    width: 44, height: 44, borderRadius: '12px', margin: '0 auto 12px',
+                    background: item.bg, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <span style={{ color: item.color }}>{item.icon}</span>
+                  </div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '6px' }}>{item.title}</h4>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{item.desc}</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </motion.section>
+      </motion.div>
+    );
+  };
 
   // ===== REFERRAL PAGE =====
   const renderReferral = () => {
@@ -3022,9 +3364,9 @@ function App() {
             { label: 'Pair', value: 'XAU/USD', color: 'var(--accent-light)' },
             { label: 'Platform', value: 'gTrade', color: 'var(--text-primary)' },
             { label: 'Fee', value: `${(feePercent / 100).toFixed(0)}% on profit`, color: 'var(--text-primary)' },
-            { label: 'Netwerk', value: 'Arbitrum', color: '#28A0F0' },
+            { label: 'Network', value: 'Arbitrum', color: '#28A0F0' },
             { label: 'Collateral', value: 'USDC', color: 'var(--blue)' },
-            { label: 'Signalen', value: `${signalCount}`, color: 'var(--accent-light)' },
+            { label: 'Signals', value: `${signalCount}`, color: 'var(--accent-light)' },
           ].map((item, i) => (
             <React.Fragment key={item.label}>
               {i > 0 && <div className="dash-protocol-divider" />}
@@ -3072,7 +3414,7 @@ function App() {
                       <span className={`dash-tx-amount ${Number(signal.resultPct) >= 0 ? 'green' : 'red'}`}>
                         {Number(signal.resultPct) >= 0 ? '+' : ''}{(Number(signal.resultPct) / 100 * Number(signal.leverage) / 1000).toFixed(2)}%
                       </span>
-                      <span className="dash-tx-unit">gesloten</span>
+                      <span className="dash-tx-unit">closed</span>
                     </>
                   ) : (
                     <>
@@ -3726,6 +4068,10 @@ function App() {
             ) : activeTab === 'referral' ? (
               <motion.div key="referral" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
                 {renderReferral()}
+              </motion.div>
+            ) : activeTab === 'strategies' ? (
+              <motion.div key="strategies" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                {renderStrategies()}
               </motion.div>
             ) : (
               <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
