@@ -3347,8 +3347,11 @@ function App() {
                     padding: '3px 10px', borderRadius: '20px',
                     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
                   }}>
-                    #{Number(activeSignal.id)} &middot; {timeAgo(activeSignal.timestamp)}
+                    #{Number(activeSignal.id)}
                   </span>
+                </div>
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                  Opened {timeAgo(activeSignal.timestamp)}
                 </div>
 
                 {/* Live PnL Section */}
