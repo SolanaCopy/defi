@@ -3824,7 +3824,7 @@ function App() {
             }}>
               <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{s.icon}</span>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>{s.label}</div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-primary)', fontWeight: 600 }}>{s.label}</div>
               </div>
               <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
             </div>
