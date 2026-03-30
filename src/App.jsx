@@ -224,6 +224,7 @@ function App() {
   const [signalCount, setSignalCount] = useState(0);
   const [uniqueCopiers, setUniqueCopiers] = useState(0);
   const [feePercent, setFeePercent] = useState(2000); // 20% default (contract uses basis points: 2000 = 20%)
+  const [totalVolume, setTotalVolume] = useState(0); // Sum of totalCopied across ALL signals (not just last 20)
 
   // Performance stats computed from signal history + user positions
   const performanceStats = useMemo(() => {
@@ -719,6 +720,24 @@ function App() {
       } catch {
         // keep existing
       }
+
+      // Real volume = sum of actual collateral across all users & signals (not cumulative totalCopied)
+      try {
+        const users = await publicContract.getAutoCopyUsers();
+        let volSum = 0;
+        for (const user of users) {
+          const ids = await publicContract.getUserSignalIds(user);
+          for (const id of ids) {
+            const pos = await publicContract.positions(user, id);
+            if (Number(pos.collateral) > 0 && !pos.claimed) {
+              volSum += parseFloat(ethers.formatUnits(pos.collateral, 6));
+            }
+          }
+        }
+        setTotalVolume(volSum);
+      } catch {
+        // keep existing
+      }
     } catch (err) {
       console.error("Public data load error:", err);
     }
@@ -778,7 +797,7 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history (load last 20)
+      // Signal history (last 20)
       try {
         const total = Number(count);
         const histArr = [];
@@ -791,6 +810,24 @@ function App() {
         setSignalHistory(histArr);
       } catch {
         setSignalHistory([]);
+      }
+
+      // Real volume = sum of actual collateral across all users & signals
+      try {
+        const users = await contract.getAutoCopyUsers();
+        let volSum = 0;
+        for (const user of users) {
+          const ids = await contract.getUserSignalIds(user);
+          for (const id of ids) {
+            const pos = await contract.positions(user, id);
+            if (Number(pos.collateral) > 0 && !pos.claimed) {
+              volSum += parseFloat(ethers.formatUnits(pos.collateral, 6));
+            }
+          }
+        }
+        setTotalVolume(volSum);
+      } catch {
+        // keep existing
       }
 
       // User positions
@@ -1232,7 +1269,7 @@ function App() {
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px', padding: '14px 0 12px' }}>
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent)' }}>
-                      $<CountUp end={performanceStats.platform.all.totalCopied} duration={2} decimals={0} separator="," />
+                      $<CountUp end={totalVolume} duration={2} decimals={0} separator="," />
                     </div>
                     <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Volume</div>
                   </div>
@@ -1319,7 +1356,7 @@ function App() {
               <div className="marquee-item">
                 <span className="marquee-dot gold" />
                 <span className="marquee-label">Total Volume</span>
-                <span className="marquee-value gold">${performanceStats.platform.all.totalCopied.toLocaleString(undefined, {maximumFractionDigits: 0})} USDC</span>
+                <span className="marquee-value gold">${totalVolume.toLocaleString(undefined, {maximumFractionDigits: 0})} USDC</span>
               </div>
               <div className="marquee-divider">&bull;</div>
               <div className="marquee-item">
