@@ -1,0 +1,218 @@
+{
+  "_format": "hh-sol-cache-2",
+  "files": {
+    "C:\\Users\\moham\\goldbottt\\contracts\\GoldCopyTrader.sol": {
+      "lastModificationDate": 1774865460940,
+      "contentHash": "d41d8cd98f00b204e9800998ecf8427e",
+      "sourceName": "contracts/GoldCopyTrader.sol",
+      "solcConfig": {
+        "version": "0.8.19",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [],
+      "artifacts": []
+    },
+    "C:\\Users\\moham\\goldbottt\\contracts\\mocks\\MockDiamond.sol": {
+      "lastModificationDate": 1774866493526,
+      "contentHash": "4e06670223e0843cee07cc5ea22dae0e",
+      "sourceName": "contracts/mocks/MockDiamond.sol",
+      "solcConfig": {
+        "version": "0.8.19",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [
+        "../StrategyMarketplace.sol"
+      ],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "MockDiamond"
+      ]
+    },
+    "C:\\Users\\moham\\goldbottt\\contracts\\GoldCopyTraderV2.sol": {
+      "lastModificationDate": 1774570053926,
+      "contentHash": "04f1ec50d79887590d7da3e2b9c035ad",
+      "sourceName": "contracts/GoldCopyTraderV2.sol",
+      "solcConfig": {
+        "version": "0.8.19",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "GoldCopyTraderV2",
+        "IERC20",
+        "IGNSMultiCollatDiamond"
+      ]
+    },
+    "C:\\Users\\moham\\goldbottt\\contracts\\mocks\\MockUSDC.sol": {
+      "lastModificationDate": 1773489321044,
+      "contentHash": "0969a92479d2659f60049707ebd4d270",
+      "sourceName": "contracts/mocks/MockUSDC.sol",
+      "solcConfig": {
+        "version": "0.8.19",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "MockUSDC"
+      ]
+    },
+    "C:\\Users\\moham\\goldbottt\\contracts\\SmartTradingGoldBot.sol": {
+      "lastModificationDate": 1774053486214,
+      "contentHash": "0e792ccc045322c452f0daaa78f109ea",
+      "sourceName": "contracts/SmartTradingGoldBot.sol",
+      "solcConfig": {
+        "version": "0.8.19",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "IERC20",
+        "SmartTradingGoldBot"
+      ]
+    },
+    "C:\\Users\\moham\\goldbottt\\contracts\\StrategyMarketplace.sol": {
+      "lastModificationDate": 1774867394301,
+      "contentHash": "b9e6e7e7694ba8ea294afd7b3199226d",
+      "sourceName": "contracts/StrategyMarketplace.sol",
+      "solcConfig": {
+        "version": "0.8.19",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.19"
+      ],
+      "artifacts": [
+        "IERC20",
+        "IGNSMultiCollatDiamond",
+        "StrategyMarketplace"
+      ]
+    }
+  }
+}

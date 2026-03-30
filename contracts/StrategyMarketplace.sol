@@ -484,7 +484,7 @@ contract StrategyMarketplace {
             leverage: c.leverage,
             long: c.long,
             isOpen: false,
-            collateralIndex: 1, // USDC
+            collateralIndex: 3, // USDC on gTrade v9
             tradeType: IGNSMultiCollatDiamond.TradeType.TRADE,
             collateralAmount: uint120(_amount),
             openPrice: c.entryPrice,

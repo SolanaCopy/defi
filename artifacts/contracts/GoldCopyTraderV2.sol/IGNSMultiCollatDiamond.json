@@ -1,0 +1,129 @@
+{
+  "_format": "hh-sol-artifact-1",
+  "contractName": "IGNSMultiCollatDiamond",
+  "sourceName": "contracts/GoldCopyTraderV2.sol",
+  "abi": [
+    {
+      "inputs": [
+        {
+          "internalType": "uint32",
+          "name": "index",
+          "type": "uint32"
+        },
+        {
+          "internalType": "uint64",
+          "name": "expectedPrice",
+          "type": "uint64"
+        }
+      ],
+      "name": "closeTradeMarket",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    },
+    {
+      "inputs": [
+        {
+          "components": [
+            {
+              "internalType": "address",
+              "name": "user",
+              "type": "address"
+            },
+            {
+              "internalType": "uint32",
+              "name": "index",
+              "type": "uint32"
+            },
+            {
+              "internalType": "uint16",
+              "name": "pairIndex",
+              "type": "uint16"
+            },
+            {
+              "internalType": "uint24",
+              "name": "leverage",
+              "type": "uint24"
+            },
+            {
+              "internalType": "bool",
+              "name": "long",
+              "type": "bool"
+            },
+            {
+              "internalType": "bool",
+              "name": "isOpen",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint8",
+              "name": "collateralIndex",
+              "type": "uint8"
+            },
+            {
+              "internalType": "enum IGNSMultiCollatDiamond.TradeType",
+              "name": "tradeType",
+              "type": "uint8"
+            },
+            {
+              "internalType": "uint120",
+              "name": "collateralAmount",
+              "type": "uint120"
+            },
+            {
+              "internalType": "uint64",
+              "name": "openPrice",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "tp",
+              "type": "uint64"
+            },
+            {
+              "internalType": "uint64",
+              "name": "sl",
+              "type": "uint64"
+            },
+            {
+              "internalType": "bool",
+              "name": "isCounterTrade",
+              "type": "bool"
+            },
+            {
+              "internalType": "uint160",
+              "name": "positionSizeToken",
+              "type": "uint160"
+            },
+            {
+              "internalType": "uint24",
+              "name": "__placeholder",
+              "type": "uint24"
+            }
+          ],
+          "internalType": "struct IGNSMultiCollatDiamond.Trade",
+          "name": "trade",
+          "type": "tuple"
+        },
+        {
+          "internalType": "uint16",
+          "name": "maxSlippageP",
+          "type": "uint16"
+        },
+        {
+          "internalType": "address",
+          "name": "referrer",
+          "type": "address"
+        }
+      ],
+      "name": "openTrade",
+      "outputs": [],
+      "stateMutability": "nonpayable",
+      "type": "function"
+    }
+  ],
+  "bytecode": "0x",
+  "deployedBytecode": "0x",
+  "linkReferences": {},
+  "deployedLinkReferences": {}
+}
