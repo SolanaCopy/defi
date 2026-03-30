@@ -2424,6 +2424,7 @@ function App() {
   // ===== STRATEGIES / TRADERS PAGE =====
   const [followAmount, setFollowAmount] = useState("10");
   const [followTarget, setFollowTarget] = useState(null); // provider address for follow modal
+  const [selectedProvider, setSelectedProvider] = useState(null); // provider object for detail modal
 
   const renderStrategies = () => {
     const traders = marketplaceProviders;
@@ -2535,10 +2536,11 @@ function App() {
                 <motion.div
                   key={trader.address}
                   variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} custom={idx}
+                  onClick={() => setSelectedProvider(trader)}
                   style={{
                     background: 'var(--bg-card)', borderRadius: '16px', padding: '20px',
                     border: `1px solid ${isFollowing ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
-                    position: 'relative', overflow: 'hidden',
+                    position: 'relative', overflow: 'hidden', cursor: 'pointer',
                   }}
                 >
                   {/* Header: avatar + address + badges */}
@@ -2711,7 +2713,7 @@ function App() {
                       <button
                         className="btn btn-glass"
                         style={{ padding: '8px 14px', fontSize: '0.7rem', fontWeight: 600 }}
-                        onClick={() => handleUnfollow(trader.address)}
+                        onClick={(e) => { e.stopPropagation(); handleUnfollow(trader.address); }}
                         disabled={followLoading}
                       >
                         Unfollow
@@ -2729,7 +2731,7 @@ function App() {
                     <button
                       className="btn btn-primary"
                       style={{ width: '100%', padding: '10px', fontSize: '0.75rem', fontWeight: 700 }}
-                      onClick={() => { setFollowTarget(trader.address); setFollowAmount("10"); }}
+                      onClick={(e) => { e.stopPropagation(); setFollowTarget(trader.address); setFollowAmount("10"); }}
                       disabled={!account || followLoading}
                     >
                       <BrainCircuit size={14} /> {account ? 'Follow & Auto-Copy' : 'Connect Wallet to Follow'}
@@ -2797,6 +2799,278 @@ function App() {
               </motion.div>
             </motion.div>
           )}
+        </AnimatePresence>
+
+        {/* Provider detail modal */}
+        <AnimatePresence>
+          {selectedProvider && (() => {
+            const t = selectedProvider;
+            const followInfo = userFollows[t.address.toLowerCase()];
+            const isFollowing = followInfo?.enabled;
+            const isOwn = account && account.toLowerCase() === t.address.toLowerCase();
+
+            // Build equity curve from trade history
+            const equityCurve = [0];
+            const sortedHistory = [...(t.tradeHistory || [])].sort((a, b) => a.closedAt - b.closedAt);
+            sortedHistory.forEach(trade => {
+              equityCurve.push(equityCurve[equityCurve.length - 1] + trade.pnl);
+            });
+
+            // SVG chart dimensions
+            const chartW = 500, chartH = 140, chartPad = 20;
+            const maxVal = Math.max(...equityCurve.map(Math.abs), 1);
+            const points = equityCurve.map((v, i) => {
+              const x = chartPad + (i / Math.max(equityCurve.length - 1, 1)) * (chartW - chartPad * 2);
+              const y = chartH / 2 - (v / maxVal) * (chartH / 2 - chartPad);
+              return `${x},${y}`;
+            }).join(' ');
+            const lastPnl = equityCurve[equityCurve.length - 1];
+            const lineColor = lastPnl >= 0 ? '#34D399' : '#F87171';
+            const fillPoints = `${chartPad},${chartH / 2} ${points} ${chartW - chartPad},${chartH / 2}`;
+
+            return (
+              <motion.div
+                initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+                style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px', overflowY: 'auto' }}
+                onClick={() => setSelectedProvider(null)}
+              >
+                <motion.div
+                  initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+                  onClick={e => e.stopPropagation()}
+                  style={{ background: 'var(--bg-card)', borderRadius: '20px', maxWidth: '560px', width: '100%', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto' }}
+                >
+                  {/* Modal header */}
+                  <div style={{ padding: '24px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{
+                        width: 48, height: 48, borderRadius: '14px',
+                        background: 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
+                        border: '1px solid rgba(212,168,67,0.25)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1rem', color: 'var(--accent)',
+                      }}>
+                        {t.shortAddr.slice(0, 2)}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '1rem', fontWeight: 700 }}>{t.shortAddr}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.7rem', fontWeight: 700, color: '#8B5CF6' }}>
+                            <Users size={12} /> {t.followers} followers
+                          </span>
+                          {isFollowing && (
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: 'rgba(52,211,153,0.12)', color: 'var(--success)', border: '1px solid rgba(52,211,153,0.2)' }}>
+                              FOLLOWING
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <button onClick={() => setSelectedProvider(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px' }}>
+                      <X size={20} />
+                    </button>
+                  </div>
+
+                  {/* Stats grid */}
+                  <div style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+                    {[
+                      { label: 'Total PnL', value: `${t.totalPnlPct >= 0 ? '+' : ''}${t.totalPnlPct.toFixed(1)}%`, color: t.totalPnlPct >= 0 ? 'var(--success)' : 'var(--danger)' },
+                      { label: 'Win Rate', value: `${t.winRate}%`, color: t.winRate >= 70 ? 'var(--success)' : t.winRate >= 50 ? 'var(--accent)' : 'var(--danger)' },
+                      { label: 'Trades', value: t.totalTrades, color: 'var(--text-primary)' },
+                      { label: 'Volume', value: `$${t.totalVolume >= 1000 ? `${(t.totalVolume / 1000).toFixed(1)}k` : Math.round(t.totalVolume)}`, color: 'var(--accent)' },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '12px 8px', textAlign: 'center' }}>
+                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 800, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginTop: '2px' }}>{s.label.toUpperCase()}</div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Equity curve chart */}
+                  {sortedHistory.length > 0 && (
+                    <div style={{ padding: '0 24px 8px' }}>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', letterSpacing: '0.05em' }}>PERFORMANCE CURVE</div>
+                      <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '12px', padding: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                        <svg viewBox={`0 0 ${chartW} ${chartH}`} style={{ width: '100%', height: 'auto' }}>
+                          {/* Zero line */}
+                          <line x1={chartPad} y1={chartH / 2} x2={chartW - chartPad} y2={chartH / 2} stroke="rgba(255,255,255,0.08)" strokeWidth="1" strokeDasharray="4,4" />
+                          {/* Fill area */}
+                          <polygon points={fillPoints} fill={`url(#pnlGrad-${t.address.slice(2,6)})`} />
+                          <defs>
+                            <linearGradient id={`pnlGrad-${t.address.slice(2,6)}`} x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.2 : 0} />
+                              <stop offset="100%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0 : 0.2} />
+                            </linearGradient>
+                          </defs>
+                          {/* Line */}
+                          <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+                          {/* End dot */}
+                          {equityCurve.length > 1 && (() => {
+                            const lastX = chartPad + ((equityCurve.length - 1) / Math.max(equityCurve.length - 1, 1)) * (chartW - chartPad * 2);
+                            const lastY = chartH / 2 - (lastPnl / maxVal) * (chartH / 2 - chartPad);
+                            return <circle cx={lastX} cy={lastY} r="4" fill={lineColor} />;
+                          })()}
+                        </svg>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.55rem', color: 'var(--text-secondary)', marginTop: '4px', fontFamily: "'Space Grotesk', sans-serif" }}>
+                          <span>Trade 1</span>
+                          <span style={{ color: lineColor, fontWeight: 700 }}>
+                            {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}% cumulative
+                          </span>
+                          <span>Trade {sortedHistory.length}</span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Active trade */}
+                  {t.activeSignal && (
+                    <div style={{ padding: '8px 24px 8px' }}>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', letterSpacing: '0.05em' }}>ACTIVE TRADE</div>
+                      <div style={{
+                        borderRadius: '12px', padding: '14px',
+                        background: 'rgba(212,168,67,0.04)', border: '1px solid rgba(212,168,67,0.12)',
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span className="pulse-dot" style={{ width: 7, height: 7 }} />
+                            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.95rem' }}>XAU/USD</span>
+                            <span style={{
+                              padding: '3px 8px', borderRadius: '12px', fontSize: '0.6rem', fontWeight: 700,
+                              background: t.activeSignal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                              color: t.activeSignal.long ? 'var(--success)' : 'var(--danger)',
+                            }}>
+                              {t.activeSignal.long ? 'LONG' : 'SHORT'} {Number(t.activeSignal.leverage) / 1000}x
+                            </span>
+                          </div>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                            {t.activeSignal.copiers} copier{t.activeSignal.copiers !== 1 ? 's' : ''} &middot; ${t.activeSignal.volume.toFixed(0)}
+                          </span>
+                        </div>
+                        {livePrice && (() => {
+                          const entry = Number(t.activeSignal.entryPrice) / 1e10;
+                          const tp = Number(t.activeSignal.tp) / 1e10;
+                          const sl = Number(t.activeSignal.sl) / 1e10;
+                          const pctMove = ((livePrice - entry) / entry) * 100 * (t.activeSignal.long ? 1 : -1);
+                          const pnl = pctMove * (Number(t.activeSignal.leverage) / 1000);
+                          const isProfit = pnl >= 0;
+                          const range = Math.abs(tp - sl);
+                          const progress = t.activeSignal.long
+                            ? Math.max(0, Math.min(100, ((livePrice - sl) / range) * 100))
+                            : Math.max(0, Math.min(100, ((sl - livePrice) / range) * 100));
+                          return (
+                            <>
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '10px' }}>
+                                <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                                  <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>LIVE PRICE</div>
+                                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.2rem' }}>${livePrice.toFixed(2)}</div>
+                                </div>
+                                <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
+                                  <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>PNL</div>
+                                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1.2rem', color: isProfit ? 'var(--success)' : 'var(--danger)' }}>
+                                    {isProfit ? '+' : ''}{pnl.toFixed(2)}%
+                                  </div>
+                                </div>
+                              </div>
+                              <div style={{ position: 'relative', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginBottom: '2px' }}>
+                                <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px', width: '50%', background: 'rgba(248,113,113,0.15)' }} />
+                                <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0', width: '50%', background: 'rgba(52,211,153,0.15)' }} />
+                                <div style={{
+                                  position: 'absolute', top: '-4px', left: `${progress}%`, transform: 'translateX(-50%)',
+                                  width: '12px', height: '12px', borderRadius: '50%',
+                                  background: isProfit ? 'var(--success)' : 'var(--danger)',
+                                  boxShadow: `0 0 8px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
+                                  transition: 'left 0.5s ease',
+                                }} />
+                              </div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.55rem', fontFamily: "'Space Grotesk', sans-serif" }}>
+                                <span style={{ color: 'var(--danger)' }}>SL ${sl.toFixed(0)}</span>
+                                <span style={{ color: 'var(--text-secondary)' }}>Entry ${entry.toFixed(2)}</span>
+                                <span style={{ color: 'var(--success)' }}>TP ${tp.toFixed(0)}</span>
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Trade history */}
+                  {sortedHistory.length > 0 && (
+                    <div style={{ padding: '8px 24px 8px' }}>
+                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', letterSpacing: '0.05em' }}>TRADE HISTORY</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                        {sortedHistory.slice().reverse().map(trade => (
+                          <div key={trade.id} style={{
+                            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                            padding: '8px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>#{trade.id}</span>
+                              <span style={{
+                                padding: '2px 6px', borderRadius: '8px', fontSize: '0.55rem', fontWeight: 700,
+                                background: trade.long ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
+                                color: trade.long ? 'var(--success)' : 'var(--danger)',
+                              }}>
+                                {trade.long ? 'LONG' : 'SHORT'} {trade.leverage}x
+                              </span>
+                              <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                                {trade.copiers} copier{trade.copiers !== 1 ? 's' : ''}
+                              </span>
+                            </div>
+                            <span style={{
+                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.8rem',
+                              color: trade.pnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                            }}>
+                              {trade.pnl >= 0 ? '+' : ''}{trade.pnl.toFixed(1)}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Action footer */}
+                  <div style={{ padding: '16px 24px 24px' }}>
+                    {isOwn ? (
+                      <div style={{
+                        width: '100%', padding: '12px', fontSize: '0.8rem', textAlign: 'center',
+                        background: 'rgba(212,168,67,0.06)', borderRadius: '12px', color: 'var(--accent)',
+                        fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                      }}>
+                        <Crown size={16} /> This is your strategy
+                      </div>
+                    ) : isFollowing ? (
+                      <div style={{ display: 'flex', gap: '8px' }}>
+                        <div style={{
+                          flex: 1, padding: '12px', fontSize: '0.8rem', textAlign: 'center',
+                          background: 'rgba(52,211,153,0.06)', borderRadius: '12px', color: 'var(--success)',
+                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                        }}>
+                          Following — ${followInfo.amount}/trade
+                        </div>
+                        <button
+                          className="btn btn-glass"
+                          style={{ padding: '12px 20px', fontSize: '0.8rem', fontWeight: 600 }}
+                          onClick={() => { handleUnfollow(t.address); setSelectedProvider(null); }}
+                          disabled={followLoading}
+                        >
+                          Unfollow
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        className="btn btn-primary btn-glow"
+                        style={{ width: '100%', padding: '14px', fontSize: '0.9rem', fontWeight: 700 }}
+                        onClick={() => { setSelectedProvider(null); setFollowTarget(t.address); setFollowAmount("10"); }}
+                        disabled={!account || followLoading}
+                      >
+                        <BrainCircuit size={16} /> {account ? 'Follow & Auto-Copy' : 'Connect Wallet to Follow'}
+                      </button>
+                    )}
+                  </div>
+                </motion.div>
+              </motion.div>
+            );
+          })()}
         </AnimatePresence>
 
         {/* Bottom info */}
