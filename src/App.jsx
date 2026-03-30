@@ -1135,7 +1135,12 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Claim error:", err);
-      alert(err.reason || err.message || "Claim failed");
+      const reason = err.reason || err.message || "Claim failed";
+      if (reason.includes("Insufficient balance")) {
+        alert("Funds are currently locked in an active trade on gTrade. You can claim once the trade closes and funds return to the contract.");
+      } else {
+        alert(reason);
+      }
     } finally {
       setIsLoading(false);
     }
