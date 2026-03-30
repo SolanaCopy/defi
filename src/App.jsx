@@ -20,6 +20,13 @@ const supabase = createClient(
 
 const queryClient = new QueryClient();
 
+// ===== CHAINLINK PRICE FEED =====
+const CHAINLINK_XAU_USD = "0x1F954Dc24a49708C26E0C1777f16750B5C6d5a2c"; // XAU/USD on Arbitrum
+const CHAINLINK_ABI = [
+  "function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
+  "function decimals() view returns (uint8)",
+];
+
 // ===== ARBITRUM CONFIG =====
 const CONTRACT_ADDRESS = "0xf41d121DB5841767f403a4Bc59A54B26DecF6b99";
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC on Arbitrum
@@ -225,6 +232,7 @@ function App() {
   const [uniqueCopiers, setUniqueCopiers] = useState(0);
   const [feePercent, setFeePercent] = useState(2000); // 20% default (contract uses basis points: 2000 = 20%)
   const [totalVolume, setTotalVolume] = useState(0); // Sum of totalCopied across ALL signals (not just last 20)
+  const [livePrice, setLivePrice] = useState(null); // Live XAU/USD from Chainlink
 
   // Performance stats computed from signal history + user positions
   const performanceStats = useMemo(() => {
@@ -748,6 +756,22 @@ function App() {
     loadPublicData();
   }, [loadPublicData]);
 
+  // Live XAU/USD price from Chainlink (poll every 10s)
+  useEffect(() => {
+    const fetchPrice = async () => {
+      try {
+        const provider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+        const feed = new ethers.Contract(CHAINLINK_XAU_USD, CHAINLINK_ABI, provider);
+        const [, answer] = await feed.latestRoundData();
+        const dec = await feed.decimals();
+        setLivePrice(Number(answer) / (10 ** Number(dec)));
+      } catch { /* keep existing */ }
+    };
+    fetchPrice();
+    const interval = setInterval(fetchPrice, 10000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Load data from contract
   const loadData = useCallback(async (contract, usdcContract, userAddress) => {
     try {
@@ -1239,9 +1263,24 @@ function App() {
                       </span>
                     </div>
                     {activeSignal && marketStatus.open && (
-                      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 600 }}>
-                        {formatLeverage(activeSignal.leverage)}x
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        {livePrice && (() => {
+                          const entry = Number(activeSignal.entryPrice) / 1e10;
+                          const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
+                          const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
+                          return (
+                            <span style={{
+                              fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem', fontWeight: 700,
+                              color: livePnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                            }}>
+                              {livePnl >= 0 ? '+' : ''}{livePnl.toFixed(2)}%
+                            </span>
+                          );
+                        })()}
+                        <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 600 }}>
+                          {formatLeverage(activeSignal.leverage)}x
+                        </span>
+                      </div>
                     )}
                   </div>
                   {activeSignal && marketStatus.open ? (
@@ -2068,9 +2107,22 @@ function App() {
                   </span>
                   <span style={{
                     textAlign: 'right', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
-                    color: isClosed ? (result >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
+                    color: isClosed
+                      ? (result >= 0 ? 'var(--success)' : 'var(--danger)')
+                      : livePrice
+                        ? (((livePrice - Number(signal.entryPrice) / 1e10) >= 0 === signal.long) ? 'var(--success)' : 'var(--danger)')
+                        : 'var(--accent)',
                   }}>
-                    {isClosed ? `${result >= 0 ? '+' : ''}${result.toFixed(2)}%` : 'OPEN'}
+                    {isClosed
+                      ? `${result >= 0 ? '+' : ''}${result.toFixed(2)}%`
+                      : livePrice
+                        ? (() => {
+                            const entry = Number(signal.entryPrice) / 1e10;
+                            const pctMove = ((livePrice - entry) / entry) * 100 * (signal.long ? 1 : -1);
+                            const livePnl = pctMove * leverage;
+                            return `${livePnl >= 0 ? '+' : ''}${livePnl.toFixed(2)}%`;
+                          })()
+                        : 'OPEN'}
                   </span>
                 </motion.div>
               );
@@ -3192,6 +3244,32 @@ function App() {
                   {formatLeverage(activeSignal.leverage)}x Leverage
                 </div>
 
+                {/* Live price + PnL */}
+                {livePrice && (
+                  <div style={{
+                    background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '12px',
+                    marginBottom: '12px', textAlign: 'center',
+                  }}>
+                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Live Price</div>
+                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.3rem' }}>
+                      ${livePrice.toFixed(2)}
+                    </div>
+                    {(() => {
+                      const entry = Number(activeSignal.entryPrice) / 1e10;
+                      const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
+                      const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
+                      return (
+                        <div style={{
+                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem', marginTop: '2px',
+                          color: livePnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                        }}>
+                          {livePnl >= 0 ? '+' : ''}{livePnl.toFixed(2)}%
+                        </div>
+                      );
+                    })()}
+                  </div>
+                )}
+
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
                   <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
                     <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Entry</div>
@@ -3257,11 +3335,28 @@ function App() {
                   const result = Number(signal.resultPct) / 100;
                   const collateral = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
                   const leverage = Number(signal.leverage) / 1000;
-                  const pnlPct = result * leverage;
-                  const pnlUSDC = collateral * pnlPct / 100;
                   const feePct = Number(signal.feeAtCreation || 0) / 100;
-                  const fee = pnlUSDC > 0 ? pnlUSDC * feePct / 100 : 0;
-                  const payout = pnlUSDC >= 0 ? collateral + pnlUSDC - fee : Math.max(0, collateral + pnlUSDC);
+
+                  // Live PnL for open trades
+                  let pnlPct, pnlUSDC, fee, payout;
+                  if (isClosed) {
+                    pnlPct = result * leverage;
+                    pnlUSDC = collateral * pnlPct / 100;
+                    fee = pnlUSDC > 0 ? pnlUSDC * feePct / 100 : 0;
+                    payout = pnlUSDC >= 0 ? collateral + pnlUSDC - fee : Math.max(0, collateral + pnlUSDC);
+                  } else if (livePrice) {
+                    const entry = Number(signal.entryPrice) / 1e10;
+                    const pctMove = ((livePrice - entry) / entry) * 100 * (signal.long ? 1 : -1);
+                    pnlPct = pctMove * leverage;
+                    pnlUSDC = collateral * pnlPct / 100;
+                    fee = pnlUSDC > 0 ? pnlUSDC * feePct / 100 : 0;
+                    payout = pnlUSDC >= 0 ? collateral + pnlUSDC - fee : Math.max(0, collateral + pnlUSDC);
+                  } else {
+                    pnlPct = 0;
+                    pnlUSDC = 0;
+                    fee = 0;
+                    payout = collateral;
+                  }
 
                   return (
                     <div key={Number(signal.id)} style={{
@@ -3291,10 +3386,10 @@ function App() {
                           padding: '2px 10px',
                           borderRadius: '12px',
                           fontWeight: 600,
-                          background: isClosed ? (result >= 0 ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)') : 'rgba(212, 168, 67, 0.1)',
-                          color: isClosed ? (result >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
+                          background: (isClosed || livePrice) ? (pnlPct >= 0 ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)') : 'rgba(212, 168, 67, 0.1)',
+                          color: (isClosed || livePrice) ? (pnlPct >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
                         }}>
-                          {isClosed ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%` : 'OPEN'}
+                          {(isClosed || livePrice) ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%` : 'OPEN'}
                         </span>
                       </div>
 
@@ -3308,18 +3403,18 @@ function App() {
                           <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>PnL</div>
                           <div style={{
                             fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.85rem',
-                            color: isClosed ? (pnlUSDC >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
+                            color: (isClosed || livePrice) ? (pnlUSDC >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
                           }}>
-                            {isClosed ? `${pnlUSDC >= 0 ? '+' : ''}$${pnlUSDC.toFixed(2)}` : 'Pending'}
+                            {(isClosed || livePrice) ? `${pnlUSDC >= 0 ? '+' : ''}$${pnlUSDC.toFixed(2)}` : 'Pending'}
                           </div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Payout</div>
+                          <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{isClosed ? 'Payout' : 'Value'}</div>
                           <div style={{
                             fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.85rem',
-                            color: isClosed ? (payout > collateral ? 'var(--success)' : payout < collateral ? 'var(--danger)' : 'var(--text-primary)') : 'var(--accent)',
+                            color: (isClosed || livePrice) ? (payout > collateral ? 'var(--success)' : payout < collateral ? 'var(--danger)' : 'var(--text-primary)') : 'var(--accent)',
                           }}>
-                            {isClosed ? `$${payout.toFixed(2)}` : 'Pending'}
+                            {(isClosed || livePrice) ? `$${payout.toFixed(2)}` : 'Pending'}
                           </div>
                         </div>
                       </div>
