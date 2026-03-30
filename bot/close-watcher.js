@@ -274,6 +274,9 @@ class CloseWatcher {
 
     // Always run polling fallback
     this.startPolling();
+
+    // Safety net: check if gTrade trades disappeared (TP/SL hit)
+    this.startTradeMonitor();
   }
 
   // ===== CONTRACT EVENT LISTENER =====
@@ -971,6 +974,104 @@ class CloseWatcher {
     };
 
     poll();
+  }
+
+  // ===== SAFETY NET: Check if gTrade trades are still open =====
+  startTradeMonitor() {
+    const MONITOR_INTERVAL = 30_000; // 30s only when active signal exists
+
+    const check = async () => {
+      if (!this.running) return;
+
+      try {
+        const activeId = await this.copyTrader.activeSignalId();
+        if (Number(activeId) === 0) {
+          setTimeout(check, MONITOR_INTERVAL);
+          return;
+        }
+
+        const signal = await this.copyTrader.signalCore(activeId);
+        if (!signal.active || signal.closed) {
+          setTimeout(check, MONITOR_INTERVAL);
+          return;
+        }
+
+        // Check if gTrade trades still exist
+        const gTrade = new ethers.Contract(GTRADE_DIAMOND, [
+          "function getTrades(address) view returns (tuple(address,uint32,uint16,uint24,bool,bool,uint8,uint8,uint120,uint64,uint64,uint64,bool,uint160,uint24)[])",
+        ], this.httpProvider);
+        const trades = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
+
+        if (trades.length === 0) {
+          log("⚠️  SAFETY NET: gTrade trades gone but signal still active! Auto-closing...");
+
+          // Determine result from TP/SL
+          const entry = Number(signal.entryPrice) / 1e10;
+          const tp = Number(signal.tp) / 1e10;
+          const sl = Number(signal.sl) / 1e10;
+
+          // Use TP price if trade was profitable direction, SL otherwise
+          // Check current price to determine which was hit
+          let closePrice;
+          try {
+            const res = await fetch("https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2");
+            const data = await res.json();
+            const p = data.parsed[0].price;
+            closePrice = Number(p.price) * Math.pow(10, p.expo);
+          } catch { closePrice = entry; }
+
+          // If price passed TP → TP was hit. If price passed SL → SL was hit.
+          let resultPrice;
+          if (signal.long) {
+            resultPrice = closePrice >= tp ? tp : closePrice <= sl ? sl : closePrice;
+          } else {
+            resultPrice = closePrice <= tp ? tp : closePrice >= sl ? sl : closePrice;
+          }
+
+          const resultBps = signal.long
+            ? Math.round(((resultPrice - entry) / entry) * 10000)
+            : Math.round(((entry - resultPrice) / entry) * 10000);
+
+          log(`  Entry: ${entry}, Close: ${resultPrice}, Result: ${resultBps} bps`);
+
+          try {
+            const tx = await this.copyTrader.closeSignal(activeId, resultBps);
+            await tx.wait();
+            log(`  Signal #${activeId} closed via safety net!`);
+
+            // Send notification
+            const leverage = Number(signal.leverage) / 1000;
+            const leveragedPct = (resultBps / 100) * leverage;
+            const win = resultBps >= 0;
+            const img = await autoCloseImage({
+              signalId: String(activeId), direction: signal.long ? "LONG" : "SHORT",
+              leverage: `${leverage}x`, resultPct: leveragedPct,
+            });
+            await sendTelegramPhoto(img, [
+              `⚡ <b>Auto-Close Signal #${activeId}</b>`,
+              ``,
+              `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
+              `📈 ${win ? "TP hit!" : "SL hit."}`,
+            ].join("\n"), [
+              win ? { text: "🏆 Claim Profits", url: "https://www.smarttradingclub.io?tab=dashboard" } : { text: "🚀 Open App", url: "https://www.smarttradingclub.io?tab=dashboard" },
+            ]);
+          } catch (err) {
+            if (err.message?.includes("Not active")) {
+              log("  Signal already closed by another handler");
+            } else {
+              logError("Safety net closeSignal failed", err);
+            }
+          }
+        }
+      } catch (err) {
+        logError("Trade monitor error", err);
+      }
+
+      setTimeout(check, MONITOR_INTERVAL);
+    };
+
+    log("Trade monitor started — checking gTrade every 30s when signal active");
+    check();
   }
 
   // ===== HANDLE TRADE CLOSE =====
