@@ -4322,8 +4322,8 @@ function App() {
             <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-primary)', textAlign: 'center' }}>My Positions</h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {signalHistory.filter(s => userPositions[Number(s.id)]).length > 0 ? (
-                signalHistory.filter(s => userPositions[Number(s.id)]).map((signal) => {
+              {signalHistory.filter(s => userPositions[Number(s.id)] && !userPositions[Number(s.id)].claimed).length > 0 ? (
+                signalHistory.filter(s => userPositions[Number(s.id)] && !userPositions[Number(s.id)].claimed).map((signal) => {
                   const pos = userPositions[Number(signal.id)];
                   const isClosed = signal.closed;
                   const result = Number(signal.resultPct) / 100;
