@@ -3808,28 +3808,27 @@ function App() {
           </div>
         </motion.div>
 
-        {/* Stat cards */}
-        <motion.div className="dash-stat-card" variants={fadeUp} custom={1}>
-          <BarChart3 size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">Total Signals</span>
-          <span className="dash-stat-card-value">
-            <CountUp end={signalCount} duration={1} decimals={0} />
-          </span>
-          <span className="dash-stat-card-unit">signals</span>
-        </motion.div>
-
-        <motion.div className="dash-stat-card dash-stat-card-accent" variants={fadeUp} custom={2}>
-          <Copy size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">My Positions</span>
-          <span className="dash-stat-card-value accent">{Object.keys(userPositions).length}</span>
-          <span className="dash-stat-card-unit">trades</span>
-        </motion.div>
-
-        <motion.div className="dash-stat-card" variants={fadeUp} custom={3}>
-          <Coins size={18} className="dash-stat-card-icon" />
-          <span className="dash-stat-card-label">Fee</span>
-          <span className="dash-stat-card-value">{(feePercent / 100).toFixed(1)}%</span>
-          <span className="dash-stat-card-unit">on profit</span>
+        {/* Compact stat row */}
+        <motion.div variants={fadeUp} custom={1} style={{
+          gridColumn: '1 / -1', display: 'flex', gap: '8px',
+        }}>
+          {[
+            { icon: <BarChart3 size={14} />, label: 'Signals', value: signalCount, color: 'var(--text-primary)' },
+            { icon: <Copy size={14} />, label: 'My Trades', value: Object.keys(userPositions).length, color: 'var(--accent)' },
+            { icon: <Coins size={14} />, label: 'Fee', value: `${(feePercent / 100).toFixed(0)}%`, color: 'var(--text-primary)' },
+          ].map(s => (
+            <div key={s.label} style={{
+              flex: 1, display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '10px 14px', borderRadius: '12px',
+              background: 'rgba(12,15,21,0.7)', border: '1px solid var(--border)',
+            }}>
+              <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{s.icon}</span>
+              <div>
+                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+                <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>{s.label}</div>
+              </div>
+            </div>
+          ))}
         </motion.div>
       </motion.div>
 
