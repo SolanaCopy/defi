@@ -257,7 +257,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .hero-cta-row { display: flex; align-items: center; gap: 1rem; flex-wrap: wrap; margin-top: 0.5rem; }
 
 /* Hero bot + card */
-.hero-right { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; margin-top: 2rem; }
+.hero-right { position: relative; display: flex; flex-direction: column; align-items: center; gap: 0.5rem; margin-top: 3.5rem; }
 
 .hero-bot {
   position: relative; z-index: 2;
