@@ -391,6 +391,8 @@ class CloseWatcher {
       if (this.winStreak > 0) log(`Current win streak: ${this.winStreak}`);
     }).catch(() => {});
 
+    this.autoClosedSignals = new Set(); // Track signals closed by auto-close to prevent duplicate notifications
+
     contract.on("SignalClosed", async (signalId, resultPct) => {
       const pct = Number(resultPct) / 100;
       const win = pct >= 0;
@@ -414,16 +416,22 @@ class CloseWatcher {
         this.winStreak = 0;
       }
 
-      const img = await signalClosedImage({
-        signalId: String(signalId), resultPct: leveragedPct, direction: dir, leverage: `${levNum}x`,
-      });
+      // Skip notification if already sent by auto-close handler
+      if (this.autoClosedSignals.has(Number(signalId))) {
+        this.autoClosedSignals.delete(Number(signalId));
+        log(`  Skipping SignalClosed notification — already sent by auto-close`);
+      } else {
+        const img = await signalClosedImage({
+          signalId: String(signalId), resultPct: leveragedPct, direction: dir, leverage: `${levNum}x`,
+        });
 
-      await sendTelegramPhoto(img, [
-        win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
-        ``,
-        `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
-        `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${levNum}x`,
-      ].join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
+        await sendTelegramPhoto(img, [
+          win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
+          ``,
+          `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
+          `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${levNum}x`,
+        ].join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
+      }
 
       // Send streak image at 3, 5, 7, 10, 15, 20, 25...
       if (this.winStreak >= 3 && (this.winStreak <= 10 || this.winStreak % 5 === 0)) {
@@ -979,6 +987,7 @@ class CloseWatcher {
           log(`  Entry: ${entry}, Close: ${resultPrice}, Result: ${resultBps} bps`);
 
           try {
+            this.autoClosedSignals.add(Number(activeId));
             const tx = await this.copyTrader.closeSignal(activeId, resultBps);
             await tx.wait();
             log(`  Signal #${activeId} closed via safety net!`);
@@ -1054,6 +1063,7 @@ class CloseWatcher {
       log("═══════════════════════════════════════");
 
       // Send closeSignal transaction
+      this.autoClosedSignals.add(Number(activeId));
       const tx = await this.copyTrader.closeSignal(activeId, resultPct);
       log(`TX sent: ${tx.hash}`);
 
