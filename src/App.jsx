@@ -1301,7 +1301,7 @@ function App() {
                         </span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       {activeSignal && marketStatus.open && livePrice && (() => {
                         const entry = Number(activeSignal.entryPrice) / 1e10;
                         const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
@@ -1316,13 +1316,18 @@ function App() {
                         );
                       })()}
                       {activeSignal && (
-                        <span style={{
-                          fontSize: '0.6rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
-                          padding: '3px 10px', borderRadius: '20px',
-                          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
-                        }}>
-                          #{Number(activeSignal.id)} &middot; {timeAgo(activeSignal.timestamp)}
-                        </span>
+                        <>
+                          <span style={{
+                            fontSize: '0.6rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                            padding: '3px 10px', borderRadius: '20px',
+                            background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+                          }}>
+                            #{Number(activeSignal.id)}
+                          </span>
+                          <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                            {timeAgo(activeSignal.timestamp)}
+                          </span>
+                        </>
                       )}
                     </div>
                   </div>
