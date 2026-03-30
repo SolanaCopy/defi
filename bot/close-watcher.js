@@ -449,19 +449,24 @@ class CloseWatcher {
       await sendTelegram(`💎 <b>Platform Fees Collected</b>\n\nAmount: <b>$${formatUSDC(amount)} USDC</b>`);
     });
 
-    // ── Track known copiers to avoid duplicate notifications ──
-    const knownCopiers = new Set();
+    // ── Track known copiers + amounts to avoid duplicate notifications ──
+    const knownCopiers = new Map();
     try {
       const existingUsers = await contract.getAutoCopyUsers();
-      for (const u of existingUsers) knownCopiers.add(u.toLowerCase());
+      for (const u of existingUsers) {
+        const config = await contract.autoCopy(u);
+        knownCopiers.set(u.toLowerCase(), Number(config.amount));
+      }
       log(`Known copiers loaded: ${knownCopiers.size}`);
     } catch {}
 
     // ── New auto-copier joined ──
     contract.on("AutoCopyEnabled", async (user, amount) => {
       const amtStr = formatUSDC(amount);
-      const isNew = !knownCopiers.has(user.toLowerCase());
-      knownCopiers.add(user.toLowerCase());
+      const prevAmount = knownCopiers.get(user.toLowerCase()) || 0;
+      const isNew = prevAmount === 0;
+      const isIncrease = Number(amount) > prevAmount && !isNew;
+      knownCopiers.set(user.toLowerCase(), Number(amount));
 
       if (isNew) {
         log(`NEW AutoCopier: ${shortAddr(user)} with $${amtStr}/trade`);
@@ -483,14 +488,16 @@ class CloseWatcher {
           log(`AutoCopy image error: ${err.message}`);
           await sendTelegram(`🤖 <b>New Auto-Copier!</b>\n\n👤 ${shortAddr(user)}\n💰 $${amtStr} USDC/trade`);
         }
-      } else {
-        log(`AutoCopy updated: ${shortAddr(user)} now $${amtStr}/trade`);
+      } else if (isIncrease) {
+        log(`AutoCopy increased: ${shortAddr(user)} now $${amtStr}/trade`);
         await sendTelegram([
-          `📊 <b>Copier Updated Amount</b>`,
+          `📈 <b>Copier Increased Amount</b>`,
           ``,
           `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
           `💰 Now copying <b>$${amtStr} USDC</b> per trade`,
         ].join("\n"));
+      } else {
+        log(`AutoCopy updated: ${shortAddr(user)} now $${amtStr}/trade (no notification)`);
       }
     });
 
