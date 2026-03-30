@@ -373,8 +373,20 @@ class CloseWatcher {
     });
 
     // ── Signal closed (trade result) ──
-    // Track win streak
+    // Calculate current win streak from contract history on startup
     this.winStreak = 0;
+    contract.signalCount().then(async (count) => {
+      const total = Number(count);
+      for (let i = total; i >= 1; i--) {
+        try {
+          const core = await contract.signalCore(i);
+          if (!core.closed) continue;
+          if (Number(core.resultPct) >= 0) this.winStreak++;
+          else break;
+        } catch { break; }
+      }
+      if (this.winStreak > 0) log(`Current win streak: ${this.winStreak}`);
+    }).catch(() => {});
 
     contract.on("SignalClosed", async (signalId, resultPct) => {
       const pct = Number(resultPct) / 100;
