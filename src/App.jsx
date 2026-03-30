@@ -5699,7 +5699,7 @@ function App() {
         <nav className={`navbar ${scrolled ? 'navbar-scrolled' : ''}`}>
           <div className="brand">
             <img src="/logo.png" alt="Smart Trading Club" className="brand-logo" />
-            <span className="brand-text">Smart <span className="text-gold-gradient">GoldBot</span></span>
+            <span className="brand-text">Smart <span className="text-gold-gradient">Trading</span> Club</span>
           </div>
 
           <div className="nav-links">
