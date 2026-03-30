@@ -3997,38 +3997,86 @@ function App() {
             <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>Platform Performance</h3>
           </div>
 
+          {/* Today's PnL highlight */}
+          {performanceStats.platform.today.trades > 0 && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '14px 16px', borderRadius: '12px', marginBottom: '12px',
+              background: performanceStats.platform.today.totalCopied > 0
+                ? 'linear-gradient(135deg, rgba(52,211,153,0.06) 0%, rgba(52,211,153,0.02) 100%)'
+                : 'rgba(255,255,255,0.02)',
+              border: '1px solid rgba(255,255,255,0.06)',
+            }}>
+              <div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '4px' }}>TODAY'S PERFORMANCE</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+                    {performanceStats.platform.today.wins}W / {performanceStats.platform.today.losses}L
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                    {performanceStats.platform.today.winRate.toFixed(0)}% win rate
+                  </span>
+                </div>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                {(() => {
+                  const todaySignals = signalHistory.filter(s => s.closed && Number(s.closedAt) >= Math.floor(Date.now() / 1000) - 86400);
+                  let todayPnl = 0;
+                  todaySignals.forEach(s => {
+                    todayPnl += (Number(s.resultPct) / 100) * (Number(s.leverage) / 1000);
+                  });
+                  return (
+                    <div style={{
+                      fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.5rem', fontWeight: 800,
+                      color: todayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                    }}>
+                      {todayPnl >= 0 ? '+' : ''}{todayPnl.toFixed(1)}%
+                    </div>
+                  );
+                })()}
+              </div>
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
             {[
               { label: 'Today', data: performanceStats.platform.today },
               { label: '7 Days', data: performanceStats.platform.week },
               { label: '30 Days', data: performanceStats.platform.month },
               { label: 'All Time', data: performanceStats.platform.all },
-            ].map(({ label, data }) => (
-              <div key={label} style={{
-                background: 'rgba(255,255,255,0.02)',
-                borderRadius: '10px',
-                padding: '12px',
-                textAlign: 'center',
-              }}>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-                  {label}
-                </div>
-                <div style={{ fontSize: '1.1rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px' }}>
-                  {data.trades}
-                </div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>trades</div>
-                <div style={{
-                  fontSize: '0.75rem',
-                  fontWeight: 600,
-                  color: data.winRate >= 50 ? 'var(--success)' : data.trades === 0 ? 'var(--text-secondary)' : 'var(--danger)',
+            ].map(({ label, data }) => {
+              // Calculate total PnL for this period
+              const cutoff = label === 'Today' ? 86400 : label === '7 Days' ? 7 * 86400 : label === '30 Days' ? 30 * 86400 : 0;
+              const now = Math.floor(Date.now() / 1000);
+              const periodSignals = signalHistory.filter(s => s.closed && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
+              let periodPnl = 0;
+              periodSignals.forEach(s => { periodPnl += (Number(s.resultPct) / 100) * (Number(s.leverage) / 1000); });
+
+              return (
+                <div key={label} style={{
+                  background: 'rgba(255,255,255,0.02)',
+                  borderRadius: '10px',
+                  padding: '12px',
+                  textAlign: 'center',
                 }}>
-                  {data.trades > 0 ? `${data.winRate.toFixed(0)}% win` : '-'}
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+                    {label}
+                  </div>
+                  <div style={{
+                    fontSize: '1.1rem', fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px',
+                    color: periodPnl > 0 ? 'var(--success)' : periodPnl < 0 ? 'var(--danger)' : 'var(--text-primary)',
+                  }}>
+                    {data.trades > 0 ? `${periodPnl >= 0 ? '+' : ''}${periodPnl.toFixed(1)}%` : '-'}
+                  </div>
+                  <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                    {data.trades} trades &middot; {data.winRate.toFixed(0)}% win
+                  </div>
+                  <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {data.wins}W / {data.losses}L
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                  {data.wins}W / {data.losses}L
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
 
