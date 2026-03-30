@@ -3810,7 +3810,7 @@ function App() {
 
         {/* Compact stat row */}
         <motion.div variants={fadeUp} custom={1} style={{
-          gridColumn: '1 / -1', display: 'flex', gap: '8px',
+          display: 'flex', flexDirection: 'column', gap: '8px',
         }}>
           {[
             { icon: <BarChart3 size={14} />, label: 'Signals', value: signalCount, color: 'var(--text-primary)' },
@@ -3818,15 +3818,15 @@ function App() {
             { icon: <Coins size={14} />, label: 'Fee', value: `${(feePercent / 100).toFixed(0)}%`, color: 'var(--text-primary)' },
           ].map(s => (
             <div key={s.label} style={{
-              flex: 1, display: 'flex', alignItems: 'center', gap: '8px',
-              padding: '10px 14px', borderRadius: '12px',
+              flex: 1, display: 'flex', alignItems: 'center', gap: '10px',
+              padding: '12px 16px', borderRadius: '12px',
               background: 'rgba(12,15,21,0.7)', border: '1px solid var(--border)',
             }}>
               <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{s.icon}</span>
-              <div>
-                <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>{s.label}</div>
               </div>
+              <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
             </div>
           ))}
         </motion.div>
