@@ -235,6 +235,15 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong }) {
 }
 
 // Helper: format leverage (1e3 precision)
+// Provider level badges
+function getProviderLevel(totalTrades, winRate) {
+  if (totalTrades >= 50 && winRate >= 80) return { label: 'Diamond', color: '#B9F2FF', bg: 'rgba(185,242,255,0.12)', border: 'rgba(185,242,255,0.25)' };
+  if (totalTrades >= 30 && winRate >= 70) return { label: 'Gold', color: '#D4A843', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.25)' };
+  if (totalTrades >= 15 && winRate >= 60) return { label: 'Silver', color: '#C0C0C0', bg: 'rgba(192,192,192,0.12)', border: 'rgba(192,192,192,0.25)' };
+  if (totalTrades >= 5) return { label: 'Bronze', color: '#CD7F32', bg: 'rgba(205,127,50,0.12)', border: 'rgba(205,127,50,0.25)' };
+  return null;
+}
+
 function formatLeverage(lev) {
   return (Number(lev) / LEVERAGE_PRECISION).toFixed(0);
 }
@@ -920,6 +929,21 @@ function App() {
       }
 
       setMarketplaceProviders(providers);
+
+      // Fetch provider profiles from Supabase
+      if (supabase && providers.length > 0) {
+        try {
+          const { data: profiles } = await supabase
+            .from('provider_profiles')
+            .select('wallet_address, display_name, avatar_url')
+            .in('wallet_address', providers.map(p => p.address.toLowerCase()));
+          if (profiles) {
+            const profileMap = {};
+            profiles.forEach(p => { profileMap[p.wallet_address] = p; });
+            setProviderProfiles(profileMap);
+          }
+        } catch { /* table may not exist yet */ }
+      }
     } catch (err) {
       console.error("Marketplace load error:", err);
     }
@@ -2579,14 +2603,40 @@ function App() {
   // ===== STRATEGIES / TRADERS PAGE =====
   const [followAmount, setFollowAmount] = useState("10");
   const [positionsTab, setPositionsTab] = useState('positions');
+  const [strategySort, setStrategySort] = useState('all');
+  const [providerProfiles, setProviderProfiles] = useState({});
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
+  const [editProfileName, setEditProfileName] = useState('');
+  const [editProfileAvatar, setEditProfileAvatar] = useState('');
   const [tradeLogPeriod, setTradeLogPeriod] = useState('all');
   const [tradeLogFrom, setTradeLogFrom] = useState('');
   const [tradeLogTo, setTradeLogTo] = useState('');
   const [followTarget, setFollowTarget] = useState(null); // provider address for follow modal
   const [selectedProvider, setSelectedProvider] = useState(null); // provider object for detail modal
 
+  // Save profile to Supabase
+  const saveProfile = async () => {
+    if (!account || !supabase) return;
+    try {
+      await supabase.from('provider_profiles').upsert({
+        wallet_address: account.toLowerCase(),
+        display_name: editProfileName.trim() || null,
+        avatar_url: editProfileAvatar.trim() || null,
+      }, { onConflict: 'wallet_address' });
+      setProviderProfiles(prev => ({
+        ...prev,
+        [account.toLowerCase()]: { display_name: editProfileName.trim(), avatar_url: editProfileAvatar.trim() },
+      }));
+      setEditProfileOpen(false);
+    } catch (err) { console.error('Profile save error:', err); }
+  };
+
   const renderStrategies = () => {
-    const traders = marketplaceProviders;
+    // Sort providers
+    let traders = [...marketplaceProviders];
+    if (strategySort === 'pnl') traders.sort((a, b) => b.totalPnlPct - a.totalPnlPct);
+    else if (strategySort === 'winrate') traders.sort((a, b) => b.winRate - a.winRate || b.totalTrades - a.totalTrades);
+    else if (strategySort === 'followers') traders.sort((a, b) => b.followers - a.followers);
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
@@ -2658,18 +2708,24 @@ function App() {
         <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '0.5rem' }}>
           <div style={{ maxWidth: '900px', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
             <div style={{ display: 'flex', gap: '8px' }}>
-              {['All Traders', 'Top Performers', 'Rising Stars', 'Most Followed'].map((filter, i) => (
+              {[
+                { key: 'all', label: 'All Traders' },
+                { key: 'pnl', label: 'Top PnL' },
+                { key: 'winrate', label: 'Win Rate' },
+                { key: 'followers', label: 'Most Followed' },
+              ].map(opt => (
                 <button
-                  key={filter}
+                  key={opt.key}
+                  onClick={() => setStrategySort(opt.key)}
                   style={{
                     padding: '7px 16px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 600,
-                    background: i === 0 ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${i === 0 ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
-                    color: i === 0 ? 'var(--accent)' : 'var(--text-secondary)',
+                    background: strategySort === opt.key ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${strategySort === opt.key ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                    color: strategySort === opt.key ? 'var(--accent)' : 'var(--text-secondary)',
                     cursor: 'pointer', transition: 'all 0.15s ease',
                   }}
                 >
-                  {filter}
+                  {opt.label}
                 </button>
               ))}
             </div>
@@ -2702,22 +2758,42 @@ function App() {
                     position: 'relative', overflow: 'hidden', cursor: 'pointer',
                   }}
                 >
-                  {/* Header: avatar + address + badges */}
+                  {/* Header: avatar + name + badges */}
+                  {(() => {
+                    const profile = providerProfiles[trader.address.toLowerCase()];
+                    const level = getProviderLevel(trader.totalTrades, trader.winRate);
+                    return (
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      <div style={{
-                        width: 40, height: 40, borderRadius: '12px',
-                        background: 'linear-gradient(135deg, rgba(212,168,67,0.15), rgba(212,168,67,0.03))',
-                        border: '1px solid rgba(212,168,67,0.2)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.8rem',
-                        color: 'var(--accent)',
-                      }}>
-                        {trader.shortAddr.slice(0, 2)}
-                      </div>
+                      {profile?.avatar_url ? (
+                        <img src={profile.avatar_url} alt="" style={{ width: 40, height: 40, borderRadius: '12px', objectFit: 'cover', border: '1px solid rgba(212,168,67,0.2)' }} />
+                      ) : (
+                        <div style={{
+                          width: 40, height: 40, borderRadius: '12px',
+                          background: level ? `linear-gradient(135deg, ${level.bg}, rgba(255,255,255,0.02))` : 'linear-gradient(135deg, rgba(212,168,67,0.15), rgba(212,168,67,0.03))',
+                          border: `1px solid ${level ? level.border : 'rgba(212,168,67,0.2)'}`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.8rem',
+                          color: level ? level.color : 'var(--accent)',
+                        }}>
+                          {(profile?.display_name || trader.shortAddr).slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
                       <div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{trader.shortAddr}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>{profile?.display_name || trader.shortAddr}</span>
+                          {level && (
+                            <span style={{
+                              fontSize: '0.5rem', fontWeight: 700, padding: '1px 6px', borderRadius: '20px',
+                              background: level.bg, color: level.color, border: `1px solid ${level.border}`,
+                              letterSpacing: '0.03em',
+                            }}>
+                              {level.label}
+                            </span>
+                          )}
+                        </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                          {profile?.display_name && <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)' }}>{trader.shortAddr}</span>}
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6' }}>
                             <Users size={10} /> {trader.followers}
                           </span>
@@ -2739,6 +2815,8 @@ function App() {
                       <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TOTAL PNL</div>
                     </div>
                   </div>
+                    );
+                  })()}
 
                   {/* Key stats */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '12px' }}>
@@ -2999,20 +3077,36 @@ function App() {
                   style={{ background: 'var(--bg-card)', borderRadius: '20px', maxWidth: '560px', width: '100%', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto' }}
                 >
                   {/* Modal header */}
+                  {(() => {
+                    const mProfile = providerProfiles[t.address.toLowerCase()];
+                    const mLevel = getProviderLevel(t.totalTrades, t.winRate);
+                    return (
                   <div style={{ padding: '24px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{
-                        width: 48, height: 48, borderRadius: '14px',
-                        background: 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
-                        border: '1px solid rgba(212,168,67,0.25)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1rem', color: 'var(--accent)',
-                      }}>
-                        {t.shortAddr.slice(0, 2)}
-                      </div>
+                      {mProfile?.avatar_url ? (
+                        <img src={mProfile.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: '14px', objectFit: 'cover', border: '1px solid rgba(212,168,67,0.25)' }} />
+                      ) : (
+                        <div style={{
+                          width: 48, height: 48, borderRadius: '14px',
+                          background: mLevel ? `linear-gradient(135deg, ${mLevel.bg}, rgba(255,255,255,0.02))` : 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
+                          border: `1px solid ${mLevel ? mLevel.border : 'rgba(212,168,67,0.25)'}`,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1rem', color: mLevel ? mLevel.color : 'var(--accent)',
+                        }}>
+                          {(mProfile?.display_name || t.shortAddr).slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
                       <div>
-                        <div style={{ fontSize: '1rem', fontWeight: 700 }}>{t.shortAddr}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ fontSize: '1rem', fontWeight: 700 }}>{mProfile?.display_name || t.shortAddr}</span>
+                          {mLevel && (
+                            <span style={{ fontSize: '0.55rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: mLevel.bg, color: mLevel.color, border: `1px solid ${mLevel.border}` }}>
+                              {mLevel.label}
+                            </span>
+                          )}
+                        </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
+                          {mProfile?.display_name && <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{t.shortAddr}</span>}
                           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.7rem', fontWeight: 700, color: '#8B5CF6' }}>
                             <Users size={12} /> {t.followers} followers
                           </span>
@@ -3028,6 +3122,8 @@ function App() {
                       <X size={20} />
                     </button>
                   </div>
+                    );
+                  })()}
 
                   {/* Stats grid */}
                   {(() => {
@@ -3275,12 +3371,27 @@ function App() {
                   {/* Action footer */}
                   <div style={{ padding: '16px 24px 24px' }}>
                     {isOwn ? (
-                      <div style={{
-                        width: '100%', padding: '12px', fontSize: '0.8rem', textAlign: 'center',
-                        background: 'rgba(212,168,67,0.06)', borderRadius: '12px', color: 'var(--accent)',
-                        fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
-                      }}>
-                        <Crown size={16} /> This is your strategy
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                        <div style={{
+                          width: '100%', padding: '12px', fontSize: '0.8rem', textAlign: 'center',
+                          background: 'rgba(212,168,67,0.06)', borderRadius: '12px', color: 'var(--accent)',
+                          fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                        }}>
+                          <Crown size={16} /> This is your strategy
+                        </div>
+                        <button
+                          className="btn btn-glass"
+                          style={{ width: '100%', padding: '10px', fontSize: '0.75rem' }}
+                          onClick={() => {
+                            const p = providerProfiles[account.toLowerCase()];
+                            setEditProfileName(p?.display_name || '');
+                            setEditProfileAvatar(p?.avatar_url || '');
+                            setEditProfileOpen(true);
+                            setSelectedProvider(null);
+                          }}
+                        >
+                          <Settings size={14} /> Edit Profile
+                        </button>
                       </div>
                     ) : isFollowing ? (
                       <div style={{ display: 'flex', gap: '8px' }}>
@@ -3315,6 +3426,96 @@ function App() {
               </motion.div>
             );
           })()}
+        </AnimatePresence>
+
+        {/* How it works */}
+        <motion.section className="section" style={{ paddingTop: '1rem', paddingBottom: '2rem' }}>
+          <div style={{ maxWidth: '900px', margin: '0 auto' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.1em', textAlign: 'center', marginBottom: '20px', textTransform: 'uppercase' }}>
+              How It Works
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+              {[
+                { num: '1', icon: <Wallet size={22} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.2)', title: 'Connect Wallet', desc: 'Connect your Arbitrum wallet to browse the strategy marketplace.' },
+                { num: '2', icon: <UserPlus size={22} />, color: 'var(--accent)', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.2)', title: 'Follow a Trader', desc: 'Analyze track records and set your copy amount per trade.' },
+                { num: '3', icon: <Coins size={22} />, color: 'var(--success)', bg: 'rgba(52,211,153,0.12)', border: 'rgba(52,211,153,0.2)', title: 'Earn Automatically', desc: 'Trades are copied automatically on-chain. Claim profits anytime.' },
+              ].map(step => (
+                <motion.div key={step.num} variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
+                  style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px 20px', border: `1px solid ${step.border}`, textAlign: 'center', position: 'relative' }}
+                >
+                  <div style={{
+                    position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)',
+                    width: 24, height: 24, borderRadius: '50%', background: step.bg, border: `1px solid ${step.border}`,
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.7rem', color: step.color,
+                  }}>{step.num}</div>
+                  <div style={{ width: 44, height: 44, borderRadius: '12px', margin: '8px auto 12px', background: step.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ color: step.color }}>{step.icon}</span>
+                  </div>
+                  <h4 style={{ fontSize: '0.9rem', fontWeight: 700, marginBottom: '6px' }}>{step.title}</h4>
+                  <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', lineHeight: 1.5, margin: 0 }}>{step.desc}</p>
+                </motion.div>
+              ))}
+            </div>
+          </div>
+        </motion.section>
+
+        {/* Edit Profile Modal */}
+        <AnimatePresence>
+          {editProfileOpen && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+              onClick={() => setEditProfileOpen(false)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                onClick={e => e.stopPropagation()}
+                style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', maxWidth: '380px', width: '100%', border: '1px solid var(--border)' }}
+              >
+                <h3 style={{ margin: '0 0 6px', fontSize: '1.1rem' }}>Edit Profile</h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 20px' }}>
+                  Set your display name and avatar for your provider card.
+                </p>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Display Name</div>
+                <input
+                  type="text" value={editProfileName} onChange={e => setEditProfileName(e.target.value)}
+                  placeholder="e.g. GoldMaster" maxLength={20}
+                  style={{
+                    width: '100%', padding: '12px', borderRadius: '10px', fontSize: '0.9rem',
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', outline: 'none', marginBottom: '14px', boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Avatar URL</div>
+                <input
+                  type="url" value={editProfileAvatar} onChange={e => setEditProfileAvatar(e.target.value)}
+                  placeholder="https://..."
+                  style={{
+                    width: '100%', padding: '12px', borderRadius: '10px', fontSize: '0.9rem',
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', outline: 'none', marginBottom: '6px', boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                  Paste a direct image URL (e.g. from imgur, Twitter, etc.)
+                </div>
+                {editProfileAvatar && (
+                  <div style={{ textAlign: 'center', marginBottom: '16px' }}>
+                    <img src={editProfileAvatar} alt="Preview" style={{ width: 60, height: 60, borderRadius: '14px', objectFit: 'cover', border: '1px solid var(--border)' }} onError={e => { e.target.style.display = 'none'; }} />
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button className="btn btn-glass" style={{ flex: 1, padding: '10px', fontSize: '0.8rem' }} onClick={() => setEditProfileOpen(false)}>
+                    Cancel
+                  </button>
+                  <button className="btn btn-primary btn-glow" style={{ flex: 1, padding: '10px', fontSize: '0.8rem', fontWeight: 700 }} onClick={saveProfile}>
+                    Save Profile
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
         </AnimatePresence>
 
         {/* Bottom info */}
