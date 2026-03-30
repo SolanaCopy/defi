@@ -740,15 +740,24 @@ class CloseWatcher {
       const contract = this.copyTrader;
       const total = Number(await contract.signalCount());
 
-      // Calculate total volume + profit
+      // Calculate real volume (unclaimed collateral) + profit
       let totalVolume = 0;
       let totalProfit = 0;
+      const users = await contract.getAutoCopyUsers();
+      for (const user of users) {
+        const ids = await contract.getUserSignalIds(user);
+        for (const id of ids) {
+          const pos = await contract.positions(user, id);
+          if (Number(pos.collateral) > 0 && !pos.claimed) {
+            totalVolume += parseFloat(ethers.formatUnits(pos.collateral, 6));
+          }
+        }
+      }
       for (let i = 1; i <= total; i++) {
-        const meta = await contract.signalMeta(i);
-        const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
-        totalVolume += vol;
         const core = await contract.signalCore(i);
         if (core.closed) {
+          const meta = await contract.signalMeta(i);
+          const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
           const resultPct = Number(core.resultPct) / 100;
           const leverage = Number(core.leverage) / 1000;
           totalProfit += vol * (resultPct / 100) * leverage;
