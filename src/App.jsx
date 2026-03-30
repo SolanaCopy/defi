@@ -3342,16 +3342,18 @@ function App() {
                       {formatLeverage(activeSignal.leverage)}x
                     </span>
                   </div>
-                  <span style={{
-                    fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
-                    padding: '3px 10px', borderRadius: '20px',
-                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
-                  }}>
-                    #{Number(activeSignal.id)}
-                  </span>
-                </div>
-                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '12px' }}>
-                  Opened {timeAgo(activeSignal.timestamp)}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                    <span style={{
+                      fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                      padding: '3px 10px', borderRadius: '20px',
+                      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+                    }}>
+                      #{Number(activeSignal.id)}
+                    </span>
+                    <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                      {timeAgo(activeSignal.timestamp)}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Live PnL Section */}
