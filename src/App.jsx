@@ -164,6 +164,76 @@ function formatGTradePrice(price) {
   return (Number(price) / PRICE_PRECISION).toFixed(2);
 }
 
+// Pro progress bar for SL → Entry → TP
+function TradeProgressBar({ entry, tp, sl, currentPrice, isLong }) {
+  if (!currentPrice) return null;
+  const range = Math.abs(tp - sl);
+  const progress = isLong
+    ? Math.max(0, Math.min(100, ((currentPrice - sl) / range) * 100))
+    : Math.max(0, Math.min(100, ((sl - currentPrice) / range) * 100));
+  const entryPos = isLong
+    ? ((entry - sl) / range) * 100
+    : ((sl - entry) / range) * 100;
+  const pnlPct = isLong
+    ? ((currentPrice - entry) / entry) * 100
+    : ((entry - currentPrice) / entry) * 100;
+  const isProfit = pnlPct >= 0;
+  const distToTP = isLong ? ((tp - currentPrice) / (tp - entry)) * 100 : ((currentPrice - tp) / (entry - tp)) * 100;
+  const pctToTP = Math.max(0, Math.min(100, 100 - distToTP));
+  const nearSL = progress < 20;
+  const nearTP = progress > 80;
+  const pulseSpeed = nearSL || nearTP ? '0.8s' : '2s';
+
+  return (
+    <div style={{ marginBottom: '2px' }}>
+      <div style={{ position: 'relative', height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+        {/* Gradient fill from SL to current price */}
+        <div style={{
+          position: 'absolute', left: 0, top: 0, height: '100%',
+          width: `${progress}%`, borderRadius: '3px',
+          background: nearSL
+            ? 'linear-gradient(90deg, rgba(248,113,113,0.8), rgba(248,113,113,0.4))'
+            : nearTP
+              ? 'linear-gradient(90deg, rgba(52,211,153,0.3), rgba(52,211,153,0.8))'
+              : `linear-gradient(90deg, rgba(248,113,113,0.4) 0%, rgba(212,168,67,0.4) ${entryPos}%, rgba(52,211,153,0.5) 100%)`,
+          transition: 'width 0.5s ease',
+          boxShadow: nearSL ? '0 0 8px rgba(248,113,113,0.3)' : nearTP ? '0 0 8px rgba(52,211,153,0.3)' : 'none',
+        }} />
+        {/* Entry marker */}
+        <div style={{
+          position: 'absolute', left: `${entryPos}%`, top: 0,
+          width: '1px', height: '100%', background: 'rgba(255,255,255,0.25)',
+        }} />
+        {/* Current price dot */}
+        <div style={{
+          position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
+          width: '12px', height: '12px', borderRadius: '50%',
+          background: isProfit ? '#34D399' : '#F87171',
+          border: '2px solid rgba(0,0,0,0.3)',
+          boxShadow: `0 0 ${nearSL || nearTP ? '12px' : '6px'} ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
+          transition: 'left 0.5s ease',
+          animation: `pulse ${pulseSpeed} ease-in-out infinite`,
+        }} />
+      </div>
+      {/* Labels */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+        <span style={{ fontSize: '0.55rem', color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
+          SL ${sl.toFixed(0)}
+        </span>
+        <span style={{
+          fontSize: '0.6rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+          color: isProfit ? 'var(--success)' : 'var(--danger)',
+        }}>
+          {Math.round(pctToTP)}% to TP
+        </span>
+        <span style={{ fontSize: '0.55rem', color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
+          TP ${tp.toFixed(0)}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // Helper: format leverage (1e3 precision)
 function formatLeverage(lev) {
   return (Number(lev) / LEVERAGE_PRECISION).toFixed(0);
@@ -1483,7 +1553,7 @@ function App() {
                   </div>
                   {activeSignal && marketStatus.open ? (
                     <div>
-                      {/* Live price row */}
+                      {/* Live price + progress bar */}
                       {livePrice && (() => {
                         const entry = Number(activeSignal.entryPrice) / 1e10;
                         const tp = Number(activeSignal.tp) / 1e10;
@@ -1491,8 +1561,6 @@ function App() {
                         const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
                         const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
                         const isProfit = livePnl >= 0;
-                        const range = tp - sl;
-                        const progress = Math.max(0, Math.min(100, ((livePrice - sl) / range) * 100));
                         return (
                           <div style={{ marginBottom: '8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
@@ -1506,17 +1574,7 @@ function App() {
                                 {isProfit ? '+' : ''}{livePnl.toFixed(2)}%
                               </span>
                             </div>
-                            <div style={{ position: 'relative', height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' }}>
-                              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px', width: `${((entry - sl) / range) * 100}%`, background: 'rgba(248,113,113,0.2)' }} />
-                              <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0', width: `${((tp - entry) / range) * 100}%`, background: 'rgba(52,211,153,0.2)' }} />
-                              <div style={{
-                                position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
-                                width: '9px', height: '9px', borderRadius: '50%',
-                                background: isProfit ? 'var(--success)' : 'var(--danger)',
-                                boxShadow: `0 0 6px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
-                                transition: 'left 0.5s ease',
-                              }} />
-                            </div>
+                            <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={activeSignal.long} />
                           </div>
                         );
                       })()}
@@ -3181,22 +3239,7 @@ function App() {
                                   </div>
                                 </div>
                               </div>
-                              <div style={{ position: 'relative', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)', marginBottom: '2px' }}>
-                                <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px', width: '50%', background: 'rgba(248,113,113,0.15)' }} />
-                                <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0', width: '50%', background: 'rgba(52,211,153,0.15)' }} />
-                                <div style={{
-                                  position: 'absolute', top: '-4px', left: `${progress}%`, transform: 'translateX(-50%)',
-                                  width: '12px', height: '12px', borderRadius: '50%',
-                                  background: isProfit ? 'var(--success)' : 'var(--danger)',
-                                  boxShadow: `0 0 8px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
-                                  transition: 'left 0.5s ease',
-                                }} />
-                              </div>
-                              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.55rem', fontFamily: "'Space Grotesk', sans-serif" }}>
-                                <span style={{ color: 'var(--danger)' }}>SL ${sl.toFixed(0)}</span>
-                                <span style={{ color: 'var(--text-secondary)' }}>Entry ${entry.toFixed(2)}</span>
-                                <span style={{ color: 'var(--success)' }}>TP ${tp.toFixed(0)}</span>
-                              </div>
+                              <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={t.activeSignal.long} />
                             </>
                           );
                         })()}
@@ -4237,39 +4280,7 @@ function App() {
 
                         {/* SL — Entry — TP progress bar */}
                         <div style={{ marginTop: '14px' }}>
-                          <div style={{
-                            position: 'relative', height: '4px', borderRadius: '2px',
-                            background: 'rgba(255,255,255,0.08)',
-                          }}>
-                            {/* SL zone (red) */}
-                            <div style={{
-                              position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px',
-                              width: `${((entry - sl) / range) * 100}%`,
-                              background: 'rgba(248,113,113,0.2)',
-                            }} />
-                            {/* TP zone (green) */}
-                            <div style={{
-                              position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0',
-                              width: `${((tp - entry) / range) * 100}%`,
-                              background: 'rgba(52,211,153,0.2)',
-                            }} />
-                            {/* Current price indicator */}
-                            {hasPrice && (
-                              <div style={{
-                                position: 'absolute', top: '-4px',
-                                left: `${progress}%`, transform: 'translateX(-50%)',
-                                width: '12px', height: '12px', borderRadius: '50%',
-                                background: isProfit ? 'var(--success)' : 'var(--danger)',
-                                boxShadow: `0 0 8px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
-                                transition: 'left 0.5s ease',
-                              }} />
-                            )}
-                          </div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.6rem', fontFamily: "'Space Grotesk', sans-serif" }}>
-                            <span style={{ color: 'var(--danger)' }}>SL ${sl.toFixed(0)}</span>
-                            <span style={{ color: 'var(--text-secondary)' }}>Entry ${entry.toFixed(2)}</span>
-                            <span style={{ color: 'var(--success)' }}>TP ${tp.toFixed(0)}</span>
-                          </div>
+                          <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={hasPrice ? livePrice : null} isLong={activeSignal.long} />
                         </div>
                       </div>
                     </>
@@ -4442,29 +4453,7 @@ function App() {
                         const entry = Number(signal.entryPrice) / 1e10;
                         const tp = Number(signal.tp) / 1e10;
                         const sl = Number(signal.sl) / 1e10;
-                        const range = tp - sl;
-                        const progress = Math.max(0, Math.min(100, ((livePrice - sl) / range) * 100));
-                        const isProfit = pnlPct >= 0;
-                        return (
-                          <div style={{ marginBottom: '4px' }}>
-                            <div style={{ position: 'relative', height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' }}>
-                              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px', width: `${((entry - sl) / range) * 100}%`, background: 'rgba(248,113,113,0.2)' }} />
-                              <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0', width: `${((tp - entry) / range) * 100}%`, background: 'rgba(52,211,153,0.2)' }} />
-                              <div style={{
-                                position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
-                                width: '9px', height: '9px', borderRadius: '50%',
-                                background: isProfit ? 'var(--success)' : 'var(--danger)',
-                                boxShadow: `0 0 6px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
-                                transition: 'left 0.5s ease',
-                              }} />
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '0.6rem', fontFamily: "'Space Grotesk', sans-serif" }}>
-                              <span style={{ color: 'var(--danger)' }}>SL ${sl.toFixed(0)}</span>
-                              <span style={{ color: 'var(--text-secondary)' }}>${entry.toFixed(2)}</span>
-                              <span style={{ color: 'var(--success)' }}>TP ${tp.toFixed(0)}</span>
-                            </div>
-                          </div>
-                        );
+                        return <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={signal.long} />;
                       })()}
 
                       {/* Claim button */}
