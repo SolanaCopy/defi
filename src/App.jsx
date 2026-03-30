@@ -3208,6 +3208,7 @@ function App() {
         {/* LEFT: Active Signal */}
         <motion.div className="dash-claim-panel" variants={slideInLeft} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div className="dash-claim-info" style={{ width: '100%' }}>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>Active Signal</h3>
             {activeSignal ? (
               <div className="signal-card-active">
                 {/* Header */}
@@ -3372,7 +3373,6 @@ function App() {
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
-                <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>Active Signal</h3>
                 <Clock size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
                 <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>No active signal right now</div>
                 <div style={{ fontSize: '0.75rem', marginTop: '6px', lineHeight: 1.5 }}>
