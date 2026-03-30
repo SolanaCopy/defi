@@ -3315,7 +3315,7 @@ function App() {
               <div className="signal-card-active">
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span className="pulse-dot" style={{ width: 8, height: 8 }} />
                     <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>XAU/USD</span>
                     <span style={{
