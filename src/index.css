@@ -775,7 +775,7 @@ input[type="number"] { -moz-appearance: textfield; }
 /* --- Top Bento: Portfolio Overview --- */
 .dash-bento-top {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: 1.5fr 2.5fr;
   gap: 1rem;
   margin-bottom: 1.5rem;
 }
