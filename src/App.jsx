@@ -3239,7 +3239,11 @@ function App() {
                       {formatLeverage(activeSignal.leverage)}x
                     </span>
                   </div>
-                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                  <span style={{
+                    fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                    padding: '3px 10px', borderRadius: '20px',
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
                     #{Number(activeSignal.id)} &middot; {timeAgo(activeSignal.timestamp)}
                   </span>
                 </div>
@@ -3338,28 +3342,32 @@ function App() {
                   );
                 })()}
 
-                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                  <span>{Number(activeSignal.copierCount)} copiers</span>
-                  <span>&middot;</span>
-                  <span>${parseFloat(ethers.formatUnits(activeSignal.totalCopied, USDC_DECIMALS)).toLocaleString()} USDC copied</span>
-                </div>
-
                 {userPositions[Number(activeSignal.id)] ? (
-                  <div style={{ padding: '12px', borderRadius: '8px', background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.2)', textAlign: 'center' }}>
-                    <CheckCircle2 size={16} style={{ color: 'var(--accent)', marginBottom: '4px' }} />
-                    <div style={{ fontSize: '0.8rem', color: 'var(--accent)' }}>
-                      You copied this trade ({parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC)
-                    </div>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                    padding: '10px', borderRadius: '8px',
+                    background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.2)',
+                    fontSize: '0.75rem', color: 'var(--accent)',
+                  }}>
+                    <CheckCircle2 size={14} />
+                    Copied {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC
+                    <span style={{ color: 'var(--text-secondary)' }}>&middot;</span>
+                    <span style={{ color: 'var(--text-secondary)' }}>{Number(activeSignal.copierCount)} copiers</span>
                   </div>
                 ) : (
-                  <button
-                    className="btn btn-primary btn-glow"
-                    style={{ width: '100%' }}
-                    onClick={() => setShowCopyModal(true)}
-                    disabled={!account || isLoading}
-                  >
-                    <Copy size={16} /> Copy Trade
-                  </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <button
+                      className="btn btn-primary btn-glow"
+                      style={{ width: '100%' }}
+                      onClick={() => setShowCopyModal(true)}
+                      disabled={!account || isLoading}
+                    >
+                      <Copy size={16} /> Copy Trade
+                    </button>
+                    <div style={{ textAlign: 'center', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                      {Number(activeSignal.copierCount)} copiers &middot; ${parseFloat(ethers.formatUnits(activeSignal.totalCopied, USDC_DECIMALS)).toLocaleString()} USDC
+                    </div>
+                  </div>
                 )}
               </div>
             ) : (
