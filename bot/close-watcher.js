@@ -84,7 +84,7 @@ const GTRADE_ABI = [
     uint256 indexed orderId,
     address indexed user,
     uint32 indexed index,
-    uint32 indexed limitIndex,
+    uint32 limitIndex,
     tuple(address user, uint32 index, uint16 pairIndex, uint24 leverage, bool long, bool isOpen, uint8 collateralIndex, uint8 tradeType, uint120 collateralAmount, uint64 openPrice, uint64 tp, uint64 sl, uint120 positionSizeToken, bool isCounterTrade) t,
     address triggerCaller,
     uint8 orderType,
@@ -899,9 +899,9 @@ class CloseWatcher {
 
         // Check recent blocks for close events
         const currentBlock = await this.httpProvider.getBlockNumber();
-        const fromBlock = this.lastProcessedBlock > 0
+        let fromBlock = this.lastProcessedBlock > 0
           ? this.lastProcessedBlock + 1
-          : currentBlock - 8; // look back ~8 blocks (Alchemy free tier limit is 10)
+          : currentBlock - 5;
 
         if (fromBlock > currentBlock) {
           setTimeout(poll, POLL_INTERVAL);
@@ -910,24 +910,39 @@ class CloseWatcher {
 
         const gTradeRead = new ethers.Contract(GTRADE_DIAMOND, GTRADE_ABI, this.logProvider);
 
-        // Query MarketExecuted events
-        const marketFilter = gTradeRead.filters.MarketExecuted(null, GOLD_COPY_TRADER_ADDRESS);
-        const marketEvents = await gTradeRead.queryFilter(marketFilter, fromBlock, currentBlock);
+        // Process in chunks of 9 blocks (Alchemy free tier limit is 10)
+        while (fromBlock <= currentBlock) {
+          const toBlock = Math.min(fromBlock + 9, currentBlock);
 
-        for (const event of marketEvents) {
-          if (!event.args.open) {
-            log(`[POLL] MarketExecuted found in block ${event.blockNumber}`);
-            await this.handleTradeClose(event.args.percentProfit);
+          try {
+            // Query MarketExecuted events
+            const marketEvents = await gTradeRead.queryFilter(
+              gTradeRead.filters.MarketExecuted(null, GOLD_COPY_TRADER_ADDRESS),
+              fromBlock, toBlock
+            );
+
+            for (const event of marketEvents) {
+              if (!event.args.open) {
+                log(`[POLL] MarketExecuted found in block ${event.blockNumber}`);
+                await this.handleTradeClose(event.args.percentProfit);
+              }
+            }
+
+            // Query LimitExecuted events
+            const limitEvents = await gTradeRead.queryFilter(
+              gTradeRead.filters.LimitExecuted(null, GOLD_COPY_TRADER_ADDRESS),
+              fromBlock, toBlock
+            );
+
+            for (const event of limitEvents) {
+              log(`[POLL] LimitExecuted found in block ${event.blockNumber}`);
+              await this.handleTradeClose(event.args.percentProfit);
+            }
+          } catch (chunkErr) {
+            logError(`Polling chunk ${fromBlock}-${toBlock} error`, chunkErr);
           }
-        }
 
-        // Query LimitExecuted events
-        const limitFilter = gTradeRead.filters.LimitExecuted(null, GOLD_COPY_TRADER_ADDRESS);
-        const limitEvents = await gTradeRead.queryFilter(limitFilter, fromBlock, currentBlock);
-
-        for (const event of limitEvents) {
-          log(`[POLL] LimitExecuted found in block ${event.blockNumber}`);
-          await this.handleTradeClose(event.args.percentProfit);
+          fromBlock = toBlock + 1;
         }
 
         this.lastProcessedBlock = currentBlock;
