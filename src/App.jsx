@@ -2530,6 +2530,7 @@ function App() {
 
   // ===== STRATEGIES / TRADERS PAGE =====
   const [followAmount, setFollowAmount] = useState("10");
+  const [positionsTab, setPositionsTab] = useState('positions');
   const [tradeLogPeriod, setTradeLogPeriod] = useState('all');
   const [tradeLogFrom, setTradeLogFrom] = useState('');
   const [tradeLogTo, setTradeLogTo] = useState('');
@@ -4319,8 +4320,25 @@ function App() {
         {/* RIGHT: My Positions & History */}
         <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div style={{ padding: '20px' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-primary)', textAlign: 'center' }}>My Positions</h3>
+            {/* Tab switcher */}
+            <div style={{ display: 'flex', gap: '0', marginBottom: '16px', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+              {[
+                { key: 'positions', label: 'My Positions' },
+                { key: 'journal', label: 'Journal' },
+              ].map(t => (
+                <button key={t.key} onClick={() => setPositionsTab(t.key)} style={{
+                  flex: 1, padding: '8px', fontSize: '0.75rem', fontWeight: 600,
+                  background: positionsTab === t.key ? 'rgba(212,168,67,0.1)' : 'transparent',
+                  color: positionsTab === t.key ? 'var(--accent)' : 'var(--text-secondary)',
+                  border: 'none', cursor: 'pointer',
+                  borderRight: t.key === 'positions' ? '1px solid rgba(255,255,255,0.06)' : 'none',
+                }}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
 
+            {positionsTab === 'positions' ? (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {signalHistory.filter(s => userPositions[Number(s.id)] && !userPositions[Number(s.id)].claimed).length > 0 ? (
                 signalHistory.filter(s => userPositions[Number(s.id)] && !userPositions[Number(s.id)].claimed).map((signal) => {
@@ -4488,14 +4506,22 @@ function App() {
                   </div>
                 </div>
               )}
-
-              {/* Trading Journal — claimed positions */}
+            </div>
+            ) : (
+            /* Journal tab */
+            <div>
               {(() => {
                 const claimed = signalHistory
                   .filter(s => userPositions[Number(s.id)] && userPositions[Number(s.id)].claimed)
                   .sort((a, b) => Number(b.closedAt || b.timestamp) - Number(a.closedAt || a.timestamp));
 
-                if (claimed.length === 0) return null;
+                if (claimed.length === 0) return (
+                  <div style={{ textAlign: 'center', padding: '30px 20px', color: 'var(--text-secondary)' }}>
+                    <History size={24} style={{ marginBottom: '8px', opacity: 0.5 }} />
+                    <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>No history yet</div>
+                    <div style={{ fontSize: '0.7rem', marginTop: '6px' }}>Claimed positions will appear here.</div>
+                  </div>
+                );
 
                 // Group by date
                 const grouped = {};
@@ -4506,25 +4532,41 @@ function App() {
                   grouped[dateKey].push(signal);
                 });
 
+                // Totals
+                let totalPnl = 0;
+                claimed.forEach(s => {
+                  const pos = userPositions[Number(s.id)];
+                  const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
+                  totalPnl += col * ((Number(s.resultPct) / 100) * (Number(s.leverage) / 1000)) / 100;
+                });
+
                 return (
-                  <div style={{ marginTop: '16px', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '8px' }}>
-                      TRADING JOURNAL
+                  <>
+                    {/* Total summary */}
+                    <div style={{
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                      padding: '10px 12px', borderRadius: '10px', marginBottom: '10px',
+                      background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)',
+                    }}>
+                      <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>{claimed.length} trades claimed</span>
+                      <span style={{
+                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.9rem', fontWeight: 800,
+                        color: totalPnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                      }}>
+                        {totalPnl >= 0 ? '+' : '-'}${Math.abs(totalPnl).toFixed(2)}
+                      </span>
                     </div>
+
                     {Object.entries(grouped).map(([date, signals]) => {
-                      let dayPnl = 0, dayInvested = 0;
+                      let dayPnl = 0;
                       signals.forEach(s => {
                         const pos = userPositions[Number(s.id)];
                         const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
-                        const resultPct = Number(s.resultPct) / 100;
-                        const lev = Number(s.leverage) / 1000;
-                        dayPnl += col * (resultPct * lev) / 100;
-                        dayInvested += col;
+                        dayPnl += col * ((Number(s.resultPct) / 100) * (Number(s.leverage) / 1000)) / 100;
                       });
 
                       return (
                         <div key={date} style={{ marginBottom: '6px' }}>
-                          {/* Date row */}
                           <div style={{
                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                             padding: '6px 8px', borderRadius: '6px',
@@ -4543,9 +4585,7 @@ function App() {
                               </div>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)' }}>
-                                {signals.length} trade{signals.length !== 1 ? 's' : ''}
-                              </span>
+                              <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)' }}>{signals.length} trade{signals.length !== 1 ? 's' : ''}</span>
                               <span style={{
                                 fontSize: '0.7rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
                                 color: dayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
@@ -4554,36 +4594,23 @@ function App() {
                               </span>
                             </div>
                           </div>
-
-                          {/* Compact trade rows */}
                           {signals.map(signal => {
                             const pos = userPositions[Number(signal.id)];
                             const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
-                            const resultPct = Number(signal.resultPct) / 100;
-                            const lev = Number(signal.leverage) / 1000;
-                            const pnlPct = resultPct * lev;
+                            const pnlPct = (Number(signal.resultPct) / 100) * (Number(signal.leverage) / 1000);
                             const pnlUSD = col * pnlPct / 100;
-
                             return (
                               <div key={Number(signal.id)} style={{
                                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                                 padding: '4px 8px 4px 16px', fontSize: '0.6rem',
                               }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
-                                  <span style={{
-                                    width: '3px', height: '12px', borderRadius: '2px',
-                                    background: pnlPct >= 0 ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)',
-                                  }} />
+                                  <span style={{ width: '3px', height: '12px', borderRadius: '2px', background: pnlPct >= 0 ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)' }} />
                                   <span>#{Number(signal.id)}</span>
-                                  <span style={{ color: signal.long ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>
-                                    {signal.long ? 'L' : 'S'}
-                                  </span>
+                                  <span style={{ color: signal.long ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>{signal.long ? 'L' : 'S'}</span>
                                   <span>${col.toFixed(0)}</span>
                                 </div>
-                                <span style={{
-                                  fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600,
-                                  color: pnlPct >= 0 ? 'var(--success)' : 'var(--danger)',
-                                }}>
+                                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, color: pnlPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                                   {pnlUSD >= 0 ? '+' : '-'}${Math.abs(pnlUSD).toFixed(2)}
                                 </span>
                               </div>
@@ -4592,10 +4619,11 @@ function App() {
                         </div>
                       );
                     })}
-                  </div>
+                  </>
                 );
               })()}
             </div>
+            )}
           </div>
         </motion.div>
       </div>
