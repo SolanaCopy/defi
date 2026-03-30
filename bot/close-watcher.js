@@ -234,8 +234,8 @@ class CloseWatcher {
     // Set up HTTP provider for transactions (always needed)
     const httpRpc = ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc";
     this.httpProvider = new ethers.JsonRpcProvider(httpRpc);
-    // Separate provider for log queries (no block range limits)
-    this.logProvider = new ethers.JsonRpcProvider("https://arbitrum.drpc.org");
+    // Use same provider for logs — limit block range to 10 for Alchemy free tier
+    this.logProvider = this.httpProvider;
     this.wallet = new ethers.Wallet(key, this.httpProvider);
     this.copyTrader = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, this.wallet);
     this.usdc = new ethers.Contract(
@@ -901,7 +901,7 @@ class CloseWatcher {
         const currentBlock = await this.httpProvider.getBlockNumber();
         const fromBlock = this.lastProcessedBlock > 0
           ? this.lastProcessedBlock + 1
-          : currentBlock - 100; // look back ~100 blocks (~25s on Arbitrum)
+          : currentBlock - 8; // look back ~8 blocks (Alchemy free tier limit is 10)
 
         if (fromBlock > currentBlock) {
           setTimeout(poll, POLL_INTERVAL);
