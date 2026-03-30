@@ -3268,21 +3268,24 @@ function App() {
                           : 'rgba(255,255,255,0.03)',
                         border: `1px solid ${hasPrice ? (isProfit ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)'}`,
                       }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                          <div style={{ textAlign: 'left' }}>
-                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                          <div style={{ textAlign: 'center', padding: '4px 0' }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
                               Live Price
                             </div>
-                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.6rem', lineHeight: 1 }}>
+                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.5rem', lineHeight: 1 }}>
                               {hasPrice ? `$${livePrice.toFixed(2)}` : '—'}
                             </div>
                           </div>
-                          <div style={{ textAlign: 'right' }}>
-                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>
+                          <div style={{
+                            textAlign: 'center', padding: '4px 0',
+                            borderLeft: '1px solid rgba(255,255,255,0.06)',
+                          }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
                               PnL
                             </div>
                             <div style={{
-                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1.6rem', lineHeight: 1,
+                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1.5rem', lineHeight: 1,
                               color: hasPrice ? (isProfit ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
                             }}>
                               {hasPrice ? `${isProfit ? '+' : ''}${livePnl.toFixed(2)}%` : '—'}
