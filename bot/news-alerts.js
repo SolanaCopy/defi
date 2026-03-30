@@ -12,7 +12,7 @@ const CHECK_INTERVAL = 30 * 60 * 1000; // Check every 30 minutes
 const ALERT_BEFORE = 60; // Alert 60 minutes before
 const ALERT_AFTER = 60;  // No-trade zone 60 minutes after
 
-let alertedEvents = new Set(); // Track which events we already alerted
+let alertedEvents = new Map(); // Track eventKey -> timestamp of when we alerted
 let polling = false;
 
 async function sendTelegram(text, buttons = []) {
@@ -85,7 +85,7 @@ async function checkNews() {
     // 1 hour before alert (wide window: 45-90 min before)
     const preAlertKey = `pre-${eventKey}`;
     if (minutesUntil > 45 && minutesUntil <= 90 && !alertedEvents.has(preAlertKey)) {
-      alertedEvents.add(preAlertKey);
+      alertedEvents.set(preAlertKey, Date.now());
 
       const msg = [
         ``,
@@ -110,7 +110,7 @@ async function checkNews() {
     // Event happening now alert (wide window: -15 to +15 min)
     const nowAlertKey = `now-${eventKey}`;
     if (minutesUntil > -15 && minutesUntil <= 15 && !alertedEvents.has(nowAlertKey)) {
-      alertedEvents.add(nowAlertKey);
+      alertedEvents.set(nowAlertKey, Date.now());
 
       const msg = [
         ``,
@@ -133,7 +133,7 @@ async function checkNews() {
     // All-clear alert (1 hour after event, wide window: 45-90 min after)
     const clearKey = `clear-${eventKey}`;
     if (minutesUntil < -45 && minutesUntil > -90 && !alertedEvents.has(clearKey)) {
-      alertedEvents.add(clearKey);
+      alertedEvents.set(clearKey, Date.now());
 
       const msg = [
         ``,
@@ -149,10 +149,10 @@ async function checkNews() {
     }
   }
 
-  // Clean old events from alertedEvents (older than 2 hours)
-  // This prevents memory leak over time
-  if (alertedEvents.size > 100) {
-    alertedEvents.clear();
+  // Clean old alerts (older than 3 hours)
+  const cutoff = Date.now() - 3 * 60 * 60 * 1000;
+  for (const [key, ts] of alertedEvents) {
+    if (ts < cutoff) alertedEvents.delete(key);
   }
 }
 
@@ -252,6 +252,18 @@ export async function startNewsAlerts() {
 
   polling = true;
   console.log("[NEWS] Forex news alerts started — checking every 30 minutes");
+
+  // On startup: mark events that are already in their alert window as alerted
+  // This prevents duplicate alerts after bot restart
+  const bootEvents = await fetchForexCalendar();
+  for (const event of bootEvents) {
+    const minutesUntil = getMinutesUntil(event.date);
+    const eventKey = `${event.date}-${event.title}`;
+    if (minutesUntil > 45 && minutesUntil <= 90) alertedEvents.set(`pre-${eventKey}`, Date.now());
+    if (minutesUntil > -15 && minutesUntil <= 15) alertedEvents.set(`now-${eventKey}`, Date.now());
+    if (minutesUntil < -45 && minutesUntil > -90) alertedEvents.set(`clear-${eventKey}`, Date.now());
+  }
+  console.log(`[NEWS] Pre-populated ${alertedEvents.size} events to prevent duplicate alerts`);
 
   // Initial check
   await checkNews();
