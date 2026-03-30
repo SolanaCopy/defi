@@ -4265,6 +4265,18 @@ function App() {
                             }}>
                               {hasPrice ? `${isProfit ? '+' : ''}${livePnl.toFixed(2)}%` : '—'}
                             </div>
+                            {hasPrice && userPositions[Number(activeSignal.id)] && (() => {
+                              const col = parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS));
+                              const pnlUSD = col * livePnl / 100;
+                              return (
+                                <div style={{
+                                  fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.75rem', fontWeight: 600, marginTop: '4px',
+                                  color: pnlUSD >= 0 ? 'var(--success)' : 'var(--danger)', opacity: 0.8,
+                                }}>
+                                  {pnlUSD >= 0 ? '+' : '-'}${Math.abs(pnlUSD).toFixed(2)}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </div>
 
