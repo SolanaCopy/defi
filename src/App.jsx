@@ -2280,20 +2280,45 @@ function App() {
         <motion.div variants={fadeUp} initial="hidden" animate="visible"
           style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <TrendingUp size={16} style={{ color: 'var(--accent)' }} />
               <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Trade Log</h3>
             </div>
-            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{signalHistory.length} signals</span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {[
+                { key: 'today', label: 'Today' },
+                { key: '7d', label: '7D' },
+                { key: '30d', label: '30D' },
+                { key: 'all', label: 'All' },
+              ].map(p => (
+                <button key={p.key} onClick={() => setTradeLogPeriod(p.key)} style={{
+                  padding: '4px 10px', borderRadius: '8px', fontSize: '0.65rem', fontWeight: 600,
+                  background: tradeLogPeriod === p.key ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${tradeLogPeriod === p.key ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                  color: tradeLogPeriod === p.key ? 'var(--accent)' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* Trade Rows grouped by date */}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {(() => {
+              // Filter by period
+              const now = Math.floor(Date.now() / 1000);
+              const cutoff = tradeLogPeriod === 'today' ? now - 86400
+                : tradeLogPeriod === '7d' ? now - 7 * 86400
+                : tradeLogPeriod === '30d' ? now - 30 * 86400
+                : 0;
+              const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff);
+
               // Group signals by date
               const grouped = {};
-              signalHistory.forEach(signal => {
+              filtered.forEach(signal => {
                 const ts = Number(signal.timestamp) * 1000;
                 const dateKey = new Date(ts).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
                 if (!grouped[dateKey]) grouped[dateKey] = { signals: [], dayPnl: 0, wins: 0, losses: 0 };
@@ -2410,10 +2435,10 @@ function App() {
                 </div>
               ));
             })()}
-            {signalHistory.length === 0 && (
+            {filtered.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
                 <BarChart3 size={32} style={{ marginBottom: '12px', opacity: 0.3 }} />
-                <div>No trades recorded yet</div>
+                <div>{tradeLogPeriod === 'all' ? 'No trades recorded yet' : 'No trades in this period'}</div>
               </div>
             )}
           </div>
@@ -2453,6 +2478,7 @@ function App() {
 
   // ===== STRATEGIES / TRADERS PAGE =====
   const [followAmount, setFollowAmount] = useState("10");
+  const [tradeLogPeriod, setTradeLogPeriod] = useState('all'); // 'today', '7d', '30d', 'all'
   const [followTarget, setFollowTarget] = useState(null); // provider address for follow modal
   const [selectedProvider, setSelectedProvider] = useState(null); // provider object for detail modal
 
