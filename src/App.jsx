@@ -2288,27 +2288,54 @@ function App() {
             <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{signalHistory.length} signals</span>
           </div>
 
-          {/* Table Header */}
-          <div style={{
-            display: 'grid', gridTemplateColumns: '50px 70px 80px 1fr 80px 80px 100px',
-            gap: '8px', padding: '8px 12px', fontSize: '0.65rem', color: 'var(--text-secondary)',
-            textTransform: 'uppercase', letterSpacing: '0.08em', borderBottom: '1px solid var(--border)',
-          }}>
-            <span>#</span>
-            <span>Direction</span>
-            <span>Leverage</span>
-            <span>Entry / TP / SL</span>
-            <span>Copiers</span>
-            <span>Volume</span>
-            <span style={{ textAlign: 'right' }}>Result</span>
-          </div>
-
-          {/* Trade Rows */}
+          {/* Trade Rows grouped by date */}
           <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {signalHistory.map((signal, index) => {
-              const leverage = Number(signal.leverage) / 1000;
-              const result = Number(signal.resultPct) / 100 * leverage;
-              const isClosed = signal.closed;
+            {(() => {
+              // Group signals by date
+              const grouped = {};
+              signalHistory.forEach(signal => {
+                const ts = Number(signal.timestamp) * 1000;
+                const dateKey = new Date(ts).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                if (!grouped[dateKey]) grouped[dateKey] = { signals: [], dayPnl: 0, wins: 0, losses: 0 };
+                grouped[dateKey].signals.push(signal);
+                if (signal.closed) {
+                  const pnl = (Number(signal.resultPct) / 100) * (Number(signal.leverage) / 1000);
+                  grouped[dateKey].dayPnl += pnl;
+                  if (Number(signal.resultPct) >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
+                }
+              });
+
+              return Object.entries(grouped).map(([date, group]) => (
+                <div key={date}>
+                  {/* Date header */}
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 12px 6px', marginTop: '4px',
+                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-primary)' }}>{date}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      {(group.wins > 0 || group.losses > 0) && (
+                        <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                          {group.wins}W / {group.losses}L
+                        </span>
+                      )}
+                      {(group.wins > 0 || group.losses > 0) && (
+                        <span style={{
+                          fontSize: '0.7rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                          color: group.dayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                        }}>
+                          {group.dayPnl >= 0 ? '+' : ''}{group.dayPnl.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Trades for this date */}
+                  {group.signals.map((signal, index) => {
+                    const leverage = Number(signal.leverage) / 1000;
+                    const result = Number(signal.resultPct) / 100 * leverage;
+                    const isClosed = signal.closed;
               return (
                 <motion.div
                   key={Number(signal.id)}
@@ -2380,6 +2407,9 @@ function App() {
                 </motion.div>
               );
             })}
+                </div>
+              ));
+            })()}
             {signalHistory.length === 0 && (
               <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-secondary)' }}>
                 <BarChart3 size={32} style={{ marginBottom: '12px', opacity: 0.3 }} />
