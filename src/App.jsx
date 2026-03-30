@@ -4318,8 +4318,8 @@ function App() {
         </motion.div>
 
         {/* RIGHT: My Positions & History */}
-        <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-          <div style={{ padding: '20px' }}>
+        <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }} style={{ maxHeight: '520px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
             {/* Tab switcher */}
             <div style={{ display: 'flex', gap: '0', marginBottom: '16px', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
               {[
@@ -4339,7 +4339,7 @@ function App() {
             </div>
 
             {positionsTab === 'positions' ? (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', overflowY: 'auto', flex: 1 }}>
               {signalHistory.filter(s => userPositions[Number(s.id)] && !userPositions[Number(s.id)].claimed).length > 0 ? (
                 signalHistory.filter(s => userPositions[Number(s.id)] && !userPositions[Number(s.id)].claimed).map((signal) => {
                   const pos = userPositions[Number(signal.id)];
@@ -4509,7 +4509,7 @@ function App() {
             </div>
             ) : (
             /* Journal tab */
-            <div>
+            <div style={{ overflowY: 'auto', flex: 1 }}>
               {(() => {
                 const claimed = signalHistory
                   .filter(s => userPositions[Number(s.id)] && userPositions[Number(s.id)].claimed)
