@@ -2280,40 +2280,88 @@ function App() {
         <motion.div variants={fadeUp} initial="hidden" animate="visible"
           style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}
         >
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <TrendingUp size={16} style={{ color: 'var(--accent)' }} />
-              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Trade Log</h3>
+          {/* Header + filters */}
+          <div style={{ marginBottom: '12px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <TrendingUp size={16} style={{ color: 'var(--accent)' }} />
+                <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Trade Log</h3>
+              </div>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {[
+                  { key: 'today', label: 'Today' },
+                  { key: '7d', label: '7D' },
+                  { key: '30d', label: '30D' },
+                  { key: 'all', label: 'All' },
+                ].map(p => (
+                  <button key={p.key} onClick={() => { setTradeLogPeriod(p.key); setTradeLogFrom(''); setTradeLogTo(''); }} style={{
+                    padding: '4px 10px', borderRadius: '8px', fontSize: '0.65rem', fontWeight: 600,
+                    background: tradeLogPeriod === p.key && !tradeLogFrom ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${tradeLogPeriod === p.key && !tradeLogFrom ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                    color: tradeLogPeriod === p.key && !tradeLogFrom ? 'var(--accent)' : 'var(--text-secondary)',
+                    cursor: 'pointer',
+                  }}>
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div style={{ display: 'flex', gap: '4px' }}>
-              {[
-                { key: 'today', label: 'Today' },
-                { key: '7d', label: '7D' },
-                { key: '30d', label: '30D' },
-                { key: 'all', label: 'All' },
-              ].map(p => (
-                <button key={p.key} onClick={() => setTradeLogPeriod(p.key)} style={{
-                  padding: '4px 10px', borderRadius: '8px', fontSize: '0.65rem', fontWeight: 600,
-                  background: tradeLogPeriod === p.key ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${tradeLogPeriod === p.key ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
-                  color: tradeLogPeriod === p.key ? 'var(--accent)' : 'var(--text-secondary)',
-                  cursor: 'pointer',
+            {/* Date range picker */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="date"
+                value={tradeLogFrom}
+                onChange={e => { setTradeLogFrom(e.target.value); if (e.target.value) setTradeLogPeriod('custom'); }}
+                style={{
+                  flex: 1, padding: '6px 10px', borderRadius: '8px', fontSize: '0.7rem',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                  color: 'var(--text-primary)', fontFamily: "'Space Grotesk', sans-serif",
+                  outline: 'none', colorScheme: 'dark',
+                }}
+              />
+              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>to</span>
+              <input
+                type="date"
+                value={tradeLogTo}
+                onChange={e => { setTradeLogTo(e.target.value); if (e.target.value) setTradeLogPeriod('custom'); }}
+                style={{
+                  flex: 1, padding: '6px 10px', borderRadius: '8px', fontSize: '0.7rem',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                  color: 'var(--text-primary)', fontFamily: "'Space Grotesk', sans-serif",
+                  outline: 'none', colorScheme: 'dark',
+                }}
+              />
+              {tradeLogFrom && (
+                <button onClick={() => { setTradeLogFrom(''); setTradeLogTo(''); setTradeLogPeriod('all'); }} style={{
+                  padding: '6px 8px', borderRadius: '8px', fontSize: '0.65rem',
+                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
+                  color: 'var(--text-secondary)', cursor: 'pointer',
                 }}>
-                  {p.label}
+                  <X size={12} />
                 </button>
-              ))}
+              )}
             </div>
           </div>
 
           {/* Trade Rows grouped by date */}
           {(() => {
-            // Filter by period
+            // Filter by period or custom date range
             const now = Math.floor(Date.now() / 1000);
-            const cutoff = tradeLogPeriod === 'today' ? now - 86400
-              : tradeLogPeriod === '7d' ? now - 7 * 86400
-              : tradeLogPeriod === '30d' ? now - 30 * 86400
-              : 0;
-            const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff);
+            let cutoffFrom = 0, cutoffTo = now;
+
+            if (tradeLogFrom) {
+              cutoffFrom = Math.floor(new Date(tradeLogFrom).getTime() / 1000);
+              cutoffTo = tradeLogTo ? Math.floor(new Date(tradeLogTo + 'T23:59:59').getTime() / 1000) : now;
+            } else {
+              cutoffFrom = tradeLogPeriod === 'today' ? now - 86400
+                : tradeLogPeriod === '7d' ? now - 7 * 86400
+                : tradeLogPeriod === '30d' ? now - 30 * 86400
+                : 0;
+            }
+            const filtered = signalHistory.filter(s => {
+              const ts = Number(s.timestamp);
+              return ts >= cutoffFrom && ts <= cutoffTo;
+            });
 
             return (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
@@ -2482,7 +2530,9 @@ function App() {
 
   // ===== STRATEGIES / TRADERS PAGE =====
   const [followAmount, setFollowAmount] = useState("10");
-  const [tradeLogPeriod, setTradeLogPeriod] = useState('all'); // 'today', '7d', '30d', 'all'
+  const [tradeLogPeriod, setTradeLogPeriod] = useState('all');
+  const [tradeLogFrom, setTradeLogFrom] = useState('');
+  const [tradeLogTo, setTradeLogTo] = useState('');
   const [followTarget, setFollowTarget] = useState(null); // provider address for follow modal
   const [selectedProvider, setSelectedProvider] = useState(null); // provider object for detail modal
 
