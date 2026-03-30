@@ -2970,142 +2970,52 @@ function App() {
                     );
                   })()}
 
-                  {/* Performance chart */}
+                  {/* Trade results bar chart */}
                   {sortedHistory.length > 0 && (() => {
-                    const cW = 500, cH = 260, padL = 42, padR = 12, padT = 15, barH = 40, gap = 10;
-                    const curveH = cH - padT - barH - gap - 25;
-                    const plotW = cW - padL - padR;
-                    const maxY = Math.max(...equityCurve.map(Math.abs), 0.1);
-                    const midY = padT + curveH / 2;
-                    const yScale = (curveH / 2 - 5) / maxY;
-                    const barTop = padT + curveH + gap;
-                    const maxBar = Math.max(...sortedHistory.map(x => Math.abs(x.pnl)), 0.1);
-
-                    // Y ticks
-                    const yTicks = [0];
-                    const step = maxY > 50 ? Math.ceil(maxY / 2 / 10) * 10 : maxY > 10 ? Math.ceil(maxY / 2 / 5) * 5 : Math.ceil(maxY / 2);
-                    if (step > 0) { yTicks.push(step, -step); if (step * 2 <= maxY * 1.1) { yTicks.push(step * 2, -step * 2); } }
-
-                    // Points
-                    const pts = equityCurve.map((v, i) => ({
-                      x: padL + (i / Math.max(equityCurve.length - 1, 1)) * plotW,
-                      y: midY - v * yScale, val: v,
-                    }));
-
-                    // Smooth bezier path
-                    let curvePath = `M ${pts[0].x},${pts[0].y}`;
-                    for (let i = 1; i < pts.length; i++) {
-                      const prev = pts[i - 1], curr = pts[i];
-                      const cpx = (prev.x + curr.x) / 2;
-                      curvePath += ` C ${cpx},${prev.y} ${cpx},${curr.y} ${curr.x},${curr.y}`;
-                    }
-                    // Area path
-                    const areaPath = curvePath + ` L ${pts[pts.length - 1].x},${midY} L ${pts[0].x},${midY} Z`;
-
-                    const gradId = `cGrad-${t.address.slice(2, 8)}`;
-                    const glowId = `cGlow-${t.address.slice(2, 8)}`;
-                    const maskId = `cMask-${t.address.slice(2, 8)}`;
-                    const lastPt = pts[pts.length - 1];
-                    const pathLen = pts.length * 80;
-
+                    const maxPnl = Math.max(...sortedHistory.map(x => Math.abs(x.pnl)), 0.1);
                     return (
                       <div style={{ padding: '0 24px 8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
-                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>PERFORMANCE</span>
-                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
-                            <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{sortedHistory.length} trades</span>
-                            <span style={{ fontSize: '0.85rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, color: lineColor }}>
-                              {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}%
-                            </span>
-                          </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TRADE RESULTS</span>
+                          <span style={{ fontSize: '0.8rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, color: lineColor }}>
+                            {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}% total
+                          </span>
                         </div>
-                        <div style={{
-                          background: 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.1) 100%)',
-                          borderRadius: '14px', padding: '12px 6px 6px', border: '1px solid rgba(255,255,255,0.05)',
-                        }}>
-                          <svg viewBox={`0 0 ${cW} ${cH}`} style={{ width: '100%', height: 'auto' }}>
-                            <defs>
-                              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.3 : 0.02} />
-                                <stop offset="60%" stopColor={lineColor} stopOpacity={0.03} />
-                                <stop offset="100%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0 : 0.3} />
-                              </linearGradient>
-                              <filter id={glowId}>
-                                <feGaussianBlur stdDeviation="2.5" result="blur" />
-                                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-                              </filter>
-                              <clipPath id={maskId}>
-                                <rect x={padL} y={padT} width={plotW} height={curveH} />
-                              </clipPath>
-                            </defs>
-
-                            {/* Grid */}
-                            {yTicks.map(v => {
-                              const y = midY - v * yScale;
-                              return (
-                                <g key={v}>
-                                  <line x1={padL} y1={y} x2={padL + plotW} y2={y}
-                                    stroke={v === 0 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)'}
-                                    strokeWidth={v === 0 ? 0.8 : 0.5} strokeDasharray={v === 0 ? '0' : '2,4'} />
-                                  <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="8" fontFamily="Space Grotesk"
-                                    fill={v === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.15)'}>
-                                    {v >= 0 ? '+' : ''}{v.toFixed(0)}%
-                                  </text>
-                                </g>
-                              );
-                            })}
-
-                            {/* Curve area + line */}
-                            <g clipPath={`url(#${maskId})`}>
-                              <path d={areaPath} fill={`url(#${gradId})`} />
-                              <path d={curvePath} fill="none" stroke={lineColor} strokeWidth="2.5"
-                                strokeLinecap="round" strokeLinejoin="round" filter={`url(#${glowId})`}>
-                                <animate attributeName="stroke-dasharray" from={`0,${pathLen}`} to={`${pathLen},0`} dur="1.5s" fill="freeze" />
-                              </path>
-                            </g>
-
-                            {/* Trade dots */}
-                            {pts.slice(1).map((p, i) => {
-                              const isWin = sortedHistory[i]?.pnl >= 0;
-                              return (
-                                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="var(--bg-card)"
-                                  stroke={isWin ? '#34D399' : '#F87171'} strokeWidth="1.5" opacity="0">
-                                  <animate attributeName="opacity" from="0" to="1" dur="0.3s" begin={`${0.8 + i * 0.15}s`} fill="freeze" />
-                                </circle>
-                              );
-                            })}
-
-                            {/* End dot pulsing */}
-                            <circle cx={lastPt.x} cy={lastPt.y} r="6" fill={lineColor} opacity="0.15">
-                              <animate attributeName="r" values="6;9;6" dur="2s" repeatCount="indefinite" />
-                              <animate attributeName="opacity" values="0.15;0.05;0.15" dur="2s" repeatCount="indefinite" />
-                            </circle>
-                            <circle cx={lastPt.x} cy={lastPt.y} r="4" fill={lineColor} />
-
-                            {/* Win/Loss bars */}
-                            {sortedHistory.map((trade, i) => {
-                              const barW = Math.max(plotW / sortedHistory.length - 3, 4);
-                              const bx = padL + (i + 0.5) / sortedHistory.length * plotW - barW / 2;
-                              const bh = (Math.abs(trade.pnl) / maxBar) * (barH - 4);
-                              const isWin = trade.pnl >= 0;
-                              const by = isWin ? barTop + (barH / 2) - bh : barTop + (barH / 2);
-                              return (
-                                <g key={`bar-${i}`}>
-                                  <rect x={bx} y={by} width={barW} height={Math.max(bh, 1)} rx="2"
-                                    fill={isWin ? 'rgba(52,211,153,0.6)' : 'rgba(248,113,113,0.5)'} opacity="0">
-                                    <animate attributeName="opacity" from="0" to="1" dur="0.2s" begin={`${1 + i * 0.1}s`} fill="freeze" />
-                                  </rect>
-                                </g>
-                              );
-                            })}
-                            {/* Bar zero line */}
-                            <line x1={padL} y1={barTop + barH / 2} x2={padL + plotW} y2={barTop + barH / 2}
-                              stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" />
-
-                            {/* Bar labels */}
-                            <text x={padL - 5} y={barTop + 10} textAnchor="end" fontSize="7" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.15)">W</text>
-                            <text x={padL - 5} y={barTop + barH - 2} textAnchor="end" fontSize="7" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.15)">L</text>
-                          </svg>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center', height: '120px' }}>
+                          {sortedHistory.map((trade, i) => {
+                            const isWin = trade.pnl >= 0;
+                            const height = Math.max((Math.abs(trade.pnl) / maxPnl) * 100, 4);
+                            return (
+                              <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', gap: '0' }}>
+                                {/* PnL label */}
+                                <div style={{
+                                  fontSize: '0.55rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                                  color: isWin ? 'var(--success)' : 'var(--danger)',
+                                  marginBottom: isWin ? 'auto' : '2px', marginTop: isWin ? '2px' : 'auto',
+                                  order: isWin ? -1 : 1,
+                                }}>
+                                  {isWin ? '+' : ''}{trade.pnl.toFixed(0)}%
+                                </div>
+                                {/* Bar */}
+                                <div style={{
+                                  width: '100%', maxWidth: '32px',
+                                  height: `${height}%`,
+                                  borderRadius: isWin ? '4px 4px 1px 1px' : '1px 1px 4px 4px',
+                                  background: isWin
+                                    ? 'linear-gradient(to top, rgba(52,211,153,0.3), rgba(52,211,153,0.8))'
+                                    : 'linear-gradient(to bottom, rgba(248,113,113,0.3), rgba(248,113,113,0.7))',
+                                  boxShadow: isWin
+                                    ? '0 -2px 8px rgba(52,211,153,0.15)'
+                                    : '0 2px 8px rgba(248,113,113,0.15)',
+                                  transition: 'height 0.5s ease',
+                                }} />
+                                {/* Trade number */}
+                                <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', marginTop: '4px', order: 2 }}>
+                                  #{trade.id}
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
                     );
