@@ -34,7 +34,7 @@ const supabase = (SUPABASE_URL && SUPABASE_KEY)
 const REFERRAL_REWARD_PCT = 50; // 50% of fee goes to referrer
 
 const GTRADE_DIAMOND = "0xFF162c694eAA571f685030649814282eA457f169";
-const POLL_INTERVAL = 15_000; // 15s polling fallback
+const TRADE_MONITOR_INTERVAL = 30_000; // 30s trade check when signal active
 const RECONNECT_DELAY = 5_000;
 const ARBISCAN_TX = "https://arbiscan.io/tx/";
 const ARBISCAN_ADDR = "https://arbiscan.io/address/";
@@ -210,7 +210,6 @@ class CloseWatcher {
   constructor() {
     this.running = false;
     this.processing = false; // prevent double-close
-    this.lastProcessedBlock = 0;
   }
 
   async start() {
@@ -235,7 +234,6 @@ class CloseWatcher {
     const httpRpc = ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc";
     this.httpProvider = new ethers.JsonRpcProvider(httpRpc);
     // Use same provider for logs — limit block range to 10 for Alchemy free tier
-    this.logProvider = this.httpProvider;
     this.wallet = new ethers.Wallet(key, this.httpProvider);
     this.copyTrader = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, this.wallet);
     this.usdc = new ethers.Contract(
@@ -272,10 +270,7 @@ class CloseWatcher {
       this.connectWebSocket();
     }
 
-    // Always run polling fallback
-    this.startPolling();
-
-    // Safety net: check if gTrade trades disappeared (TP/SL hit)
+    // Trade monitor: checks gTrade every 30s when signal active (replaces heavy event polling)
     this.startTradeMonitor();
   }
 
@@ -910,84 +905,9 @@ class CloseWatcher {
     }
   }
 
-  // ===== POLLING FALLBACK =====
-  startPolling() {
-    log(`Polling every ${POLL_INTERVAL / 1000}s as fallback...`);
-
-    const poll = async () => {
-      if (!this.running) return;
-
-      try {
-        // Check if there's an active signal
-        const activeId = await this.copyTrader.activeSignalId();
-        if (Number(activeId) === 0) {
-          // No active signal — nothing to watch
-          setTimeout(poll, POLL_INTERVAL);
-          return;
-        }
-
-        // Check recent blocks for close events
-        const currentBlock = await this.httpProvider.getBlockNumber();
-        let fromBlock = this.lastProcessedBlock > 0
-          ? this.lastProcessedBlock + 1
-          : currentBlock - 5;
-
-        if (fromBlock > currentBlock) {
-          setTimeout(poll, POLL_INTERVAL);
-          return;
-        }
-
-        const gTradeRead = new ethers.Contract(GTRADE_DIAMOND, GTRADE_ABI, this.logProvider);
-
-        // Process in chunks of 9 blocks (Alchemy free tier limit is 10)
-        while (fromBlock <= currentBlock) {
-          const toBlock = Math.min(fromBlock + 9, currentBlock);
-
-          try {
-            // Query MarketExecuted events
-            const marketEvents = await gTradeRead.queryFilter(
-              gTradeRead.filters.MarketExecuted(null, GOLD_COPY_TRADER_ADDRESS),
-              fromBlock, toBlock
-            );
-
-            for (const event of marketEvents) {
-              if (!event.args.open) {
-                log(`[POLL] MarketExecuted found in block ${event.blockNumber}`);
-                await this.handleTradeClose(event.args.percentProfit);
-              }
-            }
-
-            // Query LimitExecuted events
-            const limitEvents = await gTradeRead.queryFilter(
-              gTradeRead.filters.LimitExecuted(null, GOLD_COPY_TRADER_ADDRESS),
-              fromBlock, toBlock
-            );
-
-            for (const event of limitEvents) {
-              log(`[POLL] LimitExecuted found in block ${event.blockNumber}`);
-              await this.handleTradeClose(event.args.percentProfit);
-            }
-          } catch (chunkErr) {
-            logError(`Polling chunk ${fromBlock}-${toBlock} error`, chunkErr);
-          }
-
-          fromBlock = toBlock + 1;
-        }
-
-        this.lastProcessedBlock = currentBlock;
-      } catch (err) {
-        logError("Polling error", err);
-      }
-
-      setTimeout(poll, POLL_INTERVAL);
-    };
-
-    poll();
-  }
-
-  // ===== SAFETY NET: Check if gTrade trades are still open =====
+  // ===== TRADE MONITOR: Check if gTrade trades are still open =====
   startTradeMonitor() {
-    const MONITOR_INTERVAL = 30_000; // 30s only when active signal exists
+    const MONITOR_INTERVAL = TRADE_MONITOR_INTERVAL;
 
     const check = async () => {
       if (!this.running) return;
