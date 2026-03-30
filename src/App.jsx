@@ -788,7 +788,8 @@ function App() {
         // Load last 5 signals for recent performance
         let wins = 0, losses = 0, recent = [];
         if (signalCount > 0) {
-          const signals = await mp.getProviderSignals(addr, 0, Math.min(signalCount, 20));
+          const globalCount = Number(await mp.globalSignalCount());
+          const signals = await mp.getProviderSignals(addr, globalCount, Math.min(signalCount, 20));
           for (const sid of signals) {
             if (Number(sid) === 0) continue;
             const core = await mp.signalCore(sid);
