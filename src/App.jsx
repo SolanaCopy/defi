@@ -1277,7 +1277,7 @@ function App() {
                 {/* Active trade preview */}
                 <div style={{ padding: '16px 0 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                       <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>XAU/USD</span>
                       <span style={{
                         padding: '3px 10px', borderRadius: '20px', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em',
