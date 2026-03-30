@@ -296,20 +296,23 @@ class CloseWatcher {
         `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
       ].join("\n"), [BTN_COPY, BTN_CONTRACT]);
 
-      // Auto-copy for enabled users
+      // Auto-copy for enabled users (sequential with nonce management)
       try {
         const users = await this.copyTrader.getAutoCopyUsers();
+        let nonce = await this.wallet.getNonce();
         for (const user of users) {
           try {
             const config = await this.copyTrader.autoCopy(user);
-            if (config.enabled) {
-              log(`Auto-copy for ${user} (${Number(config.amount) / 1e6} USDC)...`);
-              const tx = await this.copyTrader.executeCopyFor(user, signalId);
-              await tx.wait();
-              log(`Auto-copied for ${user}`);
-            }
+            if (!config.enabled) continue;
+            log(`Auto-copy for ${shortAddr(user)} ($${Number(config.amount) / 1e6})...`);
+            const tx = await this.copyTrader.executeCopyFor(user, signalId, { nonce });
+            nonce++;
+            await tx.wait();
+            log(`Auto-copied for ${shortAddr(user)}`);
           } catch (err) {
-            log(`Auto-copy skip ${user}: ${err.reason || err.message?.substring(0, 60)}`);
+            log(`Auto-copy skip ${shortAddr(user)}: ${err.reason || err.message?.substring(0, 60)}`);
+            // Re-sync nonce after error
+            try { nonce = await this.wallet.getNonce(); } catch {}
           }
         }
       } catch (err) {
