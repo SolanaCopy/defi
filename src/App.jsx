@@ -2871,19 +2871,104 @@ function App() {
                   </div>
 
                   {/* Stats grid */}
-                  <div style={{ padding: '16px 24px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
-                    {[
-                      { label: 'Total PnL', value: `${t.totalPnlPct >= 0 ? '+' : ''}${t.totalPnlPct.toFixed(1)}%`, color: t.totalPnlPct >= 0 ? 'var(--success)' : 'var(--danger)' },
-                      { label: 'Win Rate', value: `${t.winRate}%`, color: t.winRate >= 70 ? 'var(--success)' : t.winRate >= 50 ? 'var(--accent)' : 'var(--danger)' },
-                      { label: 'Trades', value: t.totalTrades, color: 'var(--text-primary)' },
-                      { label: 'Volume', value: `$${t.totalVolume >= 1000 ? `${(t.totalVolume / 1000).toFixed(1)}k` : Math.round(t.totalVolume)}`, color: 'var(--accent)' },
-                    ].map(s => (
-                      <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '12px 8px', textAlign: 'center' }}>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 800, color: s.color }}>{s.value}</div>
-                        <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginTop: '2px' }}>{s.label.toUpperCase()}</div>
+                  {(() => {
+                    const wins = sortedHistory.filter(x => x.pnl >= 0);
+                    const losses = sortedHistory.filter(x => x.pnl < 0);
+                    const avgWin = wins.length > 0 ? wins.reduce((s, x) => s + x.pnl, 0) / wins.length : 0;
+                    const avgLoss = losses.length > 0 ? losses.reduce((s, x) => s + x.pnl, 0) / losses.length : 0;
+                    const best = sortedHistory.length > 0 ? Math.max(...sortedHistory.map(x => x.pnl)) : 0;
+                    const worst = sortedHistory.length > 0 ? Math.min(...sortedHistory.map(x => x.pnl)) : 0;
+                    const totalWin = wins.reduce((s, x) => s + x.pnl, 0);
+                    const totalLoss = Math.abs(losses.reduce((s, x) => s + x.pnl, 0));
+                    const profitFactor = totalLoss > 0 ? (totalWin / totalLoss).toFixed(2) : totalWin > 0 ? '∞' : '—';
+                    const avgLev = sortedHistory.length > 0 ? sortedHistory.reduce((s, x) => s + x.leverage, 0) / sortedHistory.length : 0;
+                    const longs = sortedHistory.filter(x => x.long).length;
+                    const shorts = sortedHistory.length - longs;
+
+                    // Current streak
+                    let streak = 0, streakType = '';
+                    for (let i = sortedHistory.length - 1; i >= 0; i--) {
+                      const isWin = sortedHistory[i].pnl >= 0;
+                      if (i === sortedHistory.length - 1) { streakType = isWin ? 'W' : 'L'; streak = 1; }
+                      else if ((isWin && streakType === 'W') || (!isWin && streakType === 'L')) streak++;
+                      else break;
+                    }
+
+                    // Max drawdown
+                    let peak = 0, maxDD = 0, cumPnl = 0;
+                    for (const trade of sortedHistory) {
+                      cumPnl += trade.pnl;
+                      if (cumPnl > peak) peak = cumPnl;
+                      const dd = peak - cumPnl;
+                      if (dd > maxDD) maxDD = dd;
+                    }
+
+                    const statStyle = { background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '10px 6px', textAlign: 'center' };
+                    const valStyle = { fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.95rem', fontWeight: 800 };
+                    const lblStyle = { fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginTop: '2px' };
+
+                    return (
+                      <div style={{ padding: '16px 24px 8px' }}>
+                        {/* Primary stats */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '6px' }}>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: t.totalPnlPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>{t.totalPnlPct >= 0 ? '+' : ''}{t.totalPnlPct.toFixed(1)}%</div>
+                            <div style={lblStyle}>TOTAL PNL</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: t.winRate >= 70 ? 'var(--success)' : t.winRate >= 50 ? 'var(--accent)' : 'var(--danger)' }}>{t.winRate}%</div>
+                            <div style={lblStyle}>WIN RATE</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: 'var(--text-primary)' }}>{t.totalTrades}</div>
+                            <div style={lblStyle}>TRADES</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: 'var(--accent)' }}>${t.totalVolume >= 1000 ? `${(t.totalVolume / 1000).toFixed(1)}k` : Math.round(t.totalVolume)}</div>
+                            <div style={lblStyle}>VOLUME</div>
+                          </div>
+                        </div>
+                        {/* Secondary stats */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '6px' }}>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: 'var(--success)' }}>+{avgWin.toFixed(1)}%</div>
+                            <div style={lblStyle}>AVG WIN</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: 'var(--danger)' }}>{avgLoss.toFixed(1)}%</div>
+                            <div style={lblStyle}>AVG LOSS</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: best >= 0 ? 'var(--success)' : 'var(--danger)' }}>+{best.toFixed(1)}%</div>
+                            <div style={lblStyle}>BEST</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: 'var(--danger)' }}>{worst.toFixed(1)}%</div>
+                            <div style={lblStyle}>WORST</div>
+                          </div>
+                        </div>
+                        {/* Tertiary stats */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px' }}>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: parseFloat(profitFactor) >= 2 ? 'var(--success)' : parseFloat(profitFactor) >= 1 ? 'var(--accent)' : 'var(--danger)' }}>{profitFactor}</div>
+                            <div style={lblStyle}>PROFIT FACTOR</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: 'var(--danger)' }}>-{maxDD.toFixed(1)}%</div>
+                            <div style={lblStyle}>MAX DRAWDOWN</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: streakType === 'W' ? 'var(--success)' : 'var(--danger)' }}>{streak}{streakType}</div>
+                            <div style={lblStyle}>STREAK</div>
+                          </div>
+                          <div style={statStyle}>
+                            <div style={{ ...valStyle, color: 'var(--text-primary)' }}>{longs}L/{shorts}S</div>
+                            <div style={lblStyle}>LONG/SHORT</div>
+                          </div>
+                        </div>
                       </div>
-                    ))}
-                  </div>
+                    );
+                  })()}
 
                   {/* Equity curve chart */}
                   {sortedHistory.length > 0 && (
