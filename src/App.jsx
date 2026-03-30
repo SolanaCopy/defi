@@ -1972,7 +1972,7 @@ function App() {
           <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
               <BarChart3 size={16} style={{ color: 'var(--accent)' }} />
-              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>Daily Performance</h3>
+              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Daily Performance</h3>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {[
@@ -2004,7 +2004,7 @@ function App() {
           <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
               <History size={16} style={{ color: 'var(--accent)' }} />
-              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>Monthly Breakdown</h3>
+              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Monthly Breakdown</h3>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {Object.entries(monthlyGroups).length > 0 ? (
@@ -2042,7 +2042,7 @@ function App() {
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <TrendingUp size={16} style={{ color: 'var(--accent)' }} />
-              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-secondary)' }}>Trade Log</h3>
+              <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Trade Log</h3>
             </div>
             <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{signalHistory.length} signals</span>
           </div>
@@ -3117,7 +3117,7 @@ function App() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
             <BarChart3 size={18} style={{ color: 'var(--accent)' }} />
-            <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>Platform Performance</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>Platform Performance</h3>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
@@ -3164,7 +3164,7 @@ function App() {
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '20px' }}>
             <TrendingUp size={18} style={{ color: 'var(--accent)' }} />
-            <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>My PnL</h3>
+            <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>My PnL</h3>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
@@ -3208,7 +3208,7 @@ function App() {
         {/* LEFT: Active Signal */}
         <motion.div className="dash-claim-panel" variants={slideInLeft} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div className="dash-claim-info" style={{ width: '100%' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>Active Signal</h3>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-primary)' }}>Active Signal</h3>
             {activeSignal ? (
               <div className="signal-card-active">
                 {/* Header */}
@@ -3387,7 +3387,7 @@ function App() {
         {/* RIGHT: My Positions & History */}
         <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div style={{ padding: '20px' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>My Positions</h3>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-primary)' }}>My Positions</h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {signalHistory.filter(s => userPositions[Number(s.id)]).length > 0 ? (
