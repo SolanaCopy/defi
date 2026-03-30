@@ -449,27 +449,42 @@ class CloseWatcher {
       await sendTelegram(`💎 <b>Platform Fees Collected</b>\n\nAmount: <b>$${formatUSDC(amount)} USDC</b>`);
     });
 
+    // ── Track known copiers to avoid duplicate notifications ──
+    const knownCopiers = new Set();
+    try {
+      const existingUsers = await contract.getAutoCopyUsers();
+      for (const u of existingUsers) knownCopiers.add(u.toLowerCase());
+      log(`Known copiers loaded: ${knownCopiers.size}`);
+    } catch {}
+
     // ── New auto-copier joined ──
     contract.on("AutoCopyEnabled", async (user, amount) => {
       const amtStr = formatUSDC(amount);
-      log(`AutoCopyEnabled: ${shortAddr(user)} with $${amtStr}/trade`);
-      try {
-        const totalCopiers = await contract.getAutoCopyUserCount();
-        const img = await newCopierImage({
-          trader: shortAddr(user),
-          amount: amtStr,
-          totalCopiers: String(totalCopiers),
-        });
-        await sendTelegramPhoto(img, [
-          `🤖 <b>New Auto-Copier Joined!</b>`,
-          ``,
-          `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
-          `💰 <b>$${amtStr} USDC</b> per trade`,
-          `👥 Total copiers: <b>${totalCopiers}</b>`,
-        ].join("\n"), [BTN_APP, BTN_TG]);
-      } catch (err) {
-        log(`AutoCopy image error: ${err.message}`);
-        await sendTelegram(`🤖 <b>New Auto-Copier!</b>\n\n👤 ${shortAddr(user)}\n💰 $${amtStr} USDC/trade`);
+      const isNew = !knownCopiers.has(user.toLowerCase());
+      knownCopiers.add(user.toLowerCase());
+
+      if (isNew) {
+        log(`NEW AutoCopier: ${shortAddr(user)} with $${amtStr}/trade`);
+        try {
+          const totalCopiers = await contract.getAutoCopyUserCount();
+          const img = await newCopierImage({
+            trader: shortAddr(user),
+            amount: amtStr,
+            totalCopiers: String(totalCopiers),
+          });
+          await sendTelegramPhoto(img, [
+            `🤖 <b>New Auto-Copier Joined!</b>`,
+            ``,
+            `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
+            `💰 <b>$${amtStr} USDC</b> per trade`,
+            `👥 Total copiers: <b>${totalCopiers}</b>`,
+          ].join("\n"), [BTN_APP, BTN_TG]);
+        } catch (err) {
+          log(`AutoCopy image error: ${err.message}`);
+          await sendTelegram(`🤖 <b>New Auto-Copier!</b>\n\n👤 ${shortAddr(user)}\n💰 $${amtStr} USDC/trade`);
+        }
+      } else {
+        log(`AutoCopy updated: ${shortAddr(user)} now $${amtStr}/trade (no notification)`);
       }
     });
 
