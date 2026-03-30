@@ -4666,58 +4666,121 @@ function App() {
 
               return Object.entries(grouped).map(([date, group]) => (
                 <div key={date}>
+                  {/* Date header */}
                   <div style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '10px 1.75rem 6px', borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    marginTop: '4px',
+                    padding: '12px 1.75rem 8px',
+                    background: 'rgba(255,255,255,0.015)',
                   }}>
-                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>{date}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-primary)' }}>{date}</span>
                       {(group.wins > 0 || group.losses > 0) && (
-                        <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)' }}>{group.wins}W/{group.losses}L</span>
-                      )}
-                      {(group.wins > 0 || group.losses > 0) && (
-                        <span style={{ fontSize: '0.65rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: group.dayPnl >= 0 ? 'var(--success)' : 'var(--danger)' }}>
-                          {group.dayPnl >= 0 ? '+' : ''}{group.dayPnl.toFixed(1)}%
+                        <span style={{
+                          fontSize: '0.55rem', padding: '2px 6px', borderRadius: '4px',
+                          background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)',
+                        }}>
+                          {group.signals.length} trades
                         </span>
                       )}
                     </div>
+                    {(group.wins > 0 || group.losses > 0) && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <div style={{ display: 'flex', gap: '3px' }}>
+                          {group.signals.filter(s => s.closed).map((s, i) => (
+                            <div key={i} style={{
+                              width: '6px', height: '6px', borderRadius: '50%',
+                              background: Number(s.resultPct) >= 0 ? 'var(--success)' : 'var(--danger)',
+                              opacity: 0.7,
+                            }} />
+                          ))}
+                        </div>
+                        <span style={{
+                          fontSize: '0.75rem', fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif",
+                          color: group.dayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                        }}>
+                          {group.dayPnl >= 0 ? '+' : ''}{group.dayPnl.toFixed(1)}%
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  {group.signals.map((signal, index) => (
-                    <motion.div
-                      className="dash-tx-item"
-                      key={Number(signal.id)}
-                      initial={{ opacity: 0, x: -20 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: index * 0.03 }}
-                    >
-                      <div className={`dash-tx-icon-wrap ${signal.long ? 'dash-tx-icon-deposit' : 'dash-tx-icon-withdraw'}`}>
-                        {signal.long ? <TrendingUp size={16} /> : <ArrowDownRight size={16} />}
-                      </div>
-                      <div className="dash-tx-details">
-                        <span className="dash-tx-type">
-                          XAU/USD {signal.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(signal.leverage)}x
+
+                  {/* Trades */}
+                  {group.signals.map((signal, index) => {
+                    const leverage = Number(signal.leverage) / 1000;
+                    const isClosed = signal.closed;
+                    const resultPct = Number(signal.resultPct) / 100;
+                    const pnl = resultPct * leverage;
+                    const isWin = resultPct >= 0;
+
+                    // Live PnL for open trades
+                    let livePnlVal = null;
+                    if (!isClosed && livePrice) {
+                      const entry = Number(signal.entryPrice) / 1e10;
+                      const pctMove = ((livePrice - entry) / entry) * 100 * (signal.long ? 1 : -1);
+                      livePnlVal = pctMove * leverage;
+                    }
+
+                    return (
+                      <div
+                        key={Number(signal.id)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '12px',
+                          padding: '10px 1.75rem',
+                          borderLeft: `3px solid ${isClosed ? (isWin ? 'rgba(52,211,153,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(212,168,67,0.4)'}`,
+                          borderBottom: '1px solid rgba(255,255,255,0.02)',
+                        }}
+                      >
+                        {/* Signal # */}
+                        <span style={{
+                          fontSize: '0.6rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                          minWidth: '24px',
+                        }}>
+                          #{Number(signal.id)}
                         </span>
-                        <span className="dash-tx-date">
-                          Entry: ${formatGTradePrice(signal.entryPrice)}
+
+                        {/* Direction badge */}
+                        <span style={{
+                          padding: '2px 6px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 700,
+                          background: signal.long ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
+                          color: signal.long ? 'var(--success)' : 'var(--danger)',
+                          minWidth: '36px', textAlign: 'center',
+                        }}>
+                          {signal.long ? 'LONG' : 'SHORT'}
                         </span>
-                      </div>
-                      <div className="dash-tx-amount-col">
-                        {signal.closed ? (
-                          <>
-                            <span className={`dash-tx-amount ${Number(signal.resultPct) >= 0 ? 'green' : 'red'}`}>
-                              {Number(signal.resultPct) >= 0 ? '+' : ''}{(Number(signal.resultPct) / 100 * Number(signal.leverage) / 1000).toFixed(2)}%
+
+                        {/* Entry price */}
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif", flex: 1 }}>
+                          ${formatGTradePrice(signal.entryPrice)}
+                        </span>
+
+                        {/* Leverage */}
+                        <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                          {leverage}x
+                        </span>
+
+                        {/* Result */}
+                        <div style={{ textAlign: 'right', minWidth: '55px' }}>
+                          {isClosed ? (
+                            <span style={{
+                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.8rem',
+                              color: isWin ? 'var(--success)' : 'var(--danger)',
+                            }}>
+                              {isWin ? '+' : ''}{pnl.toFixed(1)}%
                             </span>
-                          </>
-                        ) : (
-                          <>
-                            <span className="dash-tx-amount gold">OPEN</span>
-                            <span className="dash-tx-unit">{Number(signal.copierCount)} copiers</span>
-                          </>
-                        )}
+                          ) : livePnlVal !== null ? (
+                            <span style={{
+                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.8rem',
+                              color: livePnlVal >= 0 ? 'var(--success)' : 'var(--danger)',
+                            }}>
+                              {livePnlVal >= 0 ? '+' : ''}{livePnlVal.toFixed(1)}%
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '0.7rem', color: 'var(--accent)', fontWeight: 600 }}>OPEN</span>
+                          )}
+                        </div>
                       </div>
-                    </motion.div>
-                  ))}
+                    );
+                  })}
                 </div>
               ));
             })()}
