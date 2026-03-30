@@ -4668,7 +4668,8 @@ function App() {
                 <div key={date}>
                   <div style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                    padding: '8px 0 4px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    padding: '10px 1.75rem 6px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    marginTop: '4px',
                   }}>
                     <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>{date}</span>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
