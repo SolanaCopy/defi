@@ -1276,42 +1276,55 @@ function App() {
 
                 {/* Active trade preview */}
                 <div style={{ padding: '16px 0 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.3rem', fontWeight: 700 }}>XAU/USD</span>
+                      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>XAU/USD</span>
                       <span style={{
-                        padding: '2px 8px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 700,
+                        padding: '3px 10px', borderRadius: '20px', fontSize: '0.6rem', fontWeight: 700, letterSpacing: '0.05em',
                         background: !marketStatus.open
                           ? 'rgba(248,113,113,0.1)'
                           : activeSignal ? (activeSignal.long ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)',
                         color: !marketStatus.open
                           ? 'var(--danger)'
                           : activeSignal ? (activeSignal.long ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
-                        letterSpacing: '0.05em'
+                        border: `1px solid ${!marketStatus.open ? 'rgba(248,113,113,0.2)' : activeSignal ? (activeSignal.long ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)') : 'rgba(255,255,255,0.06)'}`,
                       }}>
                         {!marketStatus.open ? 'CLOSED' : activeSignal ? (activeSignal.long ? 'LONG' : 'SHORT') : 'WAITING'}
                       </span>
-                    </div>
-                    {activeSignal && marketStatus.open && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        {livePrice && (() => {
-                          const entry = Number(activeSignal.entryPrice) / 1e10;
-                          const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
-                          const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
-                          return (
-                            <span style={{
-                              fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem', fontWeight: 700,
-                              color: livePnl >= 0 ? 'var(--success)' : 'var(--danger)',
-                            }}>
-                              {livePnl >= 0 ? '+' : ''}{livePnl.toFixed(2)}%
-                            </span>
-                          );
-                        })()}
-                        <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 600 }}>
+                      {activeSignal && marketStatus.open && (
+                        <span style={{
+                          padding: '3px 10px', borderRadius: '20px', fontSize: '0.6rem', fontWeight: 600,
+                          background: 'rgba(212, 168, 67, 0.1)', color: 'var(--accent)',
+                          border: '1px solid rgba(212, 168, 67, 0.2)',
+                        }}>
                           {formatLeverage(activeSignal.leverage)}x
                         </span>
-                      </div>
-                    )}
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {activeSignal && marketStatus.open && livePrice && (() => {
+                        const entry = Number(activeSignal.entryPrice) / 1e10;
+                        const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
+                        const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
+                        return (
+                          <span style={{
+                            fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.75rem', fontWeight: 700,
+                            color: livePnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                          }}>
+                            {livePnl >= 0 ? '+' : ''}{livePnl.toFixed(2)}%
+                          </span>
+                        );
+                      })()}
+                      {activeSignal && (
+                        <span style={{
+                          fontSize: '0.6rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                          padding: '3px 10px', borderRadius: '20px',
+                          background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+                        }}>
+                          #{Number(activeSignal.id)} &middot; {timeAgo(activeSignal.timestamp)}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   {activeSignal && marketStatus.open ? (
                     <div>
