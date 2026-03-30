@@ -484,7 +484,13 @@ class CloseWatcher {
           await sendTelegram(`🤖 <b>New Auto-Copier!</b>\n\n👤 ${shortAddr(user)}\n💰 $${amtStr} USDC/trade`);
         }
       } else {
-        log(`AutoCopy updated: ${shortAddr(user)} now $${amtStr}/trade (no notification)`);
+        log(`AutoCopy updated: ${shortAddr(user)} now $${amtStr}/trade`);
+        await sendTelegram([
+          `📊 <b>Copier Updated Amount</b>`,
+          ``,
+          `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
+          `💰 Now copying <b>$${amtStr} USDC</b> per trade`,
+        ].join("\n"));
       }
     });
 
