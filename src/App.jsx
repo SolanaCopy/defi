@@ -2970,108 +2970,141 @@ function App() {
                     );
                   })()}
 
-                  {/* Equity curve chart */}
+                  {/* Performance chart */}
                   {sortedHistory.length > 0 && (() => {
-                    const cW = 500, cH = 200, padL = 45, padR = 15, padT = 20, padB = 30;
-                    const plotW = cW - padL - padR, plotH = cH - padT - padB;
+                    const cW = 500, cH = 260, padL = 42, padR = 12, padT = 15, barH = 40, gap = 10;
+                    const curveH = cH - padT - barH - gap - 25;
+                    const plotW = cW - padL - padR;
                     const maxY = Math.max(...equityCurve.map(Math.abs), 0.1);
-                    const yScale = plotH / (maxY * 2);
-                    const midY = padT + plotH / 2;
+                    const midY = padT + curveH / 2;
+                    const yScale = (curveH / 2 - 5) / maxY;
+                    const barTop = padT + curveH + gap;
+                    const maxBar = Math.max(...sortedHistory.map(x => Math.abs(x.pnl)), 0.1);
 
-                    // Generate Y-axis ticks
-                    const yTicks = [];
-                    const tickStep = maxY > 50 ? Math.ceil(maxY / 3 / 10) * 10 : maxY > 10 ? Math.ceil(maxY / 3 / 5) * 5 : Math.ceil(maxY / 3);
-                    for (let v = -tickStep * 2; v <= tickStep * 2; v += tickStep) {
-                      if (Math.abs(v) <= maxY * 1.1) yTicks.push(v);
-                    }
+                    // Y ticks
+                    const yTicks = [0];
+                    const step = maxY > 50 ? Math.ceil(maxY / 2 / 10) * 10 : maxY > 10 ? Math.ceil(maxY / 2 / 5) * 5 : Math.ceil(maxY / 2);
+                    if (step > 0) { yTicks.push(step, -step); if (step * 2 <= maxY * 1.1) { yTicks.push(step * 2, -step * 2); } }
 
                     // Points
                     const pts = equityCurve.map((v, i) => ({
                       x: padL + (i / Math.max(equityCurve.length - 1, 1)) * plotW,
-                      y: midY - v * yScale,
-                      val: v,
+                      y: midY - v * yScale, val: v,
                     }));
-                    const linePoints = pts.map(p => `${p.x},${p.y}`).join(' ');
-                    const areaPoints = `${padL},${midY} ${linePoints} ${padL + plotW},${midY}`;
-                    const gradId = `eqGrad-${t.address.slice(2, 8)}`;
-                    const glowId = `eqGlow-${t.address.slice(2, 8)}`;
+
+                    // Smooth bezier path
+                    let curvePath = `M ${pts[0].x},${pts[0].y}`;
+                    for (let i = 1; i < pts.length; i++) {
+                      const prev = pts[i - 1], curr = pts[i];
+                      const cpx = (prev.x + curr.x) / 2;
+                      curvePath += ` C ${cpx},${prev.y} ${cpx},${curr.y} ${curr.x},${curr.y}`;
+                    }
+                    // Area path
+                    const areaPath = curvePath + ` L ${pts[pts.length - 1].x},${midY} L ${pts[0].x},${midY} Z`;
+
+                    const gradId = `cGrad-${t.address.slice(2, 8)}`;
+                    const glowId = `cGlow-${t.address.slice(2, 8)}`;
+                    const maskId = `cMask-${t.address.slice(2, 8)}`;
                     const lastPt = pts[pts.length - 1];
+                    const pathLen = pts.length * 80;
 
                     return (
                       <div style={{ padding: '0 24px 8px' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>PERFORMANCE CURVE</span>
-                          <span style={{ fontSize: '0.7rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: lineColor }}>
-                            {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}%
-                          </span>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>PERFORMANCE</span>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+                            <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{sortedHistory.length} trades</span>
+                            <span style={{ fontSize: '0.85rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, color: lineColor }}>
+                              {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}%
+                            </span>
+                          </div>
                         </div>
-                        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '14px', padding: '16px 8px 8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                        <div style={{
+                          background: 'linear-gradient(180deg, rgba(255,255,255,0.02) 0%, rgba(0,0,0,0.1) 100%)',
+                          borderRadius: '14px', padding: '12px 6px 6px', border: '1px solid rgba(255,255,255,0.05)',
+                        }}>
                           <svg viewBox={`0 0 ${cW} ${cH}`} style={{ width: '100%', height: 'auto' }}>
                             <defs>
                               <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.25 : 0.02} />
-                                <stop offset="50%" stopColor={lineColor} stopOpacity={0.05} />
-                                <stop offset="100%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.02 : 0.25} />
+                                <stop offset="0%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.3 : 0.02} />
+                                <stop offset="60%" stopColor={lineColor} stopOpacity={0.03} />
+                                <stop offset="100%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0 : 0.3} />
                               </linearGradient>
                               <filter id={glowId}>
-                                <feGaussianBlur stdDeviation="3" result="blur" />
+                                <feGaussianBlur stdDeviation="2.5" result="blur" />
                                 <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
                               </filter>
+                              <clipPath id={maskId}>
+                                <rect x={padL} y={padT} width={plotW} height={curveH} />
+                              </clipPath>
                             </defs>
 
-                            {/* Horizontal grid lines + Y labels */}
+                            {/* Grid */}
                             {yTicks.map(v => {
                               const y = midY - v * yScale;
                               return (
                                 <g key={v}>
                                   <line x1={padL} y1={y} x2={padL + plotW} y2={y}
-                                    stroke={v === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)'}
-                                    strokeWidth={v === 0 ? 1 : 0.5}
-                                    strokeDasharray={v === 0 ? '0' : '3,3'} />
-                                  <text x={padL - 6} y={y + 3} textAnchor="end"
-                                    fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">
+                                    stroke={v === 0 ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.03)'}
+                                    strokeWidth={v === 0 ? 0.8 : 0.5} strokeDasharray={v === 0 ? '0' : '2,4'} />
+                                  <text x={padL - 5} y={y + 3} textAnchor="end" fontSize="8" fontFamily="Space Grotesk"
+                                    fill={v === 0 ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.15)'}>
                                     {v >= 0 ? '+' : ''}{v.toFixed(0)}%
                                   </text>
                                 </g>
                               );
                             })}
 
-                            {/* Area fill */}
-                            <polygon points={areaPoints} fill={`url(#${gradId})`} />
-
-                            {/* Main line with glow */}
-                            <polyline points={linePoints} fill="none" stroke={lineColor} strokeWidth="2.5"
-                              strokeLinecap="round" strokeLinejoin="round" filter={`url(#${glowId})`} />
+                            {/* Curve area + line */}
+                            <g clipPath={`url(#${maskId})`}>
+                              <path d={areaPath} fill={`url(#${gradId})`} />
+                              <path d={curvePath} fill="none" stroke={lineColor} strokeWidth="2.5"
+                                strokeLinecap="round" strokeLinejoin="round" filter={`url(#${glowId})`}>
+                                <animate attributeName="stroke-dasharray" from={`0,${pathLen}`} to={`${pathLen},0`} dur="1.5s" fill="freeze" />
+                              </path>
+                            </g>
 
                             {/* Trade dots */}
                             {pts.slice(1).map((p, i) => {
                               const isWin = sortedHistory[i]?.pnl >= 0;
                               return (
-                                <g key={i}>
-                                  <circle cx={p.x} cy={p.y} r="3"
-                                    fill={isWin ? '#34D399' : '#F87171'}
-                                    stroke="rgba(0,0,0,0.3)" strokeWidth="0.5" />
-                                </g>
+                                <circle key={i} cx={p.x} cy={p.y} r="3.5" fill="var(--bg-card)"
+                                  stroke={isWin ? '#34D399' : '#F87171'} strokeWidth="1.5" opacity="0">
+                                  <animate attributeName="opacity" from="0" to="1" dur="0.3s" begin={`${0.8 + i * 0.15}s`} fill="freeze" />
+                                </circle>
                               );
                             })}
 
-                            {/* End dot (larger, glowing) */}
-                            <circle cx={lastPt.x} cy={lastPt.y} r="5" fill={lineColor} opacity="0.3" />
-                            <circle cx={lastPt.x} cy={lastPt.y} r="3.5" fill={lineColor} />
+                            {/* End dot pulsing */}
+                            <circle cx={lastPt.x} cy={lastPt.y} r="6" fill={lineColor} opacity="0.15">
+                              <animate attributeName="r" values="6;9;6" dur="2s" repeatCount="indefinite" />
+                              <animate attributeName="opacity" values="0.15;0.05;0.15" dur="2s" repeatCount="indefinite" />
+                            </circle>
+                            <circle cx={lastPt.x} cy={lastPt.y} r="4" fill={lineColor} />
 
-                            {/* X-axis labels */}
-                            <text x={padL} y={cH - 8} fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">1</text>
-                            {sortedHistory.length > 2 && (
-                              <text x={padL + plotW / 2} y={cH - 8} textAnchor="middle" fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">
-                                {Math.ceil(sortedHistory.length / 2)}
-                              </text>
-                            )}
-                            <text x={padL + plotW} y={cH - 8} textAnchor="end" fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">
-                              {sortedHistory.length}
-                            </text>
-                            <text x={padL + plotW / 2} y={cH} textAnchor="middle" fontSize="8" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.2)" letterSpacing="2">
-                              TRADES
-                            </text>
+                            {/* Win/Loss bars */}
+                            {sortedHistory.map((trade, i) => {
+                              const barW = Math.max(plotW / sortedHistory.length - 3, 4);
+                              const bx = padL + (i + 0.5) / sortedHistory.length * plotW - barW / 2;
+                              const bh = (Math.abs(trade.pnl) / maxBar) * (barH - 4);
+                              const isWin = trade.pnl >= 0;
+                              const by = isWin ? barTop + (barH / 2) - bh : barTop + (barH / 2);
+                              return (
+                                <g key={`bar-${i}`}>
+                                  <rect x={bx} y={by} width={barW} height={Math.max(bh, 1)} rx="2"
+                                    fill={isWin ? 'rgba(52,211,153,0.6)' : 'rgba(248,113,113,0.5)'} opacity="0">
+                                    <animate attributeName="opacity" from="0" to="1" dur="0.2s" begin={`${1 + i * 0.1}s`} fill="freeze" />
+                                  </rect>
+                                </g>
+                              );
+                            })}
+                            {/* Bar zero line */}
+                            <line x1={padL} y1={barTop + barH / 2} x2={padL + plotW} y2={barTop + barH / 2}
+                              stroke="rgba(255,255,255,0.06)" strokeWidth="0.5" />
+
+                            {/* Bar labels */}
+                            <text x={padL - 5} y={barTop + 10} textAnchor="end" fontSize="7" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.15)">W</text>
+                            <text x={padL - 5} y={barTop + barH - 2} textAnchor="end" fontSize="7" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.15)">L</text>
                           </svg>
                         </div>
                       </div>
