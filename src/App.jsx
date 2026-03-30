@@ -2306,16 +2306,18 @@ function App() {
           </div>
 
           {/* Trade Rows grouped by date */}
+          {(() => {
+            // Filter by period
+            const now = Math.floor(Date.now() / 1000);
+            const cutoff = tradeLogPeriod === 'today' ? now - 86400
+              : tradeLogPeriod === '7d' ? now - 7 * 86400
+              : tradeLogPeriod === '30d' ? now - 30 * 86400
+              : 0;
+            const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff);
+
+            return (
           <div style={{ display: 'flex', flexDirection: 'column' }}>
             {(() => {
-              // Filter by period
-              const now = Math.floor(Date.now() / 1000);
-              const cutoff = tradeLogPeriod === 'today' ? now - 86400
-                : tradeLogPeriod === '7d' ? now - 7 * 86400
-                : tradeLogPeriod === '30d' ? now - 30 * 86400
-                : 0;
-              const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff);
-
               // Group signals by date
               const grouped = {};
               filtered.forEach(signal => {
@@ -2442,6 +2444,8 @@ function App() {
               </div>
             )}
           </div>
+            );
+          })()}
         </motion.div>
 
         {/* Verification Note */}
