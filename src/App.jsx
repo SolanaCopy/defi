@@ -3208,36 +3208,40 @@ function App() {
         {/* LEFT: Active Signal */}
         <motion.div className="dash-claim-panel" variants={slideInLeft} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div className="dash-claim-info" style={{ width: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-secondary)' }}>Active Signal</h3>
-              {activeSignal && <span className="pulse-dot" style={{ width: 8, height: 8 }} />}
-            </div>
-
             {activeSignal ? (
               <div className="signal-card-active">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <span style={{
-                    padding: '4px 12px',
-                    borderRadius: '20px',
-                    fontSize: '0.75rem',
-                    fontWeight: 700,
-                    letterSpacing: '0.05em',
-                    background: activeSignal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
-                    color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
-                    border: `1px solid ${activeSignal.long ? 'rgba(52, 211, 153, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`
-                  }}>
-                    {activeSignal.long ? 'LONG' : 'SHORT'}
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                    <span className="pulse-dot" style={{ width: 8, height: 8 }} />
+                    <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700 }}>XAU/USD</span>
+                    <span style={{
+                      padding: '3px 10px',
+                      borderRadius: '20px',
+                      fontSize: '0.65rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.05em',
+                      background: activeSignal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                      color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
+                      border: `1px solid ${activeSignal.long ? 'rgba(52, 211, 153, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`
+                    }}>
+                      {activeSignal.long ? 'LONG' : 'SHORT'}
+                    </span>
+                    <span style={{
+                      padding: '3px 10px',
+                      borderRadius: '20px',
+                      fontSize: '0.65rem',
+                      fontWeight: 600,
+                      background: 'rgba(212, 168, 67, 0.1)',
+                      color: 'var(--accent)',
+                      border: '1px solid rgba(212, 168, 67, 0.2)',
+                    }}>
+                      {formatLeverage(activeSignal.leverage)}x
+                    </span>
+                  </div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
                     #{Number(activeSignal.id)} &middot; {timeAgo(activeSignal.timestamp)}
                   </span>
-                </div>
-
-                <div style={{ fontSize: '1.5rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px' }}>
-                  XAU/USD
-                </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '16px' }}>
-                  {formatLeverage(activeSignal.leverage)}x Leverage
                 </div>
 
                 {/* Live PnL Section */}
@@ -3360,6 +3364,7 @@ function App() {
               </div>
             ) : (
               <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--text-secondary)' }}>
+                <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-secondary)' }}>Active Signal</h3>
                 <Clock size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
                 <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>No active signal right now</div>
                 <div style={{ fontSize: '0.75rem', marginTop: '6px', lineHeight: 1.5 }}>
