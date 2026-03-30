@@ -1656,16 +1656,6 @@ function App() {
                   </div>
                 </div>
 
-                {/* Bottom tags */}
-                <div style={{ display: 'flex', gap: '6px', marginTop: '12px', flexWrap: 'wrap' }}>
-                  {['Arbitrum', 'gTrade', 'USDC', 'On-Chain'].map(tag => (
-                    <span key={tag} style={{
-                      padding: '3px 10px', borderRadius: '6px', fontSize: '0.65rem', fontWeight: 600,
-                      background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)',
-                      border: '1px solid rgba(255,255,255,0.06)'
-                    }}>{tag}</span>
-                  ))}
-                </div>
               </div>
             </div>
 
