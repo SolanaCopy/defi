@@ -222,6 +222,7 @@ function App() {
   const [signalHistory, setSignalHistory] = useState([]);
   const [userPositions, setUserPositions] = useState({});
   const [signalCount, setSignalCount] = useState(0);
+  const [uniqueCopiers, setUniqueCopiers] = useState(0);
   const [feePercent, setFeePercent] = useState(2000); // 20% default (contract uses basis points: 2000 = 20%)
 
   // Performance stats computed from signal history + user positions
@@ -666,6 +667,11 @@ function App() {
       setSignalCount(Number(count));
       const fee = await publicContract.feePercent();
       setFeePercent(Number(fee));
+
+      try {
+        const copierCount = await publicContract.getAutoCopyUserCount();
+        setUniqueCopiers(Number(copierCount));
+      } catch { /* contract may not have this function */ }
 
       // Helper to parse signal data
       const parseSignal = (id, core, meta) => ({
@@ -1232,7 +1238,7 @@ function App() {
                   </div>
                   <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
                     <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700 }}>
-                      <CountUp end={signalHistory.reduce((sum, s) => sum + Number(s.copierCount), 0)} duration={2} />
+                      <CountUp end={uniqueCopiers} duration={2} />
                     </div>
                     <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Copiers</div>
                   </div>
@@ -1319,7 +1325,7 @@ function App() {
               <div className="marquee-item">
                 <span className="marquee-dot green" />
                 <span className="marquee-label">Total Copiers</span>
-                <span className="marquee-value green">{signalHistory.reduce((sum, s) => sum + Number(s.copierCount), 0)}</span>
+                <span className="marquee-value green">{uniqueCopiers}</span>
               </div>
               <div className="marquee-divider">&bull;</div>
               <div className="marquee-item">
