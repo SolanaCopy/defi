@@ -283,10 +283,19 @@ contract StrategyMarketplace {
 
     /// @notice Claim proceeds after signal is closed
     function claimProceeds(uint256 _id) external noReentrant {
+        _claim(msg.sender, _id);
+    }
+
+    /// @notice Admin/bot claims on behalf of a user (payout goes to user)
+    function claimFor(address _user, uint256 _id) external onlyAdmin noReentrant {
+        _claim(_user, _id);
+    }
+
+    function _claim(address _user, uint256 _id) internal {
         SignalCore storage c = signalCore[_id];
         require(c.closed, "Not closed");
 
-        UserPosition storage pos = positions[msg.sender][_id];
+        UserPosition storage pos = positions[_user][_id];
         require(pos.collateral > 0, "No position");
         require(!pos.claimed, "Already claimed");
 
@@ -331,10 +340,10 @@ contract StrategyMarketplace {
         providers[c.provider].feesUnclaimed += provFee;
         platformFeesCollected += platFee;
 
-        emit ProceedsClaimed(msg.sender, _id, payout, provFee, platFee);
+        emit ProceedsClaimed(_user, _id, payout, provFee, platFee);
 
         if (payout > 0) {
-            require(usdc.transfer(msg.sender, payout), "Transfer failed");
+            require(usdc.transfer(_user, payout), "Transfer failed");
         }
     }
 
