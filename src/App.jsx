@@ -3387,7 +3387,7 @@ function App() {
         {/* RIGHT: My Positions & History */}
         <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div style={{ padding: '20px' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-primary)' }}>My Positions</h3>
+            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-primary)', textAlign: 'center' }}>My Positions</h3>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {signalHistory.filter(s => userPositions[Number(s.id)]).length > 0 ? (
