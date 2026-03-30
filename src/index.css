@@ -269,6 +269,7 @@ input[type="number"] { -moz-appearance: textfield; }
 .hero-card {
   position: relative; border-radius: 24px; overflow: hidden;
   border: 1px solid rgba(212,168,67,0.15);
+  width: 100%; min-width: 420px; max-width: 480px;
 }
 .hero-card-glow {
   position: absolute; inset: -1px; border-radius: 24px; z-index: 0;
