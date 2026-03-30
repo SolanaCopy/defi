@@ -3240,46 +3240,96 @@ function App() {
                   {formatLeverage(activeSignal.leverage)}x Leverage
                 </div>
 
-                {/* Live price + PnL */}
-                {livePrice && (
-                  <div style={{
-                    background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '12px',
-                    marginBottom: '12px', textAlign: 'center',
-                  }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Live Price</div>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.3rem' }}>
-                      ${livePrice.toFixed(2)}
-                    </div>
-                    {(() => {
-                      const entry = Number(activeSignal.entryPrice) / 1e10;
-                      const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
-                      const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
-                      return (
-                        <div style={{
-                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem', marginTop: '2px',
-                          color: livePnl >= 0 ? 'var(--success)' : 'var(--danger)',
-                        }}>
-                          {livePnl >= 0 ? '+' : ''}{livePnl.toFixed(2)}%
-                        </div>
-                      );
-                    })()}
-                  </div>
-                )}
+                {/* Live PnL Section */}
+                {(() => {
+                  const entry = Number(activeSignal.entryPrice) / 1e10;
+                  const tp = Number(activeSignal.tp) / 1e10;
+                  const sl = Number(activeSignal.sl) / 1e10;
+                  const lev = Number(activeSignal.leverage) / 1000;
+                  const hasPrice = !!livePrice;
+                  const pctMove = hasPrice ? ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1) : 0;
+                  const livePnl = pctMove * lev;
+                  const isProfit = livePnl >= 0;
 
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '20px' }}>
-                  <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Entry</div>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.9rem' }}>${formatGTradePrice(activeSignal.entryPrice)}</div>
-                  </div>
-                  <div style={{ background: 'rgba(52, 211, 153, 0.05)', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--success)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>TP</div>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.9rem', color: 'var(--success)' }}>${formatGTradePrice(activeSignal.tp)}</div>
-                  </div>
-                  <div style={{ background: 'rgba(248, 113, 113, 0.05)', borderRadius: '8px', padding: '10px', textAlign: 'center' }}>
-                    <div style={{ fontSize: '0.65rem', color: 'var(--danger)', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>SL</div>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.9rem', color: 'var(--danger)' }}>${formatGTradePrice(activeSignal.sl)}</div>
-                  </div>
-                </div>
+                  // Progress: 0% = SL, 50% = Entry, 100% = TP
+                  const range = tp - sl;
+                  const progress = hasPrice ? Math.max(0, Math.min(100, ((livePrice - sl) / range) * 100)) : 50;
+
+                  return (
+                    <>
+                      {/* Live price + PnL hero */}
+                      <div style={{
+                        position: 'relative', borderRadius: '12px', padding: '16px',
+                        marginBottom: '12px', textAlign: 'center', overflow: 'hidden',
+                        background: hasPrice
+                          ? isProfit
+                            ? 'linear-gradient(135deg, rgba(52,211,153,0.08) 0%, rgba(52,211,153,0.02) 100%)'
+                            : 'linear-gradient(135deg, rgba(248,113,113,0.08) 0%, rgba(248,113,113,0.02) 100%)'
+                          : 'rgba(255,255,255,0.03)',
+                        border: `1px solid ${hasPrice ? (isProfit ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)'}`,
+                      }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                          <div style={{ textAlign: 'left' }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>
+                              Live Price
+                            </div>
+                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.6rem', lineHeight: 1 }}>
+                              {hasPrice ? `$${livePrice.toFixed(2)}` : '—'}
+                            </div>
+                          </div>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '4px' }}>
+                              PnL
+                            </div>
+                            <div style={{
+                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1.6rem', lineHeight: 1,
+                              color: hasPrice ? (isProfit ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
+                            }}>
+                              {hasPrice ? `${isProfit ? '+' : ''}${livePnl.toFixed(2)}%` : '—'}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* SL — Entry — TP progress bar */}
+                        <div style={{ marginTop: '14px' }}>
+                          <div style={{
+                            position: 'relative', height: '4px', borderRadius: '2px',
+                            background: 'rgba(255,255,255,0.08)',
+                          }}>
+                            {/* SL zone (red) */}
+                            <div style={{
+                              position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px',
+                              width: `${((entry - sl) / range) * 100}%`,
+                              background: 'rgba(248,113,113,0.2)',
+                            }} />
+                            {/* TP zone (green) */}
+                            <div style={{
+                              position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0',
+                              width: `${((tp - entry) / range) * 100}%`,
+                              background: 'rgba(52,211,153,0.2)',
+                            }} />
+                            {/* Current price indicator */}
+                            {hasPrice && (
+                              <div style={{
+                                position: 'absolute', top: '-4px',
+                                left: `${progress}%`, transform: 'translateX(-50%)',
+                                width: '12px', height: '12px', borderRadius: '50%',
+                                background: isProfit ? 'var(--success)' : 'var(--danger)',
+                                boxShadow: `0 0 8px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
+                                transition: 'left 0.5s ease',
+                              }} />
+                            )}
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '6px', fontSize: '0.6rem', fontFamily: "'Space Grotesk', sans-serif" }}>
+                            <span style={{ color: 'var(--danger)' }}>SL ${sl.toFixed(0)}</span>
+                            <span style={{ color: 'var(--text-secondary)' }}>Entry ${entry.toFixed(2)}</span>
+                            <span style={{ color: 'var(--success)' }}>TP ${tp.toFixed(0)}</span>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  );
+                })()}
 
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
                   <span>{Number(activeSignal.copierCount)} copiers</span>
