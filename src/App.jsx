@@ -3467,7 +3467,7 @@ function App() {
                             fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.85rem',
                             color: (isClosed || livePrice) ? (pnlUSDC >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
                           }}>
-                            {(isClosed || livePrice) ? `${pnlUSDC >= 0 ? '+' : ''}$${pnlUSDC.toFixed(2)}` : 'Pending'}
+                            {(isClosed || livePrice) ? `${pnlUSDC >= 0 ? '+' : '-'}$${Math.abs(pnlUSDC).toFixed(2)}` : 'Pending'}
                           </div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
