@@ -4614,52 +4614,112 @@ function App() {
               <BarChart3 size={16} />
               <h3>Signal History</h3>
             </div>
-            <span className="dash-tx-count">{signalHistory.length} signals</span>
+            <div style={{ display: 'flex', gap: '4px' }}>
+              {[
+                { key: 'today', label: 'Today' },
+                { key: '7d', label: '7D' },
+                { key: 'all', label: 'All' },
+              ].map(p => (
+                <button key={p.key} onClick={() => setTradeLogPeriod(p.key)} style={{
+                  padding: '3px 8px', borderRadius: '6px', fontSize: '0.6rem', fontWeight: 600,
+                  background: tradeLogPeriod === p.key ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${tradeLogPeriod === p.key ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                  color: tradeLogPeriod === p.key ? 'var(--accent)' : 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}>
+                  {p.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="dash-tx-list">
-            {signalHistory.map((signal, index) => (
-              <motion.div
-                className="dash-tx-item"
-                key={Number(signal.id)}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: index * 0.06 }}
-              >
-                <div className={`dash-tx-icon-wrap ${signal.long ? 'dash-tx-icon-deposit' : 'dash-tx-icon-withdraw'}`}>
-                  {signal.long ? <TrendingUp size={16} /> : <ArrowDownRight size={16} />}
+            {(() => {
+              const now = Math.floor(Date.now() / 1000);
+              const cutoff = tradeLogPeriod === 'today' ? now - 86400
+                : tradeLogPeriod === '7d' ? now - 7 * 86400
+                : 0;
+              const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff);
+
+              // Group by date
+              const grouped = {};
+              filtered.forEach(signal => {
+                const ts = Number(signal.timestamp) * 1000;
+                const dateKey = new Date(ts).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                if (!grouped[dateKey]) grouped[dateKey] = { signals: [], dayPnl: 0, wins: 0, losses: 0 };
+                grouped[dateKey].signals.push(signal);
+                if (signal.closed) {
+                  const pnl = (Number(signal.resultPct) / 100) * (Number(signal.leverage) / 1000);
+                  grouped[dateKey].dayPnl += pnl;
+                  if (Number(signal.resultPct) >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
+                }
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="dash-tx-empty">
+                    <BarChart3 size={24} />
+                    <span>{tradeLogPeriod === 'all' ? 'No signals yet' : 'No signals in this period'}</span>
+                  </div>
+                );
+              }
+
+              return Object.entries(grouped).map(([date, group]) => (
+                <div key={date}>
+                  <div style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '8px 0 4px', borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  }}>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 700, color: 'var(--text-primary)' }}>{date}</span>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      {(group.wins > 0 || group.losses > 0) && (
+                        <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)' }}>{group.wins}W/{group.losses}L</span>
+                      )}
+                      {(group.wins > 0 || group.losses > 0) && (
+                        <span style={{ fontSize: '0.65rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: group.dayPnl >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                          {group.dayPnl >= 0 ? '+' : ''}{group.dayPnl.toFixed(1)}%
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  {group.signals.map((signal, index) => (
+                    <motion.div
+                      className="dash-tx-item"
+                      key={Number(signal.id)}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.03 }}
+                    >
+                      <div className={`dash-tx-icon-wrap ${signal.long ? 'dash-tx-icon-deposit' : 'dash-tx-icon-withdraw'}`}>
+                        {signal.long ? <TrendingUp size={16} /> : <ArrowDownRight size={16} />}
+                      </div>
+                      <div className="dash-tx-details">
+                        <span className="dash-tx-type">
+                          XAU/USD {signal.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(signal.leverage)}x
+                        </span>
+                        <span className="dash-tx-date">
+                          Entry: ${formatGTradePrice(signal.entryPrice)}
+                        </span>
+                      </div>
+                      <div className="dash-tx-amount-col">
+                        {signal.closed ? (
+                          <>
+                            <span className={`dash-tx-amount ${Number(signal.resultPct) >= 0 ? 'green' : 'red'}`}>
+                              {Number(signal.resultPct) >= 0 ? '+' : ''}{(Number(signal.resultPct) / 100 * Number(signal.leverage) / 1000).toFixed(2)}%
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="dash-tx-amount gold">OPEN</span>
+                            <span className="dash-tx-unit">{Number(signal.copierCount)} copiers</span>
+                          </>
+                        )}
+                      </div>
+                    </motion.div>
+                  ))}
                 </div>
-                <div className="dash-tx-details">
-                  <span className="dash-tx-type">
-                    XAU/USD {signal.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(signal.leverage)}x
-                  </span>
-                  <span className="dash-tx-date">
-                    Entry: ${formatGTradePrice(signal.entryPrice)} &middot; {timeAgo(signal.timestamp)}
-                  </span>
-                </div>
-                <div className="dash-tx-amount-col">
-                  {signal.closed ? (
-                    <>
-                      <span className={`dash-tx-amount ${Number(signal.resultPct) >= 0 ? 'green' : 'red'}`}>
-                        {Number(signal.resultPct) >= 0 ? '+' : ''}{(Number(signal.resultPct) / 100 * Number(signal.leverage) / 1000).toFixed(2)}%
-                      </span>
-                      <span className="dash-tx-unit">closed</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="dash-tx-amount gold">OPEN</span>
-                      <span className="dash-tx-unit">{Number(signal.copierCount)} copiers</span>
-                    </>
-                  )}
-                </div>
-              </motion.div>
-            ))}
-            {signalHistory.length === 0 && (
-              <div className="dash-tx-empty">
-                <BarChart3 size={24} />
-                <span>No signals yet</span>
-              </div>
-            )}
+              ));
+            })()}
           </div>
         </motion.div>
       </div>
