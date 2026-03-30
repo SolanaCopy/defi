@@ -229,7 +229,9 @@ function App() {
   const [uniqueCopiers, setUniqueCopiers] = useState(0);
   const [feePercent, setFeePercent] = useState(2000); // 20% default (contract uses basis points: 2000 = 20%)
   const [totalVolume, setTotalVolume] = useState(0); // Sum of totalCopied across ALL signals (not just last 20)
-  const [livePrice, setLivePrice] = useState(null); // Live XAU/USD from Chainlink
+  const [livePrice, setLivePrice] = useState(null); // Live XAU/USD from Pyth
+  const [contractBalance, setContractBalance] = useState(null); // USDC balance in contract
+  const prevActiveSignalRef = useRef(null);
 
   // Performance stats computed from signal history + user positions
   const performanceStats = useMemo(() => {
@@ -743,14 +745,23 @@ function App() {
       } catch {
         // keep existing
       }
+
+      // Contract USDC balance (for claim button state)
+      try {
+        const publicUsdc = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, publicProvider);
+        const bal = await publicUsdc.balanceOf(CONTRACT_ADDRESS);
+        setContractBalance(parseFloat(ethers.formatUnits(bal, 6)));
+      } catch { /* keep existing */ }
     } catch (err) {
       console.error("Public data load error:", err);
     }
   }, []);
 
-  // Load public data on mount (no wallet needed)
+  // Load public data on mount + poll every 30s (detects trade closes)
   useEffect(() => {
     loadPublicData();
+    const interval = setInterval(loadPublicData, 30000);
+    return () => clearInterval(interval);
   }, [loadPublicData]);
 
   // Live XAU/USD price from Pyth Network (same source as gTrade, poll every 10s)
@@ -767,6 +778,18 @@ function App() {
     const interval = setInterval(fetchPrice, 10000);
     return () => clearInterval(interval);
   }, []);
+
+  // Auto-refresh when active trade closes
+  useEffect(() => {
+    const prev = prevActiveSignalRef.current;
+    if (prev && prev.active && (!activeSignal || !activeSignal.active || activeSignal.closed)) {
+      loadPublicData();
+      if (account && contractRef.current && usdcRef.current) {
+        loadData(contractRef.current, usdcRef.current, account);
+      }
+    }
+    prevActiveSignalRef.current = activeSignal;
+  }, [activeSignal]);
 
   // Load data from contract
   const loadData = useCallback(async (contract, usdcContract, userAddress) => {
@@ -864,6 +887,12 @@ function App() {
       } catch {
         setUserPositions({});
       }
+
+      // Contract USDC balance
+      try {
+        const bal = await usdcContract.balanceOf(CONTRACT_ADDRESS);
+        setContractBalance(parseFloat(ethers.formatUnits(bal, 6)));
+      } catch { /* keep existing */ }
 
       // Auto-copy config
       try {
@@ -1285,17 +1314,56 @@ function App() {
                     )}
                   </div>
                   {activeSignal && marketStatus.open ? (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                      {[
-                        { label: 'ENTRY', value: `$${formatGTradePrice(activeSignal.entryPrice)}`, color: 'var(--text-primary)' },
-                        { label: 'TP', value: `$${formatGTradePrice(activeSignal.tp)}`, color: 'var(--success)' },
-                        { label: 'SL', value: `$${formatGTradePrice(activeSignal.sl)}`, color: 'var(--danger)' },
-                      ].map(item => (
-                        <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
-                          <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
-                          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>{item.value}</div>
-                        </div>
-                      ))}
+                    <div>
+                      {/* Live price row */}
+                      {livePrice && (() => {
+                        const entry = Number(activeSignal.entryPrice) / 1e10;
+                        const tp = Number(activeSignal.tp) / 1e10;
+                        const sl = Number(activeSignal.sl) / 1e10;
+                        const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
+                        const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
+                        const isProfit = livePnl >= 0;
+                        const range = tp - sl;
+                        const progress = Math.max(0, Math.min(100, ((livePrice - sl) / range) * 100));
+                        return (
+                          <div style={{ marginBottom: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.1rem' }}>
+                                ${livePrice.toFixed(2)}
+                              </span>
+                              <span style={{
+                                fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem',
+                                color: isProfit ? 'var(--success)' : 'var(--danger)',
+                              }}>
+                                {isProfit ? '+' : ''}{livePnl.toFixed(2)}%
+                              </span>
+                            </div>
+                            <div style={{ position: 'relative', height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' }}>
+                              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px', width: `${((entry - sl) / range) * 100}%`, background: 'rgba(248,113,113,0.2)' }} />
+                              <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0', width: `${((tp - entry) / range) * 100}%`, background: 'rgba(52,211,153,0.2)' }} />
+                              <div style={{
+                                position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
+                                width: '9px', height: '9px', borderRadius: '50%',
+                                background: isProfit ? 'var(--success)' : 'var(--danger)',
+                                boxShadow: `0 0 6px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
+                                transition: 'left 0.5s ease',
+                              }} />
+                            </div>
+                          </div>
+                        );
+                      })()}
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
+                        {[
+                          { label: 'ENTRY', value: `$${formatGTradePrice(activeSignal.entryPrice)}`, color: 'var(--text-primary)' },
+                          { label: 'TP', value: `$${formatGTradePrice(activeSignal.tp)}`, color: 'var(--success)' },
+                          { label: 'SL', value: `$${formatGTradePrice(activeSignal.sl)}`, color: 'var(--danger)' },
+                        ].map(item => (
+                          <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
+                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
+                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>{item.value}</div>
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : (
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
@@ -2106,25 +2174,41 @@ function App() {
                   <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
                     ${parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6)).toFixed(0)}
                   </span>
-                  <span style={{
-                    textAlign: 'right', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
-                    color: isClosed
-                      ? (result >= 0 ? 'var(--success)' : 'var(--danger)')
-                      : livePrice
-                        ? (((livePrice - Number(signal.entryPrice) / 1e10) >= 0 === signal.long) ? 'var(--success)' : 'var(--danger)')
-                        : 'var(--accent)',
-                  }}>
-                    {isClosed
-                      ? `${result >= 0 ? '+' : ''}${result.toFixed(2)}%`
-                      : livePrice
-                        ? (() => {
-                            const entry = Number(signal.entryPrice) / 1e10;
-                            const pctMove = ((livePrice - entry) / entry) * 100 * (signal.long ? 1 : -1);
-                            const livePnl = pctMove * leverage;
-                            return `${livePnl >= 0 ? '+' : ''}${livePnl.toFixed(2)}%`;
-                          })()
-                        : 'OPEN'}
-                  </span>
+                  <div style={{ textAlign: 'right', fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {(() => {
+                      const totalCol = parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6));
+                      if (isClosed) {
+                        const dollarPnl = totalCol * result / 100;
+                        return (
+                          <>
+                            <div style={{ fontWeight: 700, color: result >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                              {result >= 0 ? '+' : ''}{result.toFixed(2)}%
+                            </div>
+                            {totalCol > 0 && <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '1px' }}>
+                              {dollarPnl >= 0 ? '+' : '-'}${Math.abs(dollarPnl).toFixed(2)}
+                            </div>}
+                          </>
+                        );
+                      } else if (livePrice) {
+                        const entry = Number(signal.entryPrice) / 1e10;
+                        const pctMove = ((livePrice - entry) / entry) * 100 * (signal.long ? 1 : -1);
+                        const livePnl = pctMove * leverage;
+                        const dollarPnl = totalCol * livePnl / 100;
+                        const isProfit = livePnl >= 0;
+                        return (
+                          <>
+                            <div style={{ fontWeight: 700, color: isProfit ? 'var(--success)' : 'var(--danger)' }}>
+                              {isProfit ? '+' : ''}{livePnl.toFixed(2)}%
+                            </div>
+                            {totalCol > 0 && <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '1px' }}>
+                              {isProfit ? '+' : '-'}${Math.abs(dollarPnl).toFixed(2)}
+                            </div>}
+                          </>
+                        );
+                      }
+                      return <div style={{ fontWeight: 700, color: 'var(--accent)' }}>OPEN</div>;
+                    })()}
+                  </div>
                 </motion.div>
               );
             })}
@@ -3487,21 +3571,62 @@ function App() {
                       </div>
 
                       {/* Leverage + fee info */}
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: isClosed ? '4px' : '0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
                         <span>{leverage}x leverage</span>
                         {isClosed && fee > 0 && <span>Fee: ${fee.toFixed(2)} USDC</span>}
                       </div>
 
+                      {/* Progress bar for open trades */}
+                      {!isClosed && livePrice && (() => {
+                        const entry = Number(signal.entryPrice) / 1e10;
+                        const tp = Number(signal.tp) / 1e10;
+                        const sl = Number(signal.sl) / 1e10;
+                        const range = tp - sl;
+                        const progress = Math.max(0, Math.min(100, ((livePrice - sl) / range) * 100));
+                        const isProfit = pnlPct >= 0;
+                        return (
+                          <div style={{ marginBottom: '4px' }}>
+                            <div style={{ position: 'relative', height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' }}>
+                              <div style={{ position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px', width: `${((entry - sl) / range) * 100}%`, background: 'rgba(248,113,113,0.2)' }} />
+                              <div style={{ position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0', width: `${((tp - entry) / range) * 100}%`, background: 'rgba(52,211,153,0.2)' }} />
+                              <div style={{
+                                position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
+                                width: '9px', height: '9px', borderRadius: '50%',
+                                background: isProfit ? 'var(--success)' : 'var(--danger)',
+                                boxShadow: `0 0 6px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
+                                transition: 'left 0.5s ease',
+                              }} />
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '5px', fontSize: '0.6rem', fontFamily: "'Space Grotesk', sans-serif" }}>
+                              <span style={{ color: 'var(--danger)' }}>SL ${sl.toFixed(0)}</span>
+                              <span style={{ color: 'var(--text-secondary)' }}>${entry.toFixed(2)}</span>
+                              <span style={{ color: 'var(--success)' }}>TP ${tp.toFixed(0)}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+
                       {/* Claim button */}
                       {isClosed && !pos.claimed && (
-                        <button
-                          className="btn btn-primary btn-glow"
-                          style={{ width: '100%', marginTop: '10px', padding: '10px', fontSize: '0.85rem' }}
-                          onClick={() => handleClaimProceeds(Number(signal.id))}
-                          disabled={isLoading}
-                        >
-                          <Zap size={16} /> Claim ${payout.toFixed(2)} USDC
-                        </button>
+                        contractBalance !== null && contractBalance < payout ? (
+                          <div style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                            marginTop: '10px', padding: '10px', borderRadius: '8px', fontSize: '0.75rem',
+                            background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.15)',
+                            color: 'var(--accent)',
+                          }}>
+                            <Lock size={14} /> Claimable after active trade closes
+                          </div>
+                        ) : (
+                          <button
+                            className="btn btn-primary btn-glow"
+                            style={{ width: '100%', marginTop: '10px', padding: '10px', fontSize: '0.85rem' }}
+                            onClick={() => handleClaimProceeds(Number(signal.id))}
+                            disabled={isLoading}
+                          >
+                            <Zap size={16} /> Claim ${payout.toFixed(2)} USDC
+                          </button>
+                        )
                       )}
                       {pos.claimed && (
                         <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.75rem', color: 'var(--success)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
