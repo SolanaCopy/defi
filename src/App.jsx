@@ -3310,12 +3310,27 @@ function App() {
         {/* LEFT: Active Signal */}
         <motion.div className="dash-claim-panel" variants={slideInLeft} initial="hidden" whileInView="visible" viewport={{ once: true }}>
           <div className="dash-claim-info" style={{ width: '100%' }}>
-            <h3 style={{ margin: '0 0 16px', fontSize: '1rem', color: 'var(--text-primary)' }}>Active Signal</h3>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>Active Signal</h3>
+              {activeSignal && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{
+                    fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                    padding: '3px 10px', borderRadius: '20px',
+                    background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
+                  }}>
+                    #{Number(activeSignal.id)}
+                  </span>
+                  <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                    {timeAgo(activeSignal.timestamp)}
+                  </span>
+                </div>
+              )}
+            </div>
             {activeSignal ? (
               <div className="signal-card-active">
                 {/* Header */}
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                     <span className="pulse-dot" style={{ width: 8, height: 8 }} />
                     <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700 }}>XAU/USD</span>
                     <span style={{
@@ -3341,19 +3356,6 @@ function App() {
                     }}>
                       {formatLeverage(activeSignal.leverage)}x
                     </span>
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
-                    <span style={{
-                      fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
-                      padding: '3px 10px', borderRadius: '20px',
-                      background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
-                    }}>
-                      #{Number(activeSignal.id)}
-                    </span>
-                    <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
-                      {timeAgo(activeSignal.timestamp)}
-                    </span>
-                  </div>
                 </div>
 
                 {/* Live PnL Section */}
