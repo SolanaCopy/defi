@@ -164,9 +164,35 @@ async function sendWelcomePhoto(chatId, img, caption) {
 }
 
 async function handleUpdate(update) {
+  // Handle chat_member update (new join via privacy-mode-aware event)
+  if (update.chat_member) {
+    const cm = update.chat_member;
+    const wasNotMember = ["left", "kicked", "restricted"].includes(cm.old_chat_member?.status) || !cm.old_chat_member;
+    const isNowMember = ["member", "administrator", "creator"].includes(cm.new_chat_member?.status);
+    if (wasNotMember && isNowMember && !cm.new_chat_member?.user?.is_bot) {
+      const name = cm.new_chat_member.user.first_name || "Trader";
+      console.log(`[AI] New member joined (chat_member): ${name}`);
+      try {
+        const img = await welcomeImage({ username: name });
+        await sendWelcomePhoto(cm.chat.id, img, [
+          `🔥 Welcome <b>${name}</b> to Smart Trading Club!`,
+          ``,
+          `Copy our gold trades fully on-chain, fully transparent.`,
+          `No trust required. Just results. 📈`,
+          ``,
+          `👉 Check the pinned message to get started`,
+          `❓ Questions? Just ask!`,
+        ].join("\n"));
+      } catch (err) {
+        console.error("[AI] Welcome image error:", err.message);
+      }
+      return;
+    }
+  }
+
   const msg = update.message;
 
-  // New member joined
+  // New member joined (legacy message event)
   if (msg?.new_chat_members?.length > 0) {
     for (const member of msg.new_chat_members) {
       if (member.is_bot) continue;

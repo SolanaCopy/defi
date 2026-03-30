@@ -451,14 +451,15 @@ class CloseWatcher {
 
     // ── Track known copiers + amounts to avoid duplicate notifications ──
     const knownCopiers = new Map();
-    try {
-      const existingUsers = await contract.getAutoCopyUsers();
+    contract.getAutoCopyUsers().then(async (existingUsers) => {
       for (const u of existingUsers) {
-        const config = await contract.autoCopy(u);
-        knownCopiers.set(u.toLowerCase(), Number(config.amount));
+        try {
+          const config = await contract.autoCopy(u);
+          knownCopiers.set(u.toLowerCase(), Number(config.amount));
+        } catch {}
       }
       log(`Known copiers loaded: ${knownCopiers.size}`);
-    } catch {}
+    }).catch(() => {});
 
     // ── New auto-copier joined ──
     contract.on("AutoCopyEnabled", async (user, amount) => {
