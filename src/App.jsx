@@ -20,12 +20,9 @@ const supabase = createClient(
 
 const queryClient = new QueryClient();
 
-// ===== CHAINLINK PRICE FEED =====
-const CHAINLINK_XAU_USD = "0x1F954Dc24a49708C26E0C1777f16750B5C6d5a2c"; // XAU/USD on Arbitrum
-const CHAINLINK_ABI = [
-  "function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
-  "function decimals() view returns (uint8)",
-];
+// ===== PYTH PRICE FEED (same source as gTrade) =====
+const PYTH_XAU_USD_FEED = "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
+const PYTH_HERMES_URL = "https://hermes.pyth.network/v2/updates/price/latest";
 
 // ===== ARBITRUM CONFIG =====
 const CONTRACT_ADDRESS = "0xf41d121DB5841767f403a4Bc59A54B26DecF6b99";
@@ -756,15 +753,14 @@ function App() {
     loadPublicData();
   }, [loadPublicData]);
 
-  // Live XAU/USD price from Chainlink (poll every 10s)
+  // Live XAU/USD price from Pyth Network (same source as gTrade, poll every 10s)
   useEffect(() => {
     const fetchPrice = async () => {
       try {
-        const provider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
-        const feed = new ethers.Contract(CHAINLINK_XAU_USD, CHAINLINK_ABI, provider);
-        const [, answer] = await feed.latestRoundData();
-        const dec = await feed.decimals();
-        setLivePrice(Number(answer) / (10 ** Number(dec)));
+        const res = await fetch(`${PYTH_HERMES_URL}?ids[]=${PYTH_XAU_USD_FEED}`);
+        const data = await res.json();
+        const p = data.parsed[0].price;
+        setLivePrice(Number(p.price) * Math.pow(10, p.expo));
       } catch { /* keep existing */ }
     };
     fetchPrice();
