@@ -10,6 +10,7 @@ import { LiFiWidget } from '@lifi/widget';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
 import CONTRACT_ABI from './contractABI.json';
+import MARKETPLACE_ABI from './marketplaceABI.json';
 import './index.css';
 
 // ===== SUPABASE =====
@@ -26,6 +27,7 @@ const PYTH_HERMES_URL = "https://hermes.pyth.network/v2/updates/price/latest";
 
 // ===== ARBITRUM CONFIG =====
 const CONTRACT_ADDRESS = "0xf41d121DB5841767f403a4Bc59A54B26DecF6b99";
+const MARKETPLACE_ADDRESS = "0xAB35E19CB36AB034E37c67b6b1C2e53d5E0375a9";
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC on Arbitrum
 const ARBITRUM_CHAIN_ID = "0xa4b1"; // 42161
 
@@ -232,6 +234,11 @@ function App() {
   const [livePrice, setLivePrice] = useState(null); // Live XAU/USD from Pyth
   const [contractBalance, setContractBalance] = useState(null); // USDC balance in contract
   const prevActiveSignalRef = useRef(null);
+
+  // Marketplace state
+  const [marketplaceProviders, setMarketplaceProviders] = useState([]);
+  const [userFollows, setUserFollows] = useState({}); // { providerAddr: { amount, enabled } }
+  const [followLoading, setFollowLoading] = useState(false);
 
   // Performance stats computed from signal history + user positions
   const performanceStats = useMemo(() => {
@@ -763,6 +770,119 @@ function App() {
     const interval = setInterval(loadPublicData, 30000);
     return () => clearInterval(interval);
   }, [loadPublicData]);
+
+  // ===== MARKETPLACE DATA =====
+  const loadMarketplace = useCallback(async () => {
+    try {
+      const provider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+      const mp = new ethers.Contract(MARKETPLACE_ADDRESS, MARKETPLACE_ABI, provider);
+
+      const providerAddrs = await mp.getProviderList();
+      const providers = [];
+
+      for (const addr of providerAddrs) {
+        const p = await mp.providers(addr);
+        const followers = await mp.getProviderFollowers(addr);
+        const signalCount = Number(p.signalCount);
+
+        // Load last 5 signals for recent performance
+        let wins = 0, losses = 0, recent = [];
+        if (signalCount > 0) {
+          const signals = await mp.getProviderSignals(addr, 0, Math.min(signalCount, 20));
+          for (const sid of signals) {
+            if (Number(sid) === 0) continue;
+            const core = await mp.signalCore(sid);
+            if (core.closed) {
+              const resultPct = Number(core.resultPct) / 100;
+              const lev = Number(core.leverage) / 1000;
+              const pnl = resultPct * lev;
+              if (resultPct >= 0) wins++; else losses++;
+              if (recent.length < 5) recent.push(pnl);
+            }
+          }
+        }
+
+        const totalTrades = wins + losses;
+        providers.push({
+          address: addr,
+          shortAddr: `${addr.slice(0, 6)}...${addr.slice(-4)}`,
+          signalCount,
+          totalFeesEarned: parseFloat(ethers.formatUnits(p.totalFeesEarned, 6)),
+          followers: followers.filter(f => f !== ethers.ZeroAddress).length,
+          winRate: totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0,
+          totalTrades,
+          recent: recent.length > 0 ? recent : [0],
+        });
+      }
+
+      setMarketplaceProviders(providers);
+    } catch (err) {
+      console.error("Marketplace load error:", err);
+    }
+  }, []);
+
+  // Load user's follow status for marketplace
+  const loadUserFollows = useCallback(async () => {
+    if (!account) return;
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const mp = new ethers.Contract(MARKETPLACE_ADDRESS, MARKETPLACE_ABI, signer);
+
+      const following = await mp.getFollowerProviders(account);
+      const followMap = {};
+      for (const provAddr of following) {
+        const config = await mp.follows(account, provAddr);
+        followMap[provAddr.toLowerCase()] = {
+          amount: parseFloat(ethers.formatUnits(config.amountPerTrade, 6)),
+          enabled: config.enabled,
+        };
+      }
+      setUserFollows(followMap);
+    } catch (err) {
+      console.error("Load follows error:", err);
+    }
+  }, [account]);
+
+  useEffect(() => { loadMarketplace(); }, [loadMarketplace]);
+  useEffect(() => { loadUserFollows(); }, [loadUserFollows]);
+
+  // Follow/unfollow handler
+  const handleFollow = async (providerAddr, amount) => {
+    if (!account) return;
+    setFollowLoading(true);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const mp = new ethers.Contract(MARKETPLACE_ADDRESS, MARKETPLACE_ABI, signer);
+      const tx = await mp.followProvider(providerAddr, ethers.parseUnits(String(amount), 6));
+      await tx.wait();
+      await loadUserFollows();
+      await loadMarketplace();
+    } catch (err) {
+      alert(err.reason || err.message || "Follow failed");
+    } finally {
+      setFollowLoading(false);
+    }
+  };
+
+  const handleUnfollow = async (providerAddr) => {
+    if (!account) return;
+    setFollowLoading(true);
+    try {
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const mp = new ethers.Contract(MARKETPLACE_ADDRESS, MARKETPLACE_ABI, signer);
+      const tx = await mp.unfollowProvider(providerAddr);
+      await tx.wait();
+      await loadUserFollows();
+      await loadMarketplace();
+    } catch (err) {
+      alert(err.reason || err.message || "Unfollow failed");
+    } finally {
+      setFollowLoading(false);
+    }
+  };
 
   // Live XAU/USD price from Pyth Network (same source as gTrade, poll every 10s)
   useEffect(() => {
@@ -2267,22 +2387,12 @@ function App() {
 
   // ===== DASHBOARD =====
 
-  // ===== STRATEGIES / TRADERS PAGE (hidden tab) =====
-  const renderStrategies = () => {
-    // Dummy trader data for design preview
-    const dummyTraders = [
-      { address: '0xD27e...38e6', name: 'GoldMaster', avatar: 'GM', winRate: 83, totalTrades: 47, pnl: 2840, followers: 12, badge: 'top', verified: true, recent: [8.5, 12.3, -4.2, 6.1, 3.8] },
-      { address: '0x8A3f...c1D2', name: 'CryptoGold', avatar: 'CG', winRate: 71, totalTrades: 32, pnl: 1560, followers: 8, badge: 'rising', verified: true, recent: [5.2, 3.8, -2.1, 9.4, 1.5] },
-      { address: '0x4F2b...7eA9', name: 'BullionTrader', avatar: 'BT', winRate: 65, totalTrades: 19, pnl: 680, followers: 3, badge: null, verified: false, recent: [-3.5, 7.2, 4.1, 2.3, -1.8] },
-      { address: '0x9C1d...4bF3', name: 'XauKing', avatar: 'XK', winRate: 77, totalTrades: 58, pnl: 4120, followers: 21, badge: 'top', verified: true, recent: [15.2, -3.1, 8.7, 4.5, 11.2] },
-      { address: '0x2E8a...d9C1', name: 'SafeGold', avatar: 'SG', winRate: 69, totalTrades: 24, pnl: 920, followers: 5, badge: null, verified: true, recent: [2.1, 1.8, -0.9, 3.2, 2.5] },
-      { address: '0x7B3c...e2A8', name: 'LeverageKing', avatar: 'LK', winRate: 62, totalTrades: 41, pnl: 1890, followers: 14, badge: 'rising', verified: true, recent: [22.5, -12.3, 18.1, -8.4, 15.7] },
-    ];
+  // ===== STRATEGIES / TRADERS PAGE =====
+  const [followAmount, setFollowAmount] = useState("10");
+  const [followTarget, setFollowTarget] = useState(null); // provider address for follow modal
 
-    const badgeConfig = {
-      top: { label: 'TOP TRADER', color: '#D4A843', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.25)', icon: <Crown size={10} /> },
-      rising: { label: 'RISING STAR', color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.25)', icon: <Star size={10} /> },
-    };
+  const renderStrategies = () => {
+    const traders = marketplaceProviders;
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
@@ -2370,144 +2480,214 @@ function App() {
               ))}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--accent)' }}>{dummyTraders.length}</span> traders
+              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--accent)' }}>{traders.length}</span> traders
             </div>
           </div>
         </motion.section>
 
-        {/* Trader cards — compact grid */}
+        {/* Trader cards */}
         <motion.section className="section" style={{ paddingTop: '0.5rem', paddingBottom: '2rem' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px', maxWidth: '900px', margin: '0 auto' }}>
-            {dummyTraders.map((trader, idx) => {
-              const badge = trader.badge ? badgeConfig[trader.badge] : null;
-              const wins = trader.recent.filter(r => r >= 0).length;
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px', maxWidth: '900px', margin: '0 auto' }}>
+            {traders.length === 0 && (
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)' }}>
+                <Loader2 size={32} className="spin" style={{ marginBottom: '12px', opacity: 0.5 }} />
+                <div>Loading providers...</div>
+              </div>
+            )}
+            {traders.map((trader, idx) => {
+              const followInfo = userFollows[trader.address.toLowerCase()];
+              const isFollowing = followInfo?.enabled;
               return (
                 <motion.div
                   key={trader.address}
                   variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} custom={idx}
                   style={{
                     background: 'var(--bg-card)', borderRadius: '16px', padding: '20px',
-                    border: `1px solid ${badge ? badge.border : 'rgba(255,255,255,0.06)'}`,
-                    cursor: 'pointer', transition: 'all 0.2s ease',
+                    border: `1px solid ${isFollowing ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
                     position: 'relative', overflow: 'hidden',
                   }}
                 >
-                  {/* Badge ribbon */}
-                  {badge && (
+                  {/* Following indicator */}
+                  {isFollowing && (
                     <div style={{
                       position: 'absolute', top: '12px', right: '12px',
                       display: 'flex', alignItems: 'center', gap: '3px',
-                      padding: '3px 8px', borderRadius: '20px', fontSize: '0.45rem', fontWeight: 700,
-                      letterSpacing: '0.08em', background: badge.bg, color: badge.color,
-                      border: `1px solid ${badge.border}`,
+                      padding: '3px 8px', borderRadius: '20px', fontSize: '0.5rem', fontWeight: 700,
+                      letterSpacing: '0.08em', background: 'rgba(52,211,153,0.12)', color: 'var(--success)',
+                      border: '1px solid rgba(52,211,153,0.25)',
                     }}>
-                      {badge.icon} {badge.label}
+                      <CheckCircle2 size={10} /> FOLLOWING
                     </div>
                   )}
 
-                  {/* Avatar + name */}
+                  {/* Avatar + address */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
                     <div style={{
                       width: 40, height: 40, borderRadius: '12px',
-                      background: badge
-                        ? `linear-gradient(135deg, ${badge.bg}, rgba(255,255,255,0.02))`
-                        : 'linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
-                      border: `1px solid ${badge ? badge.border : 'rgba(255,255,255,0.08)'}`,
+                      background: 'linear-gradient(135deg, rgba(212,168,67,0.15), rgba(212,168,67,0.03))',
+                      border: '1px solid rgba(212,168,67,0.2)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.8rem',
-                      color: badge ? badge.color : 'var(--text-secondary)',
+                      color: 'var(--accent)',
                     }}>
-                      {trader.avatar}
+                      {trader.shortAddr.slice(0, 2)}
                     </div>
                     <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                        <span style={{ fontSize: '0.88rem', fontWeight: 700 }}>{trader.name}</span>
-                        {trader.verified && <ShieldCheck size={12} style={{ color: 'var(--success)' }} />}
-                      </div>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{trader.shortAddr}</div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-                        <span style={{
-                          fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
-                          padding: '1px 6px', borderRadius: '4px', background: 'rgba(255,255,255,0.04)',
-                        }}>
-                          {trader.address}
+                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6' }}>
+                          <Users size={10} /> {trader.followers}
                         </span>
-                        <span style={{
-                          display: 'inline-flex', alignItems: 'center', gap: '3px',
-                          fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6',
-                        }}>
-                          <Users size={10} />
-                          {trader.followers}
+                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
+                          {trader.signalCount} signals
                         </span>
                       </div>
                     </div>
                   </div>
 
-                  {/* Key stats row */}
+                  {/* Key stats */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
                     <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{
-                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700,
-                        color: trader.winRate >= 70 ? 'var(--success)' : 'var(--accent)',
-                      }}>{trader.winRate}%</div>
+                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: trader.winRate >= 70 ? 'var(--success)' : trader.winRate >= 50 ? 'var(--accent)' : 'var(--danger)' }}>
+                        {trader.winRate}%
+                      </div>
                       <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>WIN RATE</div>
                     </div>
                     <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{
-                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700,
-                        color: trader.pnl >= 0 ? 'var(--success)' : 'var(--danger)',
-                      }}>+${trader.pnl >= 1000 ? `${(trader.pnl / 1000).toFixed(1)}k` : trader.pnl}</div>
-                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>PNL</div>
+                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700 }}>
+                        {trader.totalTrades}
+                      </div>
+                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TRADES</div>
                     </div>
                     <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{
-                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700,
-                      }}>{trader.totalTrades}</div>
-                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TRADES</div>
+                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700 }}>
+                        {trader.followers}
+                      </div>
+                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>FOLLOWERS</div>
                     </div>
                   </div>
 
                   {/* Mini performance bar */}
-                  <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '32px', marginBottom: '12px' }}>
-                    {trader.recent.map((r, i) => (
-                      <div key={i} style={{
-                        flex: 1, borderRadius: '3px 3px 0 0',
-                        height: `${Math.min(100, Math.abs(r) * 2.5 + 15)}%`,
-                        background: r >= 0
-                          ? 'linear-gradient(to top, rgba(52,211,153,0.25), rgba(52,211,153,0.7))'
-                          : 'linear-gradient(to top, rgba(248,113,113,0.2), rgba(248,113,113,0.5))',
-                        transition: 'height 0.3s ease',
-                      }} />
-                    ))}
-                  </div>
-
-                  {/* Recent results row */}
-                  <div style={{ display: 'flex', gap: '4px', marginBottom: '14px' }}>
-                    {trader.recent.map((r, i) => (
-                      <span key={i} style={{
-                        flex: 1, textAlign: 'center', padding: '3px 0', borderRadius: '6px', fontSize: '0.6rem',
-                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
-                        background: r >= 0 ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
-                        color: r >= 0 ? 'var(--success)' : 'var(--danger)',
-                      }}>
-                        {r >= 0 ? '+' : ''}{r}%
-                      </span>
-                    ))}
-                  </div>
+                  {trader.recent.length > 0 && trader.recent.some(r => r !== 0) && (
+                    <>
+                      <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '32px', marginBottom: '6px' }}>
+                        {trader.recent.map((r, i) => (
+                          <div key={i} style={{
+                            flex: 1, borderRadius: '3px 3px 0 0',
+                            height: `${Math.min(100, Math.abs(r) * 2.5 + 15)}%`,
+                            background: r >= 0
+                              ? 'linear-gradient(to top, rgba(52,211,153,0.25), rgba(52,211,153,0.7))'
+                              : 'linear-gradient(to top, rgba(248,113,113,0.2), rgba(248,113,113,0.5))',
+                          }} />
+                        ))}
+                      </div>
+                      <div style={{ display: 'flex', gap: '4px', marginBottom: '14px' }}>
+                        {trader.recent.map((r, i) => (
+                          <span key={i} style={{
+                            flex: 1, textAlign: 'center', padding: '3px 0', borderRadius: '6px', fontSize: '0.6rem',
+                            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                            background: r >= 0 ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
+                            color: r >= 0 ? 'var(--success)' : 'var(--danger)',
+                          }}>
+                            {r >= 0 ? '+' : ''}{r.toFixed(1)}%
+                          </span>
+                        ))}
+                      </div>
+                    </>
+                  )}
 
                   {/* Action buttons */}
-                  <div style={{ display: 'flex', gap: '6px' }}>
-                    <button className="btn btn-glass" style={{ flex: 1, padding: '8px', fontSize: '0.7rem', fontWeight: 600 }}>
-                      <Copy size={12} /> Copy
+                  {isFollowing ? (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <div style={{
+                        flex: 1, padding: '8px', fontSize: '0.7rem', textAlign: 'center',
+                        background: 'rgba(52,211,153,0.06)', borderRadius: '10px', color: 'var(--success)',
+                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600,
+                      }}>
+                        ${followInfo.amount}/trade
+                      </div>
+                      <button
+                        className="btn btn-glass"
+                        style={{ padding: '8px 14px', fontSize: '0.7rem', fontWeight: 600 }}
+                        onClick={() => handleUnfollow(trader.address)}
+                        disabled={followLoading}
+                      >
+                        Unfollow
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="btn btn-primary"
+                      style={{ width: '100%', padding: '10px', fontSize: '0.75rem', fontWeight: 700 }}
+                      onClick={() => { setFollowTarget(trader.address); setFollowAmount("10"); }}
+                      disabled={!account || followLoading}
+                    >
+                      <BrainCircuit size={14} /> {account ? 'Follow & Auto-Copy' : 'Connect Wallet to Follow'}
                     </button>
-                    <button className="btn btn-primary" style={{ flex: 1, padding: '8px', fontSize: '0.7rem', fontWeight: 700 }}>
-                      <BrainCircuit size={12} /> Auto-Copy
-                    </button>
-                  </div>
+                  )}
                 </motion.div>
               );
             })}
           </div>
         </motion.section>
+
+        {/* Follow modal */}
+        <AnimatePresence>
+          {followTarget && (
+            <motion.div
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}
+              onClick={() => setFollowTarget(null)}
+            >
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                onClick={e => e.stopPropagation()}
+                style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', maxWidth: '380px', width: '100%', border: '1px solid var(--border)' }}
+              >
+                <h3 style={{ margin: '0 0 6px', fontSize: '1.1rem' }}>Follow Provider</h3>
+                <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 20px' }}>
+                  Set your USDC amount per trade. When this provider posts a signal, your trade will be copied automatically.
+                </p>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '6px' }}>Amount per trade (USDC)</div>
+                <input
+                  type="number"
+                  value={followAmount}
+                  onChange={e => setFollowAmount(e.target.value)}
+                  min="5"
+                  style={{
+                    width: '100%', padding: '12px', borderRadius: '10px', fontSize: '1rem',
+                    background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
+                    color: 'var(--text-primary)', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                    outline: 'none', marginBottom: '6px', boxSizing: 'border-box',
+                  }}
+                />
+                <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                  Minimum $5 USDC. Your USDC stays in your wallet until a signal is posted.
+                </div>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <button
+                    className="btn btn-glass"
+                    style={{ flex: 1, padding: '10px', fontSize: '0.8rem' }}
+                    onClick={() => setFollowTarget(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn btn-primary btn-glow"
+                    style={{ flex: 1, padding: '10px', fontSize: '0.8rem', fontWeight: 700 }}
+                    onClick={async () => {
+                      await handleFollow(followTarget, parseFloat(followAmount) || 10);
+                      setFollowTarget(null);
+                    }}
+                    disabled={followLoading || parseFloat(followAmount) < 5}
+                  >
+                    {followLoading ? <Loader2 size={16} className="spin" /> : <><BrainCircuit size={14} /> Follow</>}
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Bottom info */}
         <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '3rem' }}>

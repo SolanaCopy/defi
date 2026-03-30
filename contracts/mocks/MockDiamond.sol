@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.19;
 
-import "../GoldCopyTrader.sol";
+import "../StrategyMarketplace.sol";
 
 /// @notice Mock of gTrade Diamond for testing — records calls instead of executing real trades
 contract MockDiamond {
