@@ -2971,40 +2971,112 @@ function App() {
                   })()}
 
                   {/* Equity curve chart */}
-                  {sortedHistory.length > 0 && (
-                    <div style={{ padding: '0 24px 8px' }}>
-                      <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', letterSpacing: '0.05em' }}>PERFORMANCE CURVE</div>
-                      <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '12px', padding: '12px', border: '1px solid rgba(255,255,255,0.04)' }}>
-                        <svg viewBox={`0 0 ${chartW} ${chartH}`} style={{ width: '100%', height: 'auto' }}>
-                          {/* Zero line */}
-                          <line x1={chartPad} y1={chartH / 2} x2={chartW - chartPad} y2={chartH / 2} stroke="rgba(255,255,255,0.08)" strokeWidth="1" strokeDasharray="4,4" />
-                          {/* Fill area */}
-                          <polygon points={fillPoints} fill={`url(#pnlGrad-${t.address.slice(2,6)})`} />
-                          <defs>
-                            <linearGradient id={`pnlGrad-${t.address.slice(2,6)}`} x1="0" y1="0" x2="0" y2="1">
-                              <stop offset="0%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.2 : 0} />
-                              <stop offset="100%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0 : 0.2} />
-                            </linearGradient>
-                          </defs>
-                          {/* Line */}
-                          <polyline points={points} fill="none" stroke={lineColor} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-                          {/* End dot */}
-                          {equityCurve.length > 1 && (() => {
-                            const lastX = chartPad + ((equityCurve.length - 1) / Math.max(equityCurve.length - 1, 1)) * (chartW - chartPad * 2);
-                            const lastY = chartH / 2 - (lastPnl / maxVal) * (chartH / 2 - chartPad);
-                            return <circle cx={lastX} cy={lastY} r="4" fill={lineColor} />;
-                          })()}
-                        </svg>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.55rem', color: 'var(--text-secondary)', marginTop: '4px', fontFamily: "'Space Grotesk', sans-serif" }}>
-                          <span>Trade 1</span>
-                          <span style={{ color: lineColor, fontWeight: 700 }}>
-                            {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}% cumulative
+                  {sortedHistory.length > 0 && (() => {
+                    const cW = 500, cH = 200, padL = 45, padR = 15, padT = 20, padB = 30;
+                    const plotW = cW - padL - padR, plotH = cH - padT - padB;
+                    const maxY = Math.max(...equityCurve.map(Math.abs), 0.1);
+                    const yScale = plotH / (maxY * 2);
+                    const midY = padT + plotH / 2;
+
+                    // Generate Y-axis ticks
+                    const yTicks = [];
+                    const tickStep = maxY > 50 ? Math.ceil(maxY / 3 / 10) * 10 : maxY > 10 ? Math.ceil(maxY / 3 / 5) * 5 : Math.ceil(maxY / 3);
+                    for (let v = -tickStep * 2; v <= tickStep * 2; v += tickStep) {
+                      if (Math.abs(v) <= maxY * 1.1) yTicks.push(v);
+                    }
+
+                    // Points
+                    const pts = equityCurve.map((v, i) => ({
+                      x: padL + (i / Math.max(equityCurve.length - 1, 1)) * plotW,
+                      y: midY - v * yScale,
+                      val: v,
+                    }));
+                    const linePoints = pts.map(p => `${p.x},${p.y}`).join(' ');
+                    const areaPoints = `${padL},${midY} ${linePoints} ${padL + plotW},${midY}`;
+                    const gradId = `eqGrad-${t.address.slice(2, 8)}`;
+                    const glowId = `eqGlow-${t.address.slice(2, 8)}`;
+                    const lastPt = pts[pts.length - 1];
+
+                    return (
+                      <div style={{ padding: '0 24px 8px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>PERFORMANCE CURVE</span>
+                          <span style={{ fontSize: '0.7rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: lineColor }}>
+                            {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}%
                           </span>
-                          <span>Trade {sortedHistory.length}</span>
+                        </div>
+                        <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '14px', padding: '16px 8px 8px', border: '1px solid rgba(255,255,255,0.04)' }}>
+                          <svg viewBox={`0 0 ${cW} ${cH}`} style={{ width: '100%', height: 'auto' }}>
+                            <defs>
+                              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="0%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.25 : 0.02} />
+                                <stop offset="50%" stopColor={lineColor} stopOpacity={0.05} />
+                                <stop offset="100%" stopColor={lineColor} stopOpacity={lastPnl >= 0 ? 0.02 : 0.25} />
+                              </linearGradient>
+                              <filter id={glowId}>
+                                <feGaussianBlur stdDeviation="3" result="blur" />
+                                <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+                              </filter>
+                            </defs>
+
+                            {/* Horizontal grid lines + Y labels */}
+                            {yTicks.map(v => {
+                              const y = midY - v * yScale;
+                              return (
+                                <g key={v}>
+                                  <line x1={padL} y1={y} x2={padL + plotW} y2={y}
+                                    stroke={v === 0 ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)'}
+                                    strokeWidth={v === 0 ? 1 : 0.5}
+                                    strokeDasharray={v === 0 ? '0' : '3,3'} />
+                                  <text x={padL - 6} y={y + 3} textAnchor="end"
+                                    fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">
+                                    {v >= 0 ? '+' : ''}{v.toFixed(0)}%
+                                  </text>
+                                </g>
+                              );
+                            })}
+
+                            {/* Area fill */}
+                            <polygon points={areaPoints} fill={`url(#${gradId})`} />
+
+                            {/* Main line with glow */}
+                            <polyline points={linePoints} fill="none" stroke={lineColor} strokeWidth="2.5"
+                              strokeLinecap="round" strokeLinejoin="round" filter={`url(#${glowId})`} />
+
+                            {/* Trade dots */}
+                            {pts.slice(1).map((p, i) => {
+                              const isWin = sortedHistory[i]?.pnl >= 0;
+                              return (
+                                <g key={i}>
+                                  <circle cx={p.x} cy={p.y} r="3"
+                                    fill={isWin ? '#34D399' : '#F87171'}
+                                    stroke="rgba(0,0,0,0.3)" strokeWidth="0.5" />
+                                </g>
+                              );
+                            })}
+
+                            {/* End dot (larger, glowing) */}
+                            <circle cx={lastPt.x} cy={lastPt.y} r="5" fill={lineColor} opacity="0.3" />
+                            <circle cx={lastPt.x} cy={lastPt.y} r="3.5" fill={lineColor} />
+
+                            {/* X-axis labels */}
+                            <text x={padL} y={cH - 8} fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">1</text>
+                            {sortedHistory.length > 2 && (
+                              <text x={padL + plotW / 2} y={cH - 8} textAnchor="middle" fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">
+                                {Math.ceil(sortedHistory.length / 2)}
+                              </text>
+                            )}
+                            <text x={padL + plotW} y={cH - 8} textAnchor="end" fontSize="9" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.3)">
+                              {sortedHistory.length}
+                            </text>
+                            <text x={padL + plotW / 2} y={cH} textAnchor="middle" fontSize="8" fontFamily="Space Grotesk" fill="rgba(255,255,255,0.2)" letterSpacing="2">
+                              TRADES
+                            </text>
+                          </svg>
                         </div>
                       </div>
-                    </div>
-                  )}
+                    );
+                  })()}
 
                   {/* Active trade */}
                   {t.activeSignal && (
