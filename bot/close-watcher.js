@@ -335,12 +335,19 @@ class CloseWatcher {
       }
     });
 
-    // ── User claimed proceeds (withdrawal) ──
+    // ── User claimed proceeds (withdrawal) — only notify on profit ──
     contract.on("ProceedsClaimed", async (user, signalId, payout, fee, event) => {
       const tx = event.log?.transactionHash || "";
       const payoutStr = formatUSDC(payout);
       const feeStr = formatUSDC(fee);
-      log(`ProceedsClaimed: ${shortAddr(user)} claimed $${payoutStr}`);
+      log(`ProceedsClaimed: ${shortAddr(user)} claimed $${payoutStr} (fee: $${feeStr})`);
+
+      // Only send notification if there was actual profit (fee > 0 means profit)
+      if (Number(fee) === 0) {
+        log(`  Skipping notification — no profit (break-even or loss claim)`);
+        return;
+      }
+
       const img = await claimImage({
         trader: shortAddr(user), payout: payoutStr, fee: feeStr, signalId: String(signalId),
       });
@@ -350,8 +357,8 @@ class CloseWatcher {
         `🏆 <b>Profit Claimed — $${payoutStr} USDC</b>`,
         ``,
         `👤 <a href="${ARBISCAN_ADDR}${user}">${shortAddr(user)}</a>`,
-        Number(fee) > 0 ? `📊 Fee: $${feeStr} USDC` : "",
-      ].filter(Boolean).join("\n"), buttons);
+        `📊 Fee: $${feeStr} USDC`,
+      ].join("\n"), buttons);
 
       // ── Referral reward payout ──
       if (supabase && Number(fee) > 0) {
