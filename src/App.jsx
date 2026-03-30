@@ -778,6 +778,7 @@ function App() {
       const mp = new ethers.Contract(MARKETPLACE_ADDRESS, MARKETPLACE_ABI, provider);
 
       const providerAddrs = await mp.getProviderList();
+      const globalCount = Number(await mp.globalSignalCount());
       const providers = [];
 
       for (const addr of providerAddrs) {
@@ -785,20 +786,48 @@ function App() {
         const followers = await mp.getProviderFollowers(addr);
         const signalCount = Number(p.signalCount);
 
-        // Load last 5 signals for recent performance
-        let wins = 0, losses = 0, recent = [];
+        let wins = 0, losses = 0, recent = [], totalPnlPct = 0;
+        let activeSignalData = null;
+        let totalVolume = 0;
+        const tradeHistory = [];
+
         if (signalCount > 0) {
-          const globalCount = Number(await mp.globalSignalCount());
           const signals = await mp.getProviderSignals(addr, globalCount, Math.min(signalCount, 20));
           for (const sid of signals) {
             if (Number(sid) === 0) continue;
             const core = await mp.signalCore(sid);
-            if (core.closed) {
+            const meta = await mp.signalMeta(sid);
+            const lev = Number(core.leverage) / 1000;
+            const copied = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+            totalVolume += copied;
+
+            if (core.active && !core.closed) {
+              activeSignalData = {
+                id: Number(sid),
+                long: core.long,
+                entryPrice: core.entryPrice,
+                tp: core.tp,
+                sl: core.sl,
+                leverage: core.leverage,
+                copiers: Number(meta.copierCount),
+                volume: copied,
+                timestamp: Number(meta.timestamp),
+              };
+            } else if (core.closed) {
               const resultPct = Number(core.resultPct) / 100;
-              const lev = Number(core.leverage) / 1000;
               const pnl = resultPct * lev;
+              totalPnlPct += pnl;
               if (resultPct >= 0) wins++; else losses++;
               if (recent.length < 5) recent.push(pnl);
+              tradeHistory.push({
+                id: Number(sid),
+                long: core.long,
+                pnl,
+                leverage: lev,
+                copiers: Number(meta.copierCount),
+                volume: copied,
+                closedAt: Number(meta.closedAt),
+              });
             }
           }
         }
@@ -812,7 +841,11 @@ function App() {
           followers: followers.filter(f => f !== ethers.ZeroAddress).length,
           winRate: totalTrades > 0 ? Math.round((wins / totalTrades) * 100) : 0,
           totalTrades,
+          totalPnlPct,
+          totalVolume,
           recent: recent.length > 0 ? recent : [0],
+          activeSignal: activeSignalData,
+          tradeHistory,
         });
       }
 
@@ -2508,70 +2541,138 @@ function App() {
                     position: 'relative', overflow: 'hidden',
                   }}
                 >
-                  {/* Following indicator */}
-                  {isFollowing && (
-                    <div style={{
-                      position: 'absolute', top: '12px', right: '12px',
-                      display: 'flex', alignItems: 'center', gap: '3px',
-                      padding: '3px 8px', borderRadius: '20px', fontSize: '0.5rem', fontWeight: 700,
-                      letterSpacing: '0.08em', background: 'rgba(52,211,153,0.12)', color: 'var(--success)',
-                      border: '1px solid rgba(52,211,153,0.25)',
-                    }}>
-                      <CheckCircle2 size={10} /> FOLLOWING
-                    </div>
-                  )}
-
-                  {/* Avatar + address */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-                    <div style={{
-                      width: 40, height: 40, borderRadius: '12px',
-                      background: 'linear-gradient(135deg, rgba(212,168,67,0.15), rgba(212,168,67,0.03))',
-                      border: '1px solid rgba(212,168,67,0.2)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.8rem',
-                      color: 'var(--accent)',
-                    }}>
-                      {trader.shortAddr.slice(0, 2)}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{trader.shortAddr}</div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
-                        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6' }}>
-                          <Users size={10} /> {trader.followers}
-                        </span>
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>
-                          {trader.signalCount} signals
-                        </span>
+                  {/* Header: avatar + address + badges */}
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <div style={{
+                        width: 40, height: 40, borderRadius: '12px',
+                        background: 'linear-gradient(135deg, rgba(212,168,67,0.15), rgba(212,168,67,0.03))',
+                        border: '1px solid rgba(212,168,67,0.2)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.8rem',
+                        color: 'var(--accent)',
+                      }}>
+                        {trader.shortAddr.slice(0, 2)}
                       </div>
+                      <div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700 }}>{trader.shortAddr}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6' }}>
+                            <Users size={10} /> {trader.followers}
+                          </span>
+                          {isFollowing && (
+                            <span style={{ fontSize: '0.55rem', fontWeight: 700, padding: '1px 6px', borderRadius: '20px', background: 'rgba(52,211,153,0.12)', color: 'var(--success)', border: '1px solid rgba(52,211,153,0.25)' }}>
+                              FOLLOWING
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{
+                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 800,
+                        color: trader.totalPnlPct >= 0 ? 'var(--success)' : 'var(--danger)',
+                      }}>
+                        {trader.totalPnlPct >= 0 ? '+' : ''}{trader.totalPnlPct.toFixed(1)}%
+                      </div>
+                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TOTAL PNL</div>
                     </div>
                   </div>
 
                   {/* Key stats */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: trader.winRate >= 70 ? 'var(--success)' : trader.winRate >= 50 ? 'var(--accent)' : 'var(--danger)' }}>
-                        {trader.winRate}%
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '6px', marginBottom: '12px' }}>
+                    {[
+                      { label: 'WIN RATE', value: `${trader.winRate}%`, color: trader.winRate >= 70 ? 'var(--success)' : trader.winRate >= 50 ? 'var(--accent)' : 'var(--danger)' },
+                      { label: 'TRADES', value: trader.totalTrades, color: 'var(--text-primary)' },
+                      { label: 'FOLLOWERS', value: trader.followers, color: '#8B5CF6' },
+                      { label: 'VOLUME', value: `$${trader.totalVolume >= 1000 ? `${(trader.totalVolume / 1000).toFixed(1)}k` : Math.round(trader.totalVolume)}`, color: 'var(--accent)' },
+                    ].map(s => (
+                      <div key={s.label} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '7px 4px', textAlign: 'center' }}>
+                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.85rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+                        <div style={{ fontSize: '0.45rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>{s.label}</div>
                       </div>
-                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>WIN RATE</div>
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700 }}>
-                        {trader.totalTrades}
-                      </div>
-                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TRADES</div>
-                    </div>
-                    <div style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700 }}>
-                        {trader.followers}
-                      </div>
-                      <div style={{ fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>FOLLOWERS</div>
-                    </div>
+                    ))}
                   </div>
 
-                  {/* Mini performance bar */}
+                  {/* Active trade with live PnL */}
+                  {trader.activeSignal && (
+                    <div style={{
+                      borderRadius: '10px', padding: '10px', marginBottom: '12px',
+                      background: 'rgba(212,168,67,0.04)', border: '1px solid rgba(212,168,67,0.12)',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span className="pulse-dot" style={{ width: 6, height: 6 }} />
+                          <span style={{ fontSize: '0.7rem', fontWeight: 700 }}>Active Trade</span>
+                          <span style={{
+                            padding: '2px 6px', borderRadius: '10px', fontSize: '0.55rem', fontWeight: 700,
+                            background: trader.activeSignal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                            color: trader.activeSignal.long ? 'var(--success)' : 'var(--danger)',
+                          }}>
+                            {trader.activeSignal.long ? 'LONG' : 'SHORT'} {Number(trader.activeSignal.leverage) / 1000}x
+                          </span>
+                        </div>
+                        <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
+                          {trader.activeSignal.copiers} copier{trader.activeSignal.copiers !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      {livePrice && (() => {
+                        const entry = Number(trader.activeSignal.entryPrice) / 1e10;
+                        const pctMove = ((livePrice - entry) / entry) * 100 * (trader.activeSignal.long ? 1 : -1);
+                        const pnl = pctMove * (Number(trader.activeSignal.leverage) / 1000);
+                        const isProfit = pnl >= 0;
+                        const tp = Number(trader.activeSignal.tp) / 1e10;
+                        const sl = Number(trader.activeSignal.sl) / 1e10;
+                        const range = Math.abs(tp - sl);
+                        const progress = trader.activeSignal.long
+                          ? Math.max(0, Math.min(100, ((livePrice - sl) / range) * 100))
+                          : Math.max(0, Math.min(100, ((sl - livePrice) / range) * 100));
+                        return (
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem' }}>
+                                ${livePrice.toFixed(2)}
+                              </span>
+                              <span style={{
+                                fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.9rem',
+                                color: isProfit ? 'var(--success)' : 'var(--danger)',
+                              }}>
+                                {isProfit ? '+' : ''}{pnl.toFixed(2)}%
+                              </span>
+                            </div>
+                            <div style={{ position: 'relative', height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' }}>
+                              <div style={{
+                                position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px',
+                                width: '50%', background: 'rgba(248,113,113,0.15)',
+                              }} />
+                              <div style={{
+                                position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0',
+                                width: '50%', background: 'rgba(52,211,153,0.15)',
+                              }} />
+                              <div style={{
+                                position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
+                                width: '9px', height: '9px', borderRadius: '50%',
+                                background: isProfit ? 'var(--success)' : 'var(--danger)',
+                                boxShadow: `0 0 6px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
+                                transition: 'left 0.5s ease',
+                              }} />
+                            </div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.5rem', fontFamily: "'Space Grotesk', sans-serif" }}>
+                              <span style={{ color: 'var(--danger)' }}>SL</span>
+                              <span style={{ color: 'var(--text-secondary)' }}>Entry ${entry.toFixed(0)}</span>
+                              <span style={{ color: 'var(--success)' }}>TP</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Recent performance bars */}
                   {trader.recent.length > 0 && trader.recent.some(r => r !== 0) && (
-                    <>
-                      <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '32px', marginBottom: '6px' }}>
+                    <div style={{ marginBottom: '12px' }}>
+                      <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '6px', letterSpacing: '0.05em' }}>RECENT TRADES</div>
+                      <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '28px', marginBottom: '4px' }}>
                         {trader.recent.map((r, i) => (
                           <div key={i} style={{
                             flex: 1, borderRadius: '3px 3px 0 0',
@@ -2582,10 +2683,10 @@ function App() {
                           }} />
                         ))}
                       </div>
-                      <div style={{ display: 'flex', gap: '4px', marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', gap: '3px' }}>
                         {trader.recent.map((r, i) => (
                           <span key={i} style={{
-                            flex: 1, textAlign: 'center', padding: '3px 0', borderRadius: '6px', fontSize: '0.6rem',
+                            flex: 1, textAlign: 'center', padding: '2px 0', borderRadius: '4px', fontSize: '0.55rem',
                             fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
                             background: r >= 0 ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
                             color: r >= 0 ? 'var(--success)' : 'var(--danger)',
@@ -2594,7 +2695,7 @@ function App() {
                           </span>
                         ))}
                       </div>
-                    </>
+                    </div>
                   )}
 
                   {/* Action buttons */}
