@@ -2616,6 +2616,14 @@ function App() {
                         Unfollow
                       </button>
                     </div>
+                  ) : account && account.toLowerCase() === trader.address.toLowerCase() ? (
+                    <div style={{
+                      width: '100%', padding: '10px', fontSize: '0.75rem', textAlign: 'center',
+                      background: 'rgba(212,168,67,0.06)', borderRadius: '10px', color: 'var(--accent)',
+                      fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
+                    }}>
+                      <Crown size={14} /> Your Strategy
+                    </div>
                   ) : (
                     <button
                       className="btn btn-primary"
