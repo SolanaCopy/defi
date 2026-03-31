@@ -1116,11 +1116,21 @@ class CloseWatcher {
               signalId: String(activeId), direction: signal.long ? "LONG" : "SHORT",
               leverage: `${leverage}x`, resultPct: pct,
             });
+            // Determine if TP or SL was actually hit based on price
+            let closeReason = "Trade closed.";
+            if (signal.long) {
+              if (closePrice >= tp) closeReason = "TP hit!";
+              else if (closePrice <= sl) closeReason = "SL hit.";
+            } else {
+              if (closePrice <= tp) closeReason = "TP hit!";
+              else if (closePrice >= sl) closeReason = "SL hit.";
+            }
+
             const autoCloseLines = [
               `⚡ <b>Auto-Close Signal #${activeId}</b>`,
               ``,
               `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
-              `📈 ${win ? "TP hit!" : "SL hit."}`,
+              `📈 ${closeReason}`,
             ];
             autoCloseLines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
             await sendTelegramPhoto(img, autoCloseLines.join("\n"), [
