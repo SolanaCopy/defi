@@ -1694,12 +1694,15 @@ function App() {
                     <span style={{ color: 'var(--success)', fontWeight: 600 }}>Gold Trading</span>
                   </div>
                   <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '48px' }}>
-                    {[
-                      { h: 65, win: true }, { h: 40, win: false }, { h: 80, win: true },
-                      { h: 55, win: true }, { h: 30, win: false }, { h: 75, win: true },
-                      { h: 90, win: true }, { h: 45, win: true }, { h: 60, win: true },
-                      { h: 35, win: false }, { h: 85, win: true }, { h: 70, win: true },
-                    ].map((bar, i) => (
+                    {(() => {
+                      const closed = signalHistory.filter(s => s.closed).slice(0, 12);
+                      if (closed.length === 0) return [{ h: 20, win: true }];
+                      const maxPct = Math.max(...closed.map(s => Math.abs(Number(s.resultPct) / 100)), 1);
+                      return closed.map(s => {
+                        const pct = Math.abs(Number(s.resultPct) / 100);
+                        return { h: Math.max(15, (pct / maxPct) * 100), win: Number(s.resultPct) >= 0 };
+                      });
+                    })().map((bar, i) => (
                       <motion.div
                         key={i}
                         style={{
