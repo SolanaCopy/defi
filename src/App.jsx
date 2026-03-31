@@ -784,24 +784,14 @@ function App() {
         const closed = phase === 3; // SETTLED
         // Calculate resultPct in basis points from totalReturned vs originalDeposited
         let resultPct = 0n;
+        // Signal #7 settle bug correction: actual gTrade return was $44 on $75
+        const correctedReturned = (Number(id) === 7 && totalReturned === 0n && originalDeposited === 75000000n)
+          ? 44000000n : totalReturned;
         if (closed && originalDeposited > 0n) {
-          if (totalReturned >= originalDeposited) {
-            resultPct = BigInt(Math.round(Number((totalReturned - originalDeposited) * 10000n / originalDeposited)));
-          } else if (totalReturned === 0n) {
-            // Settle bug or full liquidation — cap loss based on SL distance * leverage
-            const entry = Number(core[2]) / 1e10;
-            const sl = Number(core[4]) / 1e10;
-            const lev = Number(core[5]) / 1000;
-            if (entry > 0 && sl > 0) {
-              const slPct = core[0] // long
-                ? ((entry - sl) / entry) * lev * 100
-                : ((sl - entry) / entry) * lev * 100;
-              resultPct = BigInt(Math.round(-Math.min(slPct, 100) * 100));
-            } else {
-              resultPct = -10000n;
-            }
+          if (correctedReturned >= originalDeposited) {
+            resultPct = BigInt(Math.round(Number((correctedReturned - originalDeposited) * 10000n / originalDeposited)));
           } else {
-            resultPct = BigInt(Math.round(-Number((originalDeposited - totalReturned) * 10000n / originalDeposited)));
+            resultPct = BigInt(Math.round(-Number((originalDeposited - correctedReturned) * 10000n / originalDeposited)));
           }
         }
         return {
@@ -1104,23 +1094,13 @@ function App() {
         const active = phase === 1 || phase === 2;
         const closed = phase === 3;
         let resultPct = 0n;
+        const correctedReturned = (Number(id) === 7 && totalReturned === 0n && originalDeposited === 75000000n)
+          ? 44000000n : totalReturned;
         if (closed && originalDeposited > 0n) {
-          if (totalReturned >= originalDeposited) {
-            resultPct = BigInt(Math.round(Number((totalReturned - originalDeposited) * 10000n / originalDeposited)));
-          } else if (totalReturned === 0n) {
-            const entry = Number(core[2]) / 1e10;
-            const sl = Number(core[4]) / 1e10;
-            const lev = Number(core[5]) / 1000;
-            if (entry > 0 && sl > 0) {
-              const slPct = core[0]
-                ? ((entry - sl) / entry) * lev * 100
-                : ((sl - entry) / entry) * lev * 100;
-              resultPct = BigInt(Math.round(-Math.min(slPct, 100) * 100));
-            } else {
-              resultPct = -10000n;
-            }
+          if (correctedReturned >= originalDeposited) {
+            resultPct = BigInt(Math.round(Number((correctedReturned - originalDeposited) * 10000n / originalDeposited)));
           } else {
-            resultPct = BigInt(Math.round(-Number((originalDeposited - totalReturned) * 10000n / originalDeposited)));
+            resultPct = BigInt(Math.round(-Number((originalDeposited - correctedReturned) * 10000n / originalDeposited)));
           }
         }
         return {
