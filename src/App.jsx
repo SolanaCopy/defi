@@ -814,17 +814,14 @@ function App() {
         // keep existing
       }
 
-      // Real volume = sum of actual collateral across all users & signals (not cumulative totalCopied)
+      // Active volume = sum of all enabled auto-copy amounts (what goes into next trade)
       try {
         const users = await publicContract.getAutoCopyUsers();
         let volSum = 0;
         for (const user of users) {
-          const ids = await publicContract.getUserSignalIds(user);
-          for (const id of ids) {
-            const pos = await publicContract.positions(user, id);
-            if (Number(pos.collateral) > 0 && !pos.claimed) {
-              volSum += parseFloat(ethers.formatUnits(pos.collateral, 6));
-            }
+          const config = await publicContract.autoCopy(user);
+          if (config.enabled) {
+            volSum += parseFloat(ethers.formatUnits(config.amount, 6));
           }
         }
         setTotalVolume(volSum);
@@ -1103,17 +1100,14 @@ function App() {
         setSignalHistory([]);
       }
 
-      // Real volume = sum of actual collateral across all users & signals
+      // Active volume = sum of all enabled auto-copy amounts (what goes into next trade)
       try {
         const users = await contract.getAutoCopyUsers();
         let volSum = 0;
         for (const user of users) {
-          const ids = await contract.getUserSignalIds(user);
-          for (const id of ids) {
-            const pos = await contract.positions(user, id);
-            if (Number(pos.collateral) > 0 && !pos.claimed) {
-              volSum += parseFloat(ethers.formatUnits(pos.collateral, 6));
-            }
+          const config = await contract.autoCopy(user);
+          if (config.enabled) {
+            volSum += parseFloat(ethers.formatUnits(config.amount, 6));
           }
         }
         setTotalVolume(volSum);
@@ -2208,6 +2202,9 @@ function App() {
       ? closedSignals.reduce((sum, s) => sum + getTradeResult(s), 0) / closedSignals.length
       : 0;
 
+    // Total PnL (sum of all leveraged results)
+    const totalPnl = closedSignals.reduce((sum, s) => sum + getTradeResult(s), 0);
+
     const monthlyGroups = groupByPeriod(closedSignals, 30);
 
     return (
@@ -2234,6 +2231,7 @@ function App() {
           style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '24px' }}
         >
           {[
+            { label: 'Total PnL', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(1)}%`, color: totalPnl >= 0 ? 'var(--success)' : 'var(--danger)' },
             { label: 'Total Trades', value: closedSignals.length.toString(), color: 'var(--text-primary)' },
             { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, color: winRate >= 50 ? 'var(--success)' : 'var(--danger)' },
             { label: 'Wins', value: wins.length.toString(), color: 'var(--success)' },

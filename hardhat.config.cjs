@@ -22,16 +22,6 @@ module.exports = {
             url: process.env.ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc",
           }
         : undefined,
-      chains: {
-        42161: {
-          hardforkHistory: {
-            arrowGlacier: 0,
-            grayGlacier: 0,
-            merge: 0,
-            shanghai: 0,
-          },
-        },
-      },
     },
     arbitrumSepolia: {
       url: process.env.ARBITRUM_SEPOLIA_RPC || "https://sepolia-rollup.arbitrum.io/rpc",

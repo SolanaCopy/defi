@@ -95,6 +95,15 @@ contract GoldCopyTraderV2 {
     mapping(address => mapping(uint256 => UserPosition)) public positions;
     mapping(address => uint256[]) public userSignalIds;
 
+    // ===== AUTO-COPY =====
+    struct AutoCopyConfig {
+        uint256 amount;
+        bool enabled;
+    }
+    mapping(address => AutoCopyConfig) public autoCopy;
+    address[] public autoCopyUsers;
+    mapping(address => bool) private _isAutoCopyUser;
+
     // ===== EVENTS =====
     event SignalPosted(uint256 indexed signalId, bool long, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage);
     event SignalOpened(uint256 indexed signalId, uint256 totalDeposited, uint32 gTradeIndex);
@@ -108,6 +117,9 @@ contract GoldCopyTraderV2 {
     event Paused(bool isPaused);
     event AdminTransferStarted(address indexed newAdmin);
     event AdminTransferred(address indexed oldAdmin, address indexed newAdmin);
+    event AutoCopyEnabled(address indexed user, uint256 amount);
+    event AutoCopyDisabled(address indexed user);
+    event AutoCopied(address indexed user, uint256 indexed signalId, uint256 amount);
 
     // ===== MODIFIERS =====
     modifier onlyAdmin() {
@@ -357,14 +369,24 @@ contract GoldCopyTraderV2 {
     }
 
     /// @notice Claim proportional share of returned USDC
-    /// @dev Uses originalDeposited (not totalDeposited) for proportional math.
-    ///      Accounts for emergency withdrawals by using the effective pool.
     function claim(uint256 _signalId) external noReentrant {
+        _claim(msg.sender, _signalId);
+    }
+
+    /// @notice Admin/bot claims on behalf of a user (payout goes to user)
+    function claimFor(address _user, uint256 _signalId) external onlyAdmin noReentrant {
+        _claim(_user, _signalId);
+    }
+
+    /// @dev Internal claim logic — used by both claim() and claimFor()
+    ///      Uses originalDeposited (not totalDeposited) for proportional math.
+    ///      Accounts for emergency withdrawals by using the effective pool.
+    function _claim(address _user, uint256 _signalId) internal {
         SignalCore storage c = signalCore[_signalId];
         SignalMeta storage m = signalMeta[_signalId];
         require(c.phase == SignalPhase.SETTLED, "Not settled");
 
-        UserPosition storage pos = positions[msg.sender][_signalId];
+        UserPosition storage pos = positions[_user][_signalId];
         require(pos.deposit > 0, "No position");
         require(!pos.claimed, "Already claimed");
 
@@ -410,10 +432,10 @@ contract GoldCopyTraderV2 {
             reservedForSignals = 0;
         }
 
-        emit UserClaimed(msg.sender, _signalId, payout, fee);
+        emit UserClaimed(_user, _signalId, payout, fee);
 
         if (payout > 0) {
-            require(usdc.transfer(msg.sender, payout), "Failed");
+            require(usdc.transfer(_user, payout), "Failed");
         }
     }
 
@@ -494,6 +516,54 @@ contract GoldCopyTraderV2 {
         emit SignalSettled(sid, m.totalDeposited, m.totalDeposited, 0);
     }
 
+    // ===== AUTO-COPY =====
+
+    /// @notice Enable auto-copy with a specific amount per trade
+    function enableAutoCopy(uint256 _amount) external {
+        require(_amount >= MIN_DEPOSIT, "Min 5 USDC");
+        require(_amount <= MAX_DEPOSIT, "Max 50000 USDC");
+        require(msg.sender != admin, "Admin cannot auto-copy");
+
+        if (!_isAutoCopyUser[msg.sender]) {
+            autoCopyUsers.push(msg.sender);
+            _isAutoCopyUser[msg.sender] = true;
+        }
+        autoCopy[msg.sender] = AutoCopyConfig(_amount, true);
+        emit AutoCopyEnabled(msg.sender, _amount);
+    }
+
+    /// @notice Disable auto-copy
+    function disableAutoCopy() external {
+        require(autoCopy[msg.sender].enabled, "Not enabled");
+        autoCopy[msg.sender].enabled = false;
+        emit AutoCopyDisabled(msg.sender);
+    }
+
+    /// @notice Bot executes auto-copy deposit for a user
+    function executeCopyFor(address _user, uint256 _signalId) external onlyAdmin whenNotPaused noReentrant {
+        AutoCopyConfig storage config = autoCopy[_user];
+        require(config.enabled, "Auto-copy not enabled");
+
+        SignalCore storage c = signalCore[_signalId];
+        SignalMeta storage m = signalMeta[_signalId];
+        require(c.phase == SignalPhase.COLLECTING, "Not collecting");
+
+        UserPosition storage existingPos = positions[_user][_signalId];
+        require(existingPos.deposit == 0 && !existingPos.claimed, "Already deposited");
+
+        uint256 amount = config.amount;
+        require(m.totalDeposited + amount <= MAX_POOL, "Pool full");
+
+        positions[_user][_signalId] = UserPosition(amount, false);
+        userSignalIds[_user].push(_signalId);
+        m.totalDeposited += amount;
+        m.copierCount++;
+
+        emit AutoCopied(_user, _signalId, amount);
+
+        require(usdc.transferFrom(_user, address(this), amount), "Transfer failed");
+    }
+
     // ===== VIEW =====
 
     function getActiveSignalId() external view returns (uint256) {
@@ -502,6 +572,14 @@ contract GoldCopyTraderV2 {
 
     function getUserSignalIds(address _user) external view returns (uint256[] memory) {
         return userSignalIds[_user];
+    }
+
+    function getAutoCopyUsers() external view returns (address[] memory) {
+        return autoCopyUsers;
+    }
+
+    function getAutoCopyUserCount() external view returns (uint256) {
+        return autoCopyUsers.length;
     }
 
     function getExpectedPayout(address _user, uint256 _id) external view returns (uint256) {

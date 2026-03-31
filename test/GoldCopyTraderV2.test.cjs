@@ -503,6 +503,153 @@ describe("GoldCopyTraderV2", function () {
       .to.be.revertedWith("Wrong trade index");
   });
 
+  // ===== CLAIM FOR TESTS =====
+
+  it("CLAIMFOR: admin can claimFor a user", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.cancelSignal();
+
+    const before = await usdc.balanceOf(user1.address);
+    await contract.claimFor(user1.address, 1);
+    const after = await usdc.balanceOf(user1.address);
+
+    expect(after - before).to.equal(500000000n);
+  });
+
+  it("CLAIMFOR: payout goes to user, not admin", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.openTrade(0);
+    await usdc.mint(await contract.getAddress(), 100000000n);
+    await contract.settleSignal(600000000n); // 20% profit
+
+    const adminBefore = await usdc.balanceOf(admin.address);
+    const userBefore = await usdc.balanceOf(user1.address);
+    await contract.claimFor(user1.address, 1);
+    const adminAfter = await usdc.balanceOf(admin.address);
+    const userAfter = await usdc.balanceOf(user1.address);
+
+    expect(adminAfter).to.equal(adminBefore);
+    expect(userAfter).to.be.gt(userBefore);
+  });
+
+  it("CLAIMFOR: non-admin cannot claimFor", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.cancelSignal();
+
+    await expect(contract.connect(user2).claimFor(user1.address, 1))
+      .to.be.revertedWith("Not admin");
+  });
+
+  it("CLAIMFOR: cannot claim twice", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.cancelSignal();
+
+    await contract.claimFor(user1.address, 1);
+    await expect(contract.claimFor(user1.address, 1))
+      .to.be.revertedWith("Already claimed");
+  });
+
+  it("CLAIMFOR: user cannot claim after admin claimFor", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.cancelSignal();
+
+    await contract.claimFor(user1.address, 1);
+    await expect(contract.connect(user1).claim(1))
+      .to.be.revertedWith("Already claimed");
+  });
+
+  it("CLAIMFOR: reverts for user without position", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.cancelSignal();
+
+    await expect(contract.claimFor(user2.address, 1))
+      .to.be.revertedWith("No position");
+  });
+
+  it("CLAIMFOR: reverts if not settled", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+
+    await expect(contract.claimFor(user1.address, 1))
+      .to.be.revertedWith("Not settled");
+  });
+
+  it("CLAIMFOR: emits UserClaimed with correct user", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.cancelSignal();
+
+    await expect(contract.claimFor(user1.address, 1))
+      .to.emit(contract, "UserClaimed")
+      .withArgs(user1.address, 1, 500000000n, 0);
+  });
+
+  it("CLAIMFOR: profit with fees correct", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(1000000000n);
+    await contract.openTrade(0);
+    await usdc.mint(await contract.getAddress(), 500000000n);
+    await contract.settleSignal(1500000000n); // 50% profit
+
+    // Profit = 500. Fee = 20% of 500 = 100. Payout = 1400
+    const before = await usdc.balanceOf(user1.address);
+    await contract.claimFor(user1.address, 1);
+    const after = await usdc.balanceOf(user1.address);
+
+    expect(after - before).to.equal(1400000000n);
+    expect(await contract.totalFeesCollected()).to.equal(100000000n);
+  });
+
+  it("CLAIMFOR: loss distributed correctly, no fees", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(1000000000n);
+    await contract.connect(user2).deposit(500000000n);
+    await contract.openTrade(0);
+    await contract.settleSignal(900000000n); // 40% loss
+
+    const u1Before = await usdc.balanceOf(user1.address);
+    const u2Before = await usdc.balanceOf(user2.address);
+
+    await contract.claimFor(user1.address, 1);
+    await contract.claimFor(user2.address, 1);
+
+    // User1: 900 * 1000/1500 = 600. User2: 900 * 500/1500 = 300
+    expect((await usdc.balanceOf(user1.address)) - u1Before).to.equal(600000000n);
+    expect((await usdc.balanceOf(user2.address)) - u2Before).to.equal(300000000n);
+    expect(await contract.totalFeesCollected()).to.equal(0n);
+  });
+
+  it("CLAIMFOR: full flow — auto-claim all users, then new signal", async function () {
+    // Signal 1
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.connect(user2).deposit(200000000n);
+    await contract.openTrade(0);
+    await contract.settleSignal(700000000n); // break even
+
+    // Admin claims for all
+    await contract.claimFor(user1.address, 1);
+    await contract.claimFor(user2.address, 1);
+
+    // Verify claimed
+    expect((await contract.positions(user1.address, 1)).claimed).to.be.true;
+    expect((await contract.positions(user2.address, 1)).claimed).to.be.true;
+
+    // Signal 2 — users can deposit again
+    await contract.postSignal(false, entry, sl, tp, 25000);
+    await contract.connect(user1).deposit(500000000n);
+    await contract.connect(user2).deposit(200000000n);
+
+    const meta = await contract.signalMeta(2);
+    expect(meta.totalDeposited).to.equal(700000000n);
+  });
+
   it("BUG: multiple signals lifecycle", async function () {
     // Signal 1: deposit + cancel + claim
     await contract.postSignal(true, entry, tp, sl, 50000);
@@ -521,5 +668,147 @@ describe("GoldCopyTraderV2", function () {
     // All USDC back
     expect(await usdc.balanceOf(user1.address)).to.equal(10000000000n);
     expect(await usdc.balanceOf(user2.address)).to.equal(10000000000n);
+  });
+
+  // ===== AUTO-COPY TESTS =====
+
+  it("AUTOCOPY: user can enable auto-copy", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n); // $100
+    const config = await contract.autoCopy(user1.address);
+    expect(config.enabled).to.be.true;
+    expect(config.amount).to.equal(100000000n);
+  });
+
+  it("AUTOCOPY: user can disable auto-copy", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.connect(user1).disableAutoCopy();
+    const config = await contract.autoCopy(user1.address);
+    expect(config.enabled).to.be.false;
+  });
+
+  it("AUTOCOPY: user can update amount", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.connect(user1).enableAutoCopy(200000000n);
+    const config = await contract.autoCopy(user1.address);
+    expect(config.amount).to.equal(200000000n);
+  });
+
+  it("AUTOCOPY: min amount enforced", async function () {
+    await expect(contract.connect(user1).enableAutoCopy(1000000n)) // $1
+      .to.be.revertedWith("Min 5 USDC");
+  });
+
+  it("AUTOCOPY: admin cannot enable auto-copy", async function () {
+    await expect(contract.enableAutoCopy(100000000n))
+      .to.be.revertedWith("Admin cannot auto-copy");
+  });
+
+  it("AUTOCOPY: disable without enable reverts", async function () {
+    await expect(contract.connect(user1).disableAutoCopy())
+      .to.be.revertedWith("Not enabled");
+  });
+
+  it("AUTOCOPY: getAutoCopyUsers returns correct list", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.connect(user2).enableAutoCopy(50000000n);
+    const users = await contract.getAutoCopyUsers();
+    expect(users.length).to.equal(2);
+    expect(users[0]).to.equal(user1.address);
+    expect(users[1]).to.equal(user2.address);
+  });
+
+  it("AUTOCOPY: getAutoCopyUserCount correct", async function () {
+    expect(await contract.getAutoCopyUserCount()).to.equal(0);
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    expect(await contract.getAutoCopyUserCount()).to.equal(1);
+    await contract.connect(user2).enableAutoCopy(50000000n);
+    expect(await contract.getAutoCopyUserCount()).to.equal(2);
+  });
+
+  it("AUTOCOPY: no duplicate in user list on re-enable", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.connect(user1).disableAutoCopy();
+    await contract.connect(user1).enableAutoCopy(200000000n);
+    const users = await contract.getAutoCopyUsers();
+    expect(users.length).to.equal(1);
+  });
+
+  it("AUTOCOPY: executeCopyFor deposits for user", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.postSignal(true, entry, tp, sl, 50000);
+
+    const balBefore = await usdc.balanceOf(user1.address);
+    await contract.executeCopyFor(user1.address, 1);
+    const balAfter = await usdc.balanceOf(user1.address);
+
+    expect(balBefore - balAfter).to.equal(100000000n);
+    const meta = await contract.signalMeta(1);
+    expect(meta.totalDeposited).to.equal(100000000n);
+    expect(meta.copierCount).to.equal(1);
+  });
+
+  it("AUTOCOPY: executeCopyFor blocked for non-admin", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.postSignal(true, entry, tp, sl, 50000);
+
+    await expect(contract.connect(user2).executeCopyFor(user1.address, 1))
+      .to.be.revertedWith("Not admin");
+  });
+
+  it("AUTOCOPY: executeCopyFor blocked if not enabled", async function () {
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await expect(contract.executeCopyFor(user1.address, 1))
+      .to.be.revertedWith("Auto-copy not enabled");
+  });
+
+  it("AUTOCOPY: executeCopyFor blocked if already deposited", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.executeCopyFor(user1.address, 1);
+
+    await expect(contract.executeCopyFor(user1.address, 1))
+      .to.be.revertedWith("Already deposited");
+  });
+
+  it("AUTOCOPY: emits AutoCopied event", async function () {
+    await contract.connect(user1).enableAutoCopy(100000000n);
+    await contract.postSignal(true, entry, tp, sl, 50000);
+
+    await expect(contract.executeCopyFor(user1.address, 1))
+      .to.emit(contract, "AutoCopied")
+      .withArgs(user1.address, 1, 100000000n);
+  });
+
+  it("AUTOCOPY: full flow — enable, copy, settle, claimFor, new signal", async function () {
+    // Users enable auto-copy
+    await contract.connect(user1).enableAutoCopy(500000000n);
+    await contract.connect(user2).enableAutoCopy(200000000n);
+
+    // Signal 1
+    await contract.postSignal(true, entry, tp, sl, 50000);
+    await contract.executeCopyFor(user1.address, 1);
+    await contract.executeCopyFor(user2.address, 1);
+
+    // Open + settle (break even)
+    await contract.openTrade(0);
+    await contract.settleSignal(700000000n);
+
+    // Admin auto-claims for all
+    await contract.claimFor(user1.address, 1);
+    await contract.claimFor(user2.address, 1);
+
+    // USDC is back in wallets
+    const bal1 = await usdc.balanceOf(user1.address);
+    const bal2 = await usdc.balanceOf(user2.address);
+    expect(bal1).to.equal(10000000000n);
+    expect(bal2).to.equal(10000000000n);
+
+    // Signal 2 — auto-copy works again
+    await contract.postSignal(false, entry, sl, tp, 25000);
+    await contract.executeCopyFor(user1.address, 2);
+    await contract.executeCopyFor(user2.address, 2);
+
+    const meta = await contract.signalMeta(2);
+    expect(meta.totalDeposited).to.equal(700000000n);
   });
 });
