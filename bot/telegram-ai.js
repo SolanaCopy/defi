@@ -8,7 +8,7 @@ const {
 } = process.env;
 
 const WEBSITE = "https://www.smarttradingclub.io";
-const CONTRACT = "0xe58A6Efa1d395B4cfC361C5D3Ac6909ed1eA5999";
+const CONTRACT = "0x1E34452cbD7Ea6Af3D9282D9C95AC625298221b6";
 const TG_GROUP = "https://t.me/SmartTradingClubDapp";
 
 const SYSTEM_PROMPT = `You are the Smart Trading Club assistant bot in a Telegram group. You help users understand the platform and answer their questions.

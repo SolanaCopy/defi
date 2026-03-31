@@ -1,5 +1,5 @@
 const { ethers } = require("hardhat");
-const GOLD_COPY_TRADER = "0xe58A6Efa1d395B4cfC361C5D3Ac6909ed1eA5999";
+const GOLD_COPY_TRADER = "0x1E34452cbD7Ea6Af3D9282D9C95AC625298221b6";
 const ABI = [
   "function cancelSignal(uint256 _id) external",
   "function activeSignalId() view returns (uint256)",

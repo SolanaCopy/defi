@@ -56,6 +56,7 @@ contract GoldCopyTraderV5 {
     uint256 public signalCount;
     uint256 public activeSignalId;
     uint32 public nextTradeIndex;
+    uint256 public totalFeesCollected;
 
     struct SignalCore {
         bool long;
@@ -205,12 +206,12 @@ contract GoldCopyTraderV5 {
         pendingAdmin = address(0);
     }
 
-    function withdrawFees(uint256 _amount) external onlyAdmin noReentrant {
-        require(_amount > 0, "Zero");
-        uint256 bal = usdc.balanceOf(address(this));
-        require(_amount <= bal, "Insufficient");
-        emit FeesWithdrawn(_amount);
-        require(usdc.transfer(admin, _amount), "Failed");
+    function withdrawFees() external onlyAdmin noReentrant {
+        require(totalFeesCollected > 0, "No fees");
+        uint256 amount = totalFeesCollected;
+        totalFeesCollected = 0;
+        emit FeesWithdrawn(amount);
+        require(usdc.transfer(admin, amount), "Failed");
     }
 
     function adminDeposit(uint256 _amount) external onlyAdmin noReentrant {
@@ -313,6 +314,7 @@ contract GoldCopyTraderV5 {
         }
 
         pos.claimed = true;
+        totalFeesCollected += fee;
 
         // Cap to available balance
         uint256 available = usdc.balanceOf(address(this));
