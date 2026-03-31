@@ -288,6 +288,7 @@ function App() {
   const [particlesReady, setParticlesReady] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [legacyClaimed, setLegacyClaimed] = useState(false);
   const [marketStatus, setMarketStatus] = useState(getGoldMarketStatus);
 
   // Blockchain State
@@ -1192,6 +1193,19 @@ function App() {
         });
       } catch {
         setAutoCopyConfig({ enabled: false, amount: 0 });
+      }
+
+      // Check legacy claim status for specific wallet
+      if (userAddress.toLowerCase() === '0x52de1ec42554cd0867fe7d8a7eb105d09912afb3') {
+        try {
+          const oldContract = new ethers.Contract(
+            '0xf41d121DB5841767f403a4Bc59A54B26DecF6b99',
+            ['function positions(address, uint256) view returns (uint256 collateral, uint32 tradeIndex, bool claimed)'],
+            new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc")
+          );
+          const pos = await oldContract.positions(userAddress, 17);
+          setLegacyClaimed(pos.claimed);
+        } catch {}
       }
     } catch (err) {
       console.error("Error loading data:", err);
@@ -4038,7 +4052,7 @@ function App() {
       </motion.div>
 
       {/* Legacy claim banner — only for wallet with unclaimed on old contract */}
-      {account && account.toLowerCase() === '0x52de1ec42554cd0867fe7d8a7eb105d09912afb3' && (
+      {account && account.toLowerCase() === '0x52de1ec42554cd0867fe7d8a7eb105d09912afb3' && !legacyClaimed && (
         <motion.div
           variants={fadeUp} initial="hidden" animate="visible"
           style={{
@@ -4071,7 +4085,7 @@ function App() {
                 );
                 const tx = await oldContract.claimProceeds(17);
                 await tx.wait();
-                alert('Claimed successfully!');
+                setLegacyClaimed(true);
               } catch (err) {
                 alert(err.reason || err.message || 'Claim failed');
               } finally {
