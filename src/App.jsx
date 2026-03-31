@@ -2529,7 +2529,7 @@ function App() {
                   animate={{ opacity: 1 }}
                   transition={{ delay: index * 0.03 }}
                   style={{
-                    display: 'grid', gridTemplateColumns: '50px 70px 80px 1fr 80px 80px 100px',
+                    display: 'grid', gridTemplateColumns: '50px 70px 80px 1fr 80px 80px 100px 70px',
                     gap: '8px', padding: '12px', fontSize: '0.8rem',
                     borderBottom: '1px solid rgba(255,255,255,0.03)',
                     alignItems: 'center',
@@ -2590,6 +2590,17 @@ function App() {
                       return <div style={{ fontWeight: 700, color: 'var(--accent)' }}>OPEN</div>;
                     })()}
                   </div>
+                  {/* Copied badge */}
+                  {account ? (
+                    <span style={{
+                      padding: '2px 6px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 600, textAlign: 'center',
+                      background: userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.1)' : 'rgba(255,255,255,0.04)',
+                      color: userPositions[Number(signal.id)] ? 'var(--success)' : 'var(--text-secondary)',
+                      border: `1px solid ${userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                    }}>
+                      {userPositions[Number(signal.id)] ? 'COPIED' : '—'}
+                    </span>
+                  ) : <span />}
                 </motion.div>
               );
             })}
@@ -5121,6 +5132,18 @@ function App() {
                         <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
                           {leverage}x
                         </span>
+
+                        {/* Copied badge */}
+                        {account && (
+                          <span style={{
+                            padding: '2px 5px', borderRadius: '4px', fontSize: '0.5rem', fontWeight: 600,
+                            background: userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.1)' : 'rgba(255,255,255,0.04)',
+                            color: userPositions[Number(signal.id)] ? 'var(--success)' : 'var(--text-secondary)',
+                            border: `1px solid ${userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                          }}>
+                            {userPositions[Number(signal.id)] ? 'COPIED' : 'NOT COPIED'}
+                          </span>
+                        )}
 
                         {/* Result */}
                         <div style={{ textAlign: 'right', minWidth: '55px' }}>
