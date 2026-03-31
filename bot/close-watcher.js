@@ -41,7 +41,7 @@ const ARBISCAN_ADDR = "https://arbiscan.io/address/";
 
 // ===== ABI FRAGMENTS =====
 const COPY_TRADER_ABI = [
-  "function closeSignal(uint256 _id, int256 _result) external",
+  "function cancelSignal() external",
   "function closeTradeMarket(uint32 _index, uint64 _expectedPrice) external",
   "function activeSignalId() view returns (uint256)",
   "function signalCore(uint256) view returns (bool long, bool active, bool closed, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage, int256 resultPct, uint256 feeAtCreation)",
