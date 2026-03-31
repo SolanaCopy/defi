@@ -4037,6 +4037,53 @@ function App() {
         </div>
       </motion.div>
 
+      {/* Legacy claim banner — only for wallet with unclaimed on old contract */}
+      {account && account.toLowerCase() === '0x52de1ec42554cd0867fe7d8a7eb105d09912afb3' && (
+        <motion.div
+          variants={fadeUp} initial="hidden" animate="visible"
+          style={{
+            background: 'linear-gradient(135deg, rgba(212,168,67,0.1), rgba(212,168,67,0.05))',
+            border: '1px solid rgba(212,168,67,0.25)',
+            borderRadius: '16px', padding: '20px 24px', marginBottom: '16px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
+          }}
+        >
+          <div>
+            <div style={{ fontWeight: 700, fontSize: '0.95rem', marginBottom: '4px' }}>
+              You have an unclaimed position from the previous contract
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Signal #17 — ~$35.10 USDC available to claim
+            </div>
+          </div>
+          <button
+            className="btn btn-primary"
+            disabled={isLoading}
+            onClick={async () => {
+              try {
+                setIsLoading(true);
+                const provider = new ethers.BrowserProvider(window.ethereum);
+                const signer = await provider.getSigner();
+                const oldContract = new ethers.Contract(
+                  '0xf41d121DB5841767f403a4Bc59A54B26DecF6b99',
+                  ['function claimProceeds(uint256 _id) external'],
+                  signer
+                );
+                const tx = await oldContract.claimProceeds(17);
+                await tx.wait();
+                alert('Claimed successfully!');
+              } catch (err) {
+                alert(err.reason || err.message || 'Claim failed');
+              } finally {
+                setIsLoading(false);
+              }
+            }}
+          >
+            {isLoading ? 'Claiming...' : 'Claim $35.10 USDC'}
+          </button>
+        </motion.div>
+      )}
+
       {/* ===== TOP: Wallet + Stats ===== */}
       <motion.div className="dash-bento-top" variants={staggerContainer} initial="hidden" animate="visible">
 
