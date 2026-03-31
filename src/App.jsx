@@ -340,7 +340,7 @@ function App() {
 
       for (const s of filtered) {
         const pos = userPositions[Number(s.id)];
-        const col = pos ? parseFloat(ethers.formatUnits(pos.collateral, 6)) : 0;
+        const col = pos ? parseFloat(ethers.formatUnits(pos.deposit, 6)) : 0;
         const resultPct = Number(s.resultPct) / 100; // to %
         const lev = Number(s.leverage) / 1000;
         const pnl = col * (resultPct / 100) * lev;
@@ -1167,7 +1167,7 @@ function App() {
         const posMap = {};
         for (const sid of sids) {
           const pos = await contract.positions(userAddress, sid);
-          if (Number(pos.collateral) > 0) {
+          if (Number(pos.deposit) > 0) {
             posMap[Number(sid)] = pos;
           }
         }
@@ -3964,7 +3964,7 @@ function App() {
                 }}>
                   <CheckCircle2 size={16} style={{ color: 'var(--accent)' }} />
                   <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)' }}>
-                    Copied — {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC
+                    Copied — {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].deposit, USDC_DECIMALS)).toFixed(2)} USDC
                   </span>
                 </div>
               )}
@@ -4505,7 +4505,7 @@ function App() {
                               {hasPrice ? `${isProfit ? '+' : ''}${livePnl.toFixed(2)}%` : '—'}
                             </div>
                             {hasPrice && userPositions[Number(activeSignal.id)] && (() => {
-                              const col = parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS));
+                              const col = parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].deposit, USDC_DECIMALS));
                               const pnlUSD = col * livePnl / 100;
                               return (
                                 <div style={{
@@ -4536,7 +4536,7 @@ function App() {
                     fontSize: '0.75rem', color: 'var(--accent)',
                   }}>
                     <CheckCircle2 size={14} />
-                    Copied {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].collateral, USDC_DECIMALS)).toFixed(2)} USDC
+                    Copied {parseFloat(ethers.formatUnits(userPositions[Number(activeSignal.id)].deposit, USDC_DECIMALS)).toFixed(2)} USDC
                     <span style={{ color: 'var(--text-secondary)' }}>&middot;</span>
                     <span style={{ color: 'var(--text-secondary)' }}>{Number(activeSignal.copierCount)} copiers</span>
                   </div>
@@ -4597,7 +4597,7 @@ function App() {
                   const pos = userPositions[Number(signal.id)];
                   const isClosed = signal.closed;
                   const result = Number(signal.resultPct) / 100;
-                  const collateral = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
+                  const collateral = parseFloat(ethers.formatUnits(pos.deposit, USDC_DECIMALS));
                   const leverage = Number(signal.leverage) / 1000;
                   const feePct = Number(signal.feeAtCreation || 0) / 100;
 
@@ -4766,7 +4766,7 @@ function App() {
                 let totalPnl = 0;
                 claimed.forEach(s => {
                   const pos = userPositions[Number(s.id)];
-                  const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
+                  const col = parseFloat(ethers.formatUnits(pos.deposit, USDC_DECIMALS));
                   totalPnl += col * (Number(s.resultPct) / 100) / 100;
                 });
 
@@ -4791,7 +4791,7 @@ function App() {
                       let dayPnl = 0;
                       signals.forEach(s => {
                         const pos = userPositions[Number(s.id)];
-                        const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
+                        const col = parseFloat(ethers.formatUnits(pos.deposit, USDC_DECIMALS));
                         dayPnl += col * (Number(s.resultPct) / 100) / 100;
                       });
 
@@ -4826,7 +4826,7 @@ function App() {
                           </div>
                           {signals.map(signal => {
                             const pos = userPositions[Number(signal.id)];
-                            const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
+                            const col = parseFloat(ethers.formatUnits(pos.deposit, USDC_DECIMALS));
                             const pnlPct = Number(signal.resultPct) / 100;
                             const pnlUSD = col * pnlPct / 100;
                             return (
