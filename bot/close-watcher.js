@@ -673,7 +673,16 @@ class CloseWatcher {
 
       const copierCount = Number(await contract.getAutoCopyUserCount());
       const dayProfitPct = trades > 0 ? (totalResultPct / trades).toFixed(2) : "0.00";
-      const dayProfitUsd = (volume * totalResultPct / 100).toFixed(2);
+
+      // Calculate active auto-copy volume (USDC ready to copy next signal)
+      let activeCopyVolume = 0;
+      try {
+        const users = await contract.getAutoCopyUsers();
+        for (const u of users) {
+          const config = await contract.autoCopy(u);
+          if (config.enabled) activeCopyVolume += Number(config.amount) / 1e6;
+        }
+      } catch {}
 
       if (trades === 0) {
         log("Daily summary: no trades today, skipping");
@@ -684,7 +693,7 @@ class CloseWatcher {
         trades: String(trades),
         wins: String(wins),
         losses: String(losses),
-        volume: volume.toFixed(0),
+        volume: Math.round(activeCopyVolume).toString(),
         profit: `${totalResultPct >= 0 ? '+' : ''}${dayProfitPct}%`,
         copiers: String(copierCount),
       });
@@ -693,13 +702,12 @@ class CloseWatcher {
         `📊 <b>Daily Recap</b>`,
         ``,
         `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
-        `💰 Volume: <b>$${volume.toFixed(0)} USDC</b>`,
+        `💰 Active copying: <b>$${Math.round(activeCopyVolume)} USDC</b>`,
         `🎯 Avg result: <b>${totalResultPct >= 0 ? '+' : ''}${dayProfitPct}%</b>`,
-        `💵 Profit: <b>${totalResultPct >= 0 ? '+' : ''}$${dayProfitUsd}</b>`,
         `👥 Copiers: <b>${copierCount}</b>`,
       ].join("\n"), [BTN_APP, BTN_TG]);
 
-      log(`Daily summary sent: ${trades} trades, $${volume.toFixed(0)} volume`);
+      log(`Daily summary sent: ${trades} trades, $${Math.round(activeCopyVolume)} active copying`);
     } catch (err) {
       log(`Daily summary error: ${err.message}`);
     }
