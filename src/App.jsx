@@ -4311,7 +4311,7 @@ function App() {
             </div>
           )}
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+          <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
             {[
               { label: 'Today', data: performanceStats.platform.today },
               { label: '7 Days', data: performanceStats.platform.week },
@@ -4365,7 +4365,7 @@ function App() {
             <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>My PnL</h3>
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+          <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
             {[
               { label: 'Today', data: performanceStats.my.today },
               { label: '7 Days', data: performanceStats.my.week },
