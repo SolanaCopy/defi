@@ -82,9 +82,9 @@ async function checkNews() {
     const minutesUntil = getMinutesUntil(event.date);
     const eventKey = `${event.date}-${event.title}`;
 
-    // 1 hour before alert (wide window: 45-90 min before)
+    // 1 hour before alert (tight window: 55-65 min before)
     const preAlertKey = `pre-${eventKey}`;
-    if (minutesUntil > 45 && minutesUntil <= 90 && !alertedEvents.has(preAlertKey)) {
+    if (minutesUntil > 55 && minutesUntil <= 65 && !alertedEvents.has(preAlertKey)) {
       alertedEvents.set(preAlertKey, Date.now());
 
       const msg = [
