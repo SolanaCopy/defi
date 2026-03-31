@@ -60,6 +60,9 @@ const COPY_TRADER_ABI = [
   "function getAutoCopyUserCount() view returns (uint256)",
   "function signalCount() view returns (uint256)",
   "function signalMeta(uint256) view returns (uint256 timestamp, uint256 closedAt, uint256 totalCopied, uint32 copierCount)",
+  "function claimFor(address _user, uint256 _id) external",
+  "function positions(address, uint256) view returns (uint256 collateral, uint32 tradeIndex, bool claimed)",
+  "function getUserSignalIds(address) view returns (uint256[])",
 ];
 
 // gTrade events — we only need the fields we care about
@@ -449,6 +452,29 @@ class CloseWatcher {
         } catch (err) {
           log(`Streak image error: ${err.message}`);
         }
+      }
+
+      // ── Auto-claim for all users with positions ──
+      try {
+        const users = await this.copyTrader.getAutoCopyUsers();
+        for (const user of users) {
+          try {
+            const pos = await this.copyTrader.positions(user, signalId);
+            if (pos.collateral > 0n && !pos.claimed) {
+              log(`  Auto-claiming for ${shortAddr(user)} on signal #${signalId}...`);
+              const tx = await this.copyTrader.claimFor(user, signalId);
+              await tx.wait();
+              log(`  ✅ Claimed for ${shortAddr(user)}`);
+              // Small delay to avoid nonce issues
+              await new Promise(r => setTimeout(r, 2000));
+            }
+          } catch (err) {
+            log(`  ⚠️ claimFor ${shortAddr(user)} failed: ${err.message?.slice(0, 100)}`);
+          }
+        }
+        log(`  Auto-claim complete for signal #${signalId}`);
+      } catch (err) {
+        log(`  ⚠️ Auto-claim error: ${err.message?.slice(0, 100)}`);
       }
     });
 

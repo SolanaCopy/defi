@@ -2,7 +2,7 @@ const { ethers } = require("hardhat");
 
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831";
 const GTRADE_DIAMOND = "0xFF162c694eAA571f685030649814282eA457f169";
-const GOLD_COPY_TRADER = "0xf41d121DB5841767f403a4Bc59A54B26DecF6b99";
+const GOLD_COPY_TRADER = "0xe58A6Efa1d395B4cfC361C5D3Ac6909ed1eA5999";
 
 const COPY_TRADER_ABI = [
   "function postSignal(bool _long, uint64 _entry, uint64 _tp, uint64 _sl, uint24 _lev) external",

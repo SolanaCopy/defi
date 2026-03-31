@@ -46,7 +46,7 @@ const buttons = {
   inline_keyboard: [
     [
       { text: "\u{1F680} Open App", url: "https://www.smarttradingclub.io?tab=dashboard" },
-      { text: "\u{1F4C4} Contract", url: "https://arbiscan.io/address/0xf41d121DB5841767f403a4Bc59A54B26DecF6b99" },
+      { text: "\u{1F4C4} Contract", url: "https://arbiscan.io/address/0xe58A6Efa1d395B4cfC361C5D3Ac6909ed1eA5999" },
     ],
     [
       { text: "\u{1F309} Bridge to Arbitrum", url: "https://www.smarttradingclub.io?tab=invest" },
