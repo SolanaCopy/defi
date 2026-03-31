@@ -50,19 +50,24 @@ const COPY_TRADER_ABI = [
   "function autoCopy(address) view returns (uint256 amount, bool enabled)",
   "function executeCopyFor(address _user, uint256 _signalId) external",
   "event SignalPosted(uint256 indexed signalId, bool long, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage)",
-  "event SignalClosed(uint256 indexed signalId, int256 resultPct)",
-  "event TradeCopied(address indexed user, uint256 indexed signalId, uint256 amount)",
+  "event SignalOpened(uint256 indexed signalId, uint256 totalDeposited, uint32 gTradeIndex)",
+  "event SignalSettled(uint256 indexed signalId, uint256 totalDeposited, uint256 totalReturned, int256 resultPct)",
+  "event UserDeposited(address indexed user, uint256 indexed signalId, uint256 amount)",
   "event AutoCopied(address indexed user, uint256 indexed signalId, uint256 amount)",
-  "event ProceedsClaimed(address indexed user, uint256 indexed signalId, uint256 payout, uint256 fee)",
+  "event UserClaimed(address indexed user, uint256 indexed signalId, uint256 payout, uint256 fee)",
   "event FeesWithdrawn(uint256 amount)",
   "event AutoCopyEnabled(address indexed user, uint256 amount)",
   "event AutoCopyDisabled(address indexed user)",
   "function getAutoCopyUserCount() view returns (uint256)",
   "function signalCount() view returns (uint256)",
-  "function signalMeta(uint256) view returns (uint256 timestamp, uint256 closedAt, uint256 totalCopied, uint32 copierCount)",
-  "function claimFor(address _user, uint256 _id) external",
-  "function positions(address, uint256) view returns (uint256 collateral, uint32 tradeIndex, bool claimed)",
+  "function signalCore(uint256) view returns (bool long, uint8 phase, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage, uint256 feeAtCreation, uint32 gTradeIndex)",
+  "function signalMeta(uint256) view returns (uint256 timestamp, uint256 closedAt, uint256 totalDeposited, uint256 totalReturned, uint256 copierCount, uint256 originalDeposited, uint256 totalEmergencyWithdrawn, uint256 totalClaimed, uint256 balanceAtOpen)",
+  "function claimFor(address _user, uint256 _signalId) external",
+  "function positions(address, uint256) view returns (uint256 deposit, bool claimed)",
   "function getUserSignalIds(address) view returns (uint256[])",
+  "function getActiveSignalId() view returns (uint256)",
+  "function settleSignal(uint256 _totalReturned) external",
+  "function closeTrade(uint32 _index, uint64 _expectedPrice) external",
 ];
 
 // gTrade events — we only need the fields we care about
@@ -176,6 +181,18 @@ function formatPrice(price) {
   return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// V2: calculate result % from meta (totalReturned vs originalDeposited)
+function calcResultPct(meta) {
+  const returned = BigInt(meta.totalReturned);
+  const original = BigInt(meta.originalDeposited);
+  if (original === 0n) return 0;
+  if (returned >= original) {
+    return Number((returned - original) * 10000n / original) / 100;
+  } else {
+    return -Number((original - returned) * 10000n / original) / 100;
+  }
+}
+
 const LINE = "";
 const WEBSITE = "https://www.smarttradingclub.io";
 const BTN_COPY = { text: "💰 Copy Now", url: `${WEBSITE}?tab=dashboard` };
@@ -284,20 +301,9 @@ class CloseWatcher {
 
     // Buttons defined at module level
 
-    // ── New signal posted ──
+    // ── New signal posted — auto-copy only, no Telegram notification yet ──
     contract.on("SignalPosted", async (signalId, long, entryPrice, tp, sl, leverage, event) => {
-      const dir = long ? "LONG" : "SHORT";
-      const lev = `${Number(leverage) / 1000}x`;
-      log(`SignalPosted #${signalId}`);
-      const img = await signalImage({
-        signalId: String(signalId), direction: dir, leverage: lev,
-        entry: formatPrice(entryPrice), tp: formatPrice(tp), sl: formatPrice(sl),
-      });
-      await sendTelegramPhoto(img, [
-        `📡 <b>New Signal #${signalId}</b>`,
-        ``,
-        `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
-      ].join("\n"), [BTN_COPY, BTN_CONTRACT]);
+      log(`SignalPosted #${signalId} — running auto-copy deposits`);
 
       // Auto-copy for enabled users (sequential with nonce management)
       try {
@@ -314,7 +320,6 @@ class CloseWatcher {
             log(`Auto-copied for ${shortAddr(user)}`);
           } catch (err) {
             log(`Auto-copy skip ${shortAddr(user)}: ${err.reason || err.message?.substring(0, 60)}`);
-            // Re-sync nonce after error
             try { nonce = await this.wallet.getNonce(); } catch {}
           }
         }
@@ -323,10 +328,29 @@ class CloseWatcher {
       }
     });
 
-    // ── User copied a trade — log + whale alert for big deposits ──
-    contract.on("TradeCopied", async (user, signalId, amount) => {
+    // ── Trade opened on gTrade — NOW send Telegram notification ──
+    contract.on("SignalOpened", async (signalId, totalDeposited, gTradeIndex, event) => {
+      log(`SignalOpened #${signalId} — $${Number(totalDeposited) / 1e6} USDC, gTrade index ${gTradeIndex}`);
+      const core = await this.copyTrader.signalCore(signalId);
+      const long = core.long;
+      const dir = long ? "LONG" : "SHORT";
+      const lev = `${Number(core.leverage) / 1000}x`;
+      const img = await signalImage({
+        signalId: String(signalId), direction: dir, leverage: lev,
+        entry: formatPrice(core.entryPrice), tp: formatPrice(core.tp), sl: formatPrice(core.sl),
+      });
+      await sendTelegramPhoto(img, [
+        `📡 <b>Trade Opened #${signalId}</b>`,
+        ``,
+        `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
+        `💰 Pool: <b>$${(Number(totalDeposited) / 1e6).toFixed(0)} USDC</b>`,
+      ].join("\n"), [BTN_COPY, BTN_CONTRACT]);
+    });
+
+    // ── User deposited — log + whale alert for big deposits ──
+    contract.on("UserDeposited", async (user, signalId, amount) => {
       const amtStr = formatUSDC(amount);
-      log(`TradeCopied: ${shortAddr(user)} deposited $${amtStr} on signal #${signalId}`);
+      log(`UserDeposited: ${shortAddr(user)} deposited $${amtStr} on signal #${signalId}`);
 
       // Whale alert for deposits >= $500
       if (Number(amount) >= 500_000_000) { // 500 USDC in 6 decimals
@@ -339,11 +363,11 @@ class CloseWatcher {
       }
     });
 
-    // ── User claimed proceeds — no Telegram notification, just log + referral ──
-    contract.on("ProceedsClaimed", async (user, signalId, payout, fee, event) => {
+    // ── User claimed — no Telegram notification, just log + referral ──
+    contract.on("UserClaimed", async (user, signalId, payout, fee, event) => {
       const payoutStr = formatUSDC(payout);
       const feeStr = formatUSDC(fee);
-      log(`ProceedsClaimed: ${shortAddr(user)} claimed $${payoutStr} (fee: $${feeStr})`);
+      log(`UserClaimed: ${shortAddr(user)} claimed $${payoutStr} (fee: $${feeStr})`);
 
       // ── Referral reward payout ──
       if (supabase && Number(fee) > 0) {
@@ -386,8 +410,9 @@ class CloseWatcher {
       for (let i = total; i >= 1; i--) {
         try {
           const core = await contract.signalCore(i);
-          if (!core.closed) continue;
-          if (Number(core.resultPct) >= 0) this.winStreak++;
+          if (Number(core.phase) !== 3) continue;
+          const meta = await contract.signalMeta(i);
+          if (calcResultPct(meta) >= 0) this.winStreak++;
           else break;
         } catch { break; }
       }
@@ -396,21 +421,20 @@ class CloseWatcher {
 
     this.autoClosedSignals = new Set(); // Track signals closed by auto-close to prevent duplicate notifications
 
-    contract.on("SignalClosed", async (signalId, resultPct) => {
-      const pct = Number(resultPct) / 100;
+    contract.on("SignalSettled", async (signalId, totalDeposited, totalReturned, resultPct) => {
+      const pct = Number(resultPct) / 100; // already the total PnL %
       const win = pct >= 0;
 
-      // Get leverage from signal
-      let levNum = 50;
+      // Get direction from signal
       let dir = "XAU/USD";
+      let levNum = 25;
       try {
         const signal = await this.copyTrader.signalCore(signalId);
-        levNum = Number(signal.leverage || signal[6]) / 1000;
-        dir = (signal.long || signal[0]) ? "LONG" : "SHORT";
+        levNum = Number(signal.leverage) / 1000;
+        dir = signal.long ? "LONG" : "SHORT";
       } catch {}
 
-      const leveragedPct = pct * levNum;
-      log(`SignalClosed #${signalId} result=${pct}% x${levNum} = ${leveragedPct.toFixed(1)}%`);
+      log(`SignalSettled #${signalId} result=${pct.toFixed(1)}% deposited=$${Number(totalDeposited) / 1e6} returned=$${Number(totalReturned) / 1e6}`);
 
       // Streak tracking
       if (win) {
@@ -422,17 +446,17 @@ class CloseWatcher {
       // Skip notification if already sent by auto-close handler
       if (this.autoClosedSignals.has(Number(signalId))) {
         this.autoClosedSignals.delete(Number(signalId));
-        log(`  Skipping SignalClosed notification — already sent by auto-close`);
+        log(`  Skipping SignalSettled notification — already sent by auto-close`);
       } else {
         const img = await signalClosedImage({
-          signalId: String(signalId), resultPct: leveragedPct, direction: dir, leverage: `${levNum}x`,
+          signalId: String(signalId), resultPct: pct, direction: dir, leverage: `${levNum}x`,
         });
 
         await sendTelegramPhoto(img, [
           win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
           ``,
-          `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
-          `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${levNum}x`,
+          `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
+          `💰 Pool: $${(Number(totalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
         ].join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
       }
 
@@ -441,7 +465,7 @@ class CloseWatcher {
         try {
           const streakImg = await winStreakImage({
             streak: this.winStreak,
-            resultPct: leveragedPct.toFixed(1),
+            resultPct: pct.toFixed(1),
             signalId: String(signalId),
           });
           await sendTelegramPhoto(streakImg, [
@@ -457,19 +481,20 @@ class CloseWatcher {
       // ── Auto-claim for all users with positions ──
       try {
         const users = await this.copyTrader.getAutoCopyUsers();
+        let nonce = await this.wallet.getNonce();
         for (const user of users) {
           try {
             const pos = await this.copyTrader.positions(user, signalId);
-            if (pos.collateral > 0n && !pos.claimed) {
+            if (pos.deposit > 0n && !pos.claimed) {
               log(`  Auto-claiming for ${shortAddr(user)} on signal #${signalId}...`);
-              const tx = await this.copyTrader.claimFor(user, signalId);
+              const tx = await this.copyTrader.claimFor(user, signalId, { nonce });
+              nonce++;
               await tx.wait();
               log(`  ✅ Claimed for ${shortAddr(user)}`);
-              // Small delay to avoid nonce issues
-              await new Promise(r => setTimeout(r, 2000));
             }
           } catch (err) {
             log(`  ⚠️ claimFor ${shortAddr(user)} failed: ${err.message?.slice(0, 100)}`);
+            try { nonce = await this.wallet.getNonce(); } catch {}
           }
         }
         log(`  Auto-claim complete for signal #${signalId}`);
@@ -578,17 +603,15 @@ class CloseWatcher {
         if (closedAt === 0 || closedAt < dayAgo) continue;
 
         const core = await contract.signalCore(i);
-        if (!core.closed) continue;
+        if (Number(core.phase) !== 3) continue;
 
         trades++;
-        const resultPct = Number(core.resultPct) / 100;
-        const leverage = Number(core.leverage) / 1000;
-        const leveragedPct = resultPct * leverage;
-        totalResultPct += leveragedPct;
+        const resultPct = calcResultPct(meta);
+        totalResultPct += resultPct;
 
-        if (Number(core.resultPct) >= 0) wins++;
+        if (resultPct >= 0) wins++;
         else losses++;
-        volume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+        volume += parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
       }
 
       const copierCount = Number(await contract.getAutoCopyUserCount());
@@ -676,22 +699,20 @@ class CloseWatcher {
         if (closedAt > days[4].end) continue;
 
         const core = await contract.signalCore(i);
-        if (!core.closed) continue;
+        if (Number(core.phase) !== 3) continue;
 
-        const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
-        const resultPct = Number(core.resultPct) / 100;
-        const leverage = Number(core.leverage) / 1000;
-        const leveragedPct = resultPct * leverage;
+        const vol = parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
+        const resultPct = calcResultPct(meta);
 
         totalTrades++;
         totalVolume += vol;
-        totalResultPct += leveragedPct;
+        totalResultPct += resultPct;
 
         for (const day of days) {
           if (closedAt >= day.start && closedAt <= day.end) {
             day.trades++;
             day.volume += vol;
-            day.resultPct += leveragedPct;
+            day.resultPct += resultPct;
             break;
           }
         }
@@ -746,7 +767,7 @@ class CloseWatcher {
       let totalVolume = 0;
       for (let i = 1; i <= total; i++) {
         const meta = await contract.signalMeta(i);
-        totalVolume += parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+        totalVolume += parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
       }
       const copierCount = Number(await contract.getAutoCopyUserCount());
 
@@ -754,12 +775,11 @@ class CloseWatcher {
       let initProfit = 0;
       for (let i = 1; i <= total; i++) {
         const meta = await contract.signalMeta(i);
-        const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
+        const vol = parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
         const core = await contract.signalCore(i);
-        if (core.closed) {
-          const resultPct = Number(core.resultPct) / 100;
-          const leverage = Number(core.leverage) / 1000;
-          initProfit += vol * (resultPct / 100) * leverage;
+        if (Number(core.phase) === 3) {
+          const resultPct = calcResultPct(meta);
+          initProfit += vol * (resultPct / 100);
         }
       }
 
@@ -792,19 +812,18 @@ class CloseWatcher {
         const ids = await contract.getUserSignalIds(user);
         for (const id of ids) {
           const pos = await contract.positions(user, id);
-          if (Number(pos.collateral) > 0 && !pos.claimed) {
-            totalVolume += parseFloat(ethers.formatUnits(pos.collateral, 6));
+          if (Number(pos.deposit) > 0 && !pos.claimed) {
+            totalVolume += parseFloat(ethers.formatUnits(pos.deposit, 6));
           }
         }
       }
       for (let i = 1; i <= total; i++) {
         const core = await contract.signalCore(i);
-        if (core.closed) {
+        if (Number(core.phase) === 3) {
           const meta = await contract.signalMeta(i);
-          const vol = parseFloat(ethers.formatUnits(meta.totalCopied, 6));
-          const resultPct = Number(core.resultPct) / 100;
-          const leverage = Number(core.leverage) / 1000;
-          totalProfit += vol * (resultPct / 100) * leverage;
+          const vol = parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
+          const resultPct = calcResultPct(meta);
+          totalProfit += vol * (resultPct / 100);
         }
       }
 
@@ -969,7 +988,7 @@ class CloseWatcher {
         }
 
         const signal = await this.copyTrader.signalCore(activeId);
-        if (!signal.active || signal.closed) {
+        if (Number(signal.phase) !== 2) { // Not in TRADING phase
           setTimeout(check, MONITOR_INTERVAL);
           return;
         }
@@ -1014,31 +1033,45 @@ class CloseWatcher {
 
           try {
             this.autoClosedSignals.add(Number(activeId));
-            const tx = await this.copyTrader.closeSignal(activeId, resultBps);
+
+            // V2: settle with actual USDC balance returned from gTrade
+            const meta = await this.copyTrader.signalMeta(activeId);
+            const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
+            const nonTradeBalance = Number(meta.balanceAtOpen) > Number(meta.originalDeposited)
+              ? BigInt(meta.balanceAtOpen) - BigInt(meta.originalDeposited)
+              : 0n;
+            const totalReturned = BigInt(contractBalance) > nonTradeBalance
+              ? BigInt(contractBalance) - nonTradeBalance
+              : 0n;
+
+            log(`  Settling: returned=$${Number(totalReturned) / 1e6}`);
+            const tx = await this.copyTrader.settleSignal(totalReturned);
             await tx.wait();
-            log(`  Signal #${activeId} closed via safety net!`);
+            log(`  Signal #${activeId} settled via safety net!`);
 
             // Send notification
             const leverage = Number(signal.leverage) / 1000;
-            const leveragedPct = (resultBps / 100) * leverage;
-            const win = resultBps >= 0;
+            const pct = Number(totalReturned) > Number(meta.originalDeposited)
+              ? ((Number(totalReturned) - Number(meta.originalDeposited)) / Number(meta.originalDeposited)) * 100
+              : -((Number(meta.originalDeposited) - Number(totalReturned)) / Number(meta.originalDeposited)) * 100;
+            const win = pct >= 0;
             const img = await autoCloseImage({
               signalId: String(activeId), direction: signal.long ? "LONG" : "SHORT",
-              leverage: `${leverage}x`, resultPct: leveragedPct,
+              leverage: `${leverage}x`, resultPct: pct,
             });
             await sendTelegramPhoto(img, [
               `⚡ <b>Auto-Close Signal #${activeId}</b>`,
               ``,
-              `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
+              `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
               `📈 ${win ? "TP hit!" : "SL hit."}`,
             ].join("\n"), [
               win ? { text: "🏆 Claim Profits", url: "https://www.smarttradingclub.io?tab=dashboard" } : { text: "🚀 Open App", url: "https://www.smarttradingclub.io?tab=dashboard" },
             ]);
           } catch (err) {
-            if (err.message?.includes("Not active")) {
-              log("  Signal already closed by another handler");
+            if (err.message?.includes("Not trading")) {
+              log("  Signal already settled by another handler");
             } else {
-              logError("Safety net closeSignal failed", err);
+              logError("Safety net settleSignal failed", err);
             }
           }
         }
@@ -1069,47 +1102,57 @@ class CloseWatcher {
         return;
       }
 
-      // Get signal leverage
+      // Get signal info
       const signal = await this.copyTrader.signalCore(activeId);
-      if (!signal.active || signal.closed) {
-        log(`Signal #${activeId} already closed`);
+      if (Number(signal.phase) !== 2) { // Not in TRADING phase
+        log(`Signal #${activeId} not in trading phase`);
         return;
       }
 
       const leverage = Number(signal.leverage);
-      const rawPercent = BigInt(gTradePercentProfit);
-      const resultPct = convertPercentProfit(rawPercent, leverage);
+      const levNum = leverage / 1000;
 
       log("═══════════════════════════════════════");
-      log(`  Signal #${activeId} — Closing automatically`);
+      log(`  Signal #${activeId} — Settling automatically`);
       log(`  Direction: ${signal.long ? "LONG" : "SHORT"}`);
-      log(`  Leverage: ${leverage / 1000}x`);
-      log(`  gTrade percentProfit (raw): ${rawPercent}`);
-      log(`  Contract resultPct (converted): ${resultPct} bps (${Number(resultPct) / 100}%)`);
+      log(`  Leverage: ${levNum}x`);
       log("═══════════════════════════════════════");
 
-      // Send closeSignal transaction
+      // V2: first close gTrade position, then settle with actual USDC returned
+      // gTrade may have already closed (TP/SL hit), so we just need to settle
       this.autoClosedSignals.add(Number(activeId));
-      const tx = await this.copyTrader.closeSignal(activeId, resultPct);
+
+      // Calculate totalReturned from contract balance
+      const meta = await this.copyTrader.signalMeta(activeId);
+      const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
+      const nonTradeBalance = Number(meta.balanceAtOpen) > Number(meta.originalDeposited)
+        ? BigInt(meta.balanceAtOpen) - BigInt(meta.originalDeposited)
+        : 0n;
+      const totalReturned = BigInt(contractBalance) > nonTradeBalance
+        ? BigInt(contractBalance) - nonTradeBalance
+        : 0n;
+
+      log(`  Settling: returned=$${Number(totalReturned) / 1e6}`);
+      const tx = await this.copyTrader.settleSignal(totalReturned);
       log(`TX sent: ${tx.hash}`);
 
       const receipt = await tx.wait();
-      log(`TX confirmed in block ${receipt.blockNumber} — Signal #${activeId} closed!`);
+      log(`TX confirmed in block ${receipt.blockNumber} — Signal #${activeId} settled!`);
 
-      const pct = Number(resultPct) / 100;
-      const levNum = leverage / 1000;
-      const leveragedPct = pct * levNum;
+      const pct = Number(totalReturned) > Number(meta.originalDeposited)
+        ? ((Number(totalReturned) - Number(meta.originalDeposited)) / Number(meta.originalDeposited)) * 100
+        : -((Number(meta.originalDeposited) - Number(totalReturned)) / Number(meta.originalDeposited)) * 100;
       const win = pct >= 0;
       const dir = signal.long ? "LONG" : "SHORT";
       const lev = `${levNum}x`;
       const img = await autoCloseImage({
-        signalId: String(activeId), direction: dir, leverage: lev, resultPct: leveragedPct,
+        signalId: String(activeId), direction: dir, leverage: lev, resultPct: pct,
       });
       await sendTelegramPhoto(img, [
         `⚡ <b>Auto-Close Signal #${activeId}</b>`,
         ``,
-        `📊 Result: <b>${win ? "+" : ""}${leveragedPct.toFixed(1)}%</b> on collateral`,
-        `📈 Price move: ${win ? "+" : ""}${pct.toFixed(2)}% × ${lev}`,
+        `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
+        `💰 Pool: $${(Number(meta.originalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
       ].join("\n"), [
         win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
         { text: "🔗 View TX", url: `${ARBISCAN_TX}${tx.hash}` },
