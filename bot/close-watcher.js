@@ -193,6 +193,37 @@ function calcResultPct(meta) {
   }
 }
 
+const WIN_MESSAGES = [
+  "TP — job done, moving on.",
+  "Easy TP — next setup loading.",
+  "TP hit — rinse and repeat.",
+  "Collected — on to the next.",
+  "TP in the pocket. What's next?",
+  "TP hit team — we eat together.",
+  "Take Profit — trust the process.",
+  "TP reached — discipline wins again.",
+  "Target secured — consistency is king.",
+  "TP hit — this is what preparation looks like.",
+  "Profit locked — no greed, just rules.",
+  "TP taken — the plan works when you follow it.",
+  "Another TP — stay sharp, stay humble.",
+  "TP secured — let the results speak.",
+  "TP hit — we don't hope, we execute.",
+  "TP hit — money moves.",
+  "Target reached — textbook trade.",
+  "TP locked in — smooth execution.",
+  "Profit taken — easy work.",
+  "TP hit — patience pays off.",
+  "Target hit — clean entry, clean exit.",
+  "TP secured — the system delivers.",
+  "Another one in the bag.",
+  "Cashed out — precision trading.",
+  "TP hit — like clockwork.",
+];
+function getRandomWinMessage() {
+  return WIN_MESSAGES[Math.floor(Math.random() * WIN_MESSAGES.length)];
+}
+
 const LOSS_MESSAGES = [
   "Stoploss hit. Part of the plan. Risk managed, on to the next one.",
   "SL hit. All according to plan, risk under control. Staying consistent.",
@@ -483,9 +514,7 @@ class CloseWatcher {
           `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
           `💰 Pool: $${(Number(totalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
         ];
-        if (!win) {
-          lines.push(``, `💬 <i>${getRandomLossMessage()}</i>`);
-        }
+        lines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
         await sendTelegramPhoto(img, lines.join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
       }
 
@@ -1094,9 +1123,7 @@ class CloseWatcher {
               `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
               `📈 ${win ? "TP hit!" : "SL hit."}`,
             ];
-            if (!win) {
-              autoCloseLines.push(``, `💬 <i>${getRandomLossMessage()}</i>`);
-            }
+            autoCloseLines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
             await sendTelegramPhoto(img, autoCloseLines.join("\n"), [
               win ? { text: "🏆 Claim Profits", url: "https://www.smarttradingclub.io?tab=dashboard" } : { text: "🚀 Open App", url: "https://www.smarttradingclub.io?tab=dashboard" },
             ]);
@@ -1187,9 +1214,7 @@ class CloseWatcher {
         `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
         `💰 Pool: $${(Number(meta.originalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
       ];
-      if (!win) {
-        closeLines2.push(``, `💬 <i>${getRandomLossMessage()}</i>`);
-      }
+      closeLines2.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
       await sendTelegramPhoto(img, closeLines2.join("\n"), [
         win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
         { text: "🔗 View TX", url: `${ARBISCAN_TX}${tx.hash}` },
