@@ -193,6 +193,31 @@ function calcResultPct(meta) {
   }
 }
 
+const LOSS_MESSAGES = [
+  "Stoploss hit. Part of the plan. Risk managed, on to the next one.",
+  "SL hit. All according to plan, risk under control. Staying consistent.",
+  "Stoploss taken. No emotion, just business. Next opportunity is coming.",
+  "Stoploss hit. Risk controlled, process intact.",
+  "SL taken. Capital protected, focus stays sharp.",
+  "Stoploss. Part of the game. No stress.",
+  "One against us. Structure remains solid.",
+  "SL hit team. All according to plan — waiting for the next setup.",
+  "Stoploss hit. Risk managed. We'll catch the next one together.",
+  "Losses are part of the game. We keep building.",
+  "Loss taken within the rules. Everything under control.",
+  "SL hit. Daily risk safe.",
+  "SL hit, rules followed. That's what counts.",
+  "Capital first, profits follow.",
+  "Stoploss is not a mistake, it's protection. On to the next one.",
+  "SL hit. This is why we have risk management.",
+  "We follow rules, not emotions.",
+  "This is why we work with fixed risk.",
+  "SL prevents major damage. No SL, no long-term success.",
+];
+function getRandomLossMessage() {
+  return LOSS_MESSAGES[Math.floor(Math.random() * LOSS_MESSAGES.length)];
+}
+
 const LINE = "";
 const WEBSITE = "https://www.smarttradingclub.io";
 const BTN_COPY = { text: "💰 Copy Now", url: `${WEBSITE}?tab=dashboard` };
@@ -452,12 +477,16 @@ class CloseWatcher {
           signalId: String(signalId), resultPct: pct, direction: dir, leverage: `${levNum}x`,
         });
 
-        await sendTelegramPhoto(img, [
+        const lines = [
           win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
           ``,
           `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
           `💰 Pool: $${(Number(totalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
-        ].join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
+        ];
+        if (!win) {
+          lines.push(``, `💬 <i>${getRandomLossMessage()}</i>`);
+        }
+        await sendTelegramPhoto(img, lines.join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
       }
 
       // Send streak image at 3, 5, 7, 10, 15, 20, 25...
@@ -1059,12 +1088,16 @@ class CloseWatcher {
               signalId: String(activeId), direction: signal.long ? "LONG" : "SHORT",
               leverage: `${leverage}x`, resultPct: pct,
             });
-            await sendTelegramPhoto(img, [
+            const autoCloseLines = [
               `⚡ <b>Auto-Close Signal #${activeId}</b>`,
               ``,
               `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
               `📈 ${win ? "TP hit!" : "SL hit."}`,
-            ].join("\n"), [
+            ];
+            if (!win) {
+              autoCloseLines.push(``, `💬 <i>${getRandomLossMessage()}</i>`);
+            }
+            await sendTelegramPhoto(img, autoCloseLines.join("\n"), [
               win ? { text: "🏆 Claim Profits", url: "https://www.smarttradingclub.io?tab=dashboard" } : { text: "🚀 Open App", url: "https://www.smarttradingclub.io?tab=dashboard" },
             ]);
           } catch (err) {
@@ -1148,12 +1181,16 @@ class CloseWatcher {
       const img = await autoCloseImage({
         signalId: String(activeId), direction: dir, leverage: lev, resultPct: pct,
       });
-      await sendTelegramPhoto(img, [
+      const closeLines2 = [
         `⚡ <b>Auto-Close Signal #${activeId}</b>`,
         ``,
         `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
         `💰 Pool: $${(Number(meta.originalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
-      ].join("\n"), [
+      ];
+      if (!win) {
+        closeLines2.push(``, `💬 <i>${getRandomLossMessage()}</i>`);
+      }
+      await sendTelegramPhoto(img, closeLines2.join("\n"), [
         win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
         { text: "🔗 View TX", url: `${ARBISCAN_TX}${tx.hash}` },
       ]);
