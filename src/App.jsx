@@ -26,7 +26,7 @@ const PYTH_XAU_USD_FEED = "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f
 const PYTH_HERMES_URL = "https://hermes.pyth.network/v2/updates/price/latest";
 
 // ===== ARBITRUM CONFIG =====
-const CONTRACT_ADDRESS = "0x1E34452cbD7Ea6Af3D9282D9C95AC625298221b6";
+const CONTRACT_ADDRESS = "0x684252b3b0544D8E0f9B51AA58f4D7552BEf2386";
 const MARKETPLACE_ADDRESS = "0x63E44E8319187115C1802D40750D69773d5B1468";
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC on Arbitrum
 const ARBITRUM_CHAIN_ID = "0xa4b1"; // 42161
@@ -402,6 +402,7 @@ function App() {
   });
   const [closeSignalId, setCloseSignalId] = useState('');
   const [closeResultPct, setCloseResultPct] = useState('');
+  const [settleTotalReturned, setSettleTotalReturned] = useState('');
 
   // Transaction history
   const [transactions, setTransactions] = useState([]);
@@ -767,23 +768,47 @@ function App() {
         setUniqueCopiers(Number(copierCount));
       } catch { /* contract may not have this function */ }
 
-      // Helper to parse signal data
-      const parseSignal = (id, core, meta) => ({
-        id: Number(id),
-        long: core[0],
-        active: core[1],
-        closed: core[2],
-        entryPrice: core[3],
-        tp: core[4],
-        sl: core[5],
-        leverage: core[6],
-        resultPct: core[7],
-        feeAtCreation: core[8],
-        timestamp: meta[0],
-        closedAt: meta[1],
-        totalCopied: meta[2],
-        copierCount: meta[3],
-      });
+      // Helper to parse signal data (V2 pool-based contract)
+      // signalCore: long, phase(uint8), entryPrice, tp, sl, leverage, feeAtCreation, gTradeIndex
+      // signalMeta: timestamp, closedAt, totalDeposited, totalReturned, copierCount, originalDeposited, totalEmergencyWithdrawn, totalClaimed, balanceAtOpen
+      // Phase: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED
+      const parseSignal = (id, core, meta) => {
+        const phase = Number(core[1]);
+        const totalDeposited = meta[2];
+        const totalReturned = meta[3];
+        const originalDeposited = meta[5];
+        // Derive active/closed/resultPct for compatibility with UI
+        const active = phase === 1 || phase === 2; // COLLECTING or TRADING
+        const closed = phase === 3; // SETTLED
+        // Calculate resultPct in basis points from totalReturned vs originalDeposited
+        let resultPct = 0n;
+        if (closed && originalDeposited > 0n) {
+          if (totalReturned >= originalDeposited) {
+            resultPct = BigInt(Math.round(Number((totalReturned - originalDeposited) * 10000n / originalDeposited)));
+          } else {
+            resultPct = BigInt(Math.round(-Number((originalDeposited - totalReturned) * 10000n / originalDeposited)));
+          }
+        }
+        return {
+          id: Number(id),
+          long: core[0],
+          active,
+          closed,
+          entryPrice: core[2],
+          tp: core[3],
+          sl: core[4],
+          leverage: core[5],
+          resultPct,
+          feeAtCreation: core[6],
+          phase,
+          timestamp: meta[0],
+          closedAt: meta[1],
+          totalCopied: totalDeposited, // map totalDeposited to totalCopied for UI compat
+          totalReturned,
+          originalDeposited,
+          copierCount: meta[4],
+        };
+      };
 
       // Active signal
       try {
@@ -1054,22 +1079,43 @@ function App() {
       setFeePercent(Number(fee));
 
       // Helper to parse signal data from contract Result objects
-      const parseSignal = (id, core, meta) => ({
-        id: Number(id),
-        long: core[0],
-        active: core[1],
-        closed: core[2],
-        entryPrice: core[3],
-        tp: core[4],
-        sl: core[5],
-        leverage: core[6],
-        resultPct: core[7],
-        feeAtCreation: core[8],
-        timestamp: meta[0],
-        closedAt: meta[1],
-        totalCopied: meta[2],
-        copierCount: meta[3],
-      });
+      // V2 pool-based: signalCore returns [long, phase, entryPrice, tp, sl, leverage, feeAtCreation, gTradeIndex]
+      // signalMeta returns [timestamp, closedAt, totalDeposited, totalReturned, copierCount, originalDeposited, totalEmergencyWithdrawn, totalClaimed, balanceAtOpen]
+      const parseSignal = (id, core, meta) => {
+        const phase = Number(core[1]);
+        const totalDeposited = meta[2];
+        const totalReturned = meta[3];
+        const originalDeposited = meta[5];
+        const active = phase === 1 || phase === 2;
+        const closed = phase === 3;
+        let resultPct = 0n;
+        if (closed && originalDeposited > 0n) {
+          if (totalReturned >= originalDeposited) {
+            resultPct = BigInt(Math.round(Number((totalReturned - originalDeposited) * 10000n / originalDeposited)));
+          } else {
+            resultPct = BigInt(Math.round(-Number((originalDeposited - totalReturned) * 10000n / originalDeposited)));
+          }
+        }
+        return {
+          id: Number(id),
+          long: core[0],
+          active,
+          closed,
+          entryPrice: core[2],
+          tp: core[3],
+          sl: core[4],
+          leverage: core[5],
+          resultPct,
+          feeAtCreation: core[6],
+          phase,
+          timestamp: meta[0],
+          closedAt: meta[1],
+          totalCopied: totalDeposited,
+          totalReturned,
+          originalDeposited,
+          copierCount: meta[4],
+        };
+      };
 
       // Active signal
       try {
@@ -1273,16 +1319,12 @@ function App() {
 
     try {
       setIsLoading(true);
-      const resultBps = Math.round(parseFloat(closeResultPct) * 100); // convert % to basis points
+      const totalReturnedWei = ethers.parseUnits(settleTotalReturned, 6); // USDC has 6 decimals
 
-      const tx = await contractRef.current.closeSignal(
-        BigInt(closeSignalId),
-        BigInt(resultBps)
-      );
+      const tx = await contractRef.current.settleSignal(totalReturnedWei);
       await tx.wait();
 
-      setCloseSignalId('');
-      setCloseResultPct('');
+      setSettleTotalReturned('');
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Close signal error:", err);
@@ -1357,7 +1399,7 @@ function App() {
         await approveTx.wait();
       }
 
-      const tx = await contractRef.current.copyTrade(activeSignal.id, amount);
+      const tx = await contractRef.current.deposit(amount);
       const receipt = await tx.wait();
 
       setTransactions(prev => [
@@ -1396,7 +1438,7 @@ function App() {
 
     try {
       setIsLoading(true);
-      const tx = await contractRef.current.claimProceeds(BigInt(signalId));
+      const tx = await contractRef.current.claim(BigInt(signalId));
       const receipt = await tx.wait();
 
       setTransactions(prev => [
@@ -2146,7 +2188,7 @@ function App() {
     const winRate = closedSignals.length > 0 ? (wins.length / closedSignals.length * 100) : 0;
 
     // Best & worst trade (compare with leverage applied)
-    const getTradeResult = (s) => Number(s.resultPct) / 100 * Number(s.leverage) / 1000;
+    const getTradeResult = (s) => Number(s.resultPct) / 100;
     const bestTrade = closedSignals.length > 0
       ? closedSignals.reduce((a, b) => getTradeResult(a) > getTradeResult(b) ? a : b)
       : null;
@@ -2256,7 +2298,7 @@ function App() {
             <div style={{ background: 'rgba(52, 211, 153, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(52, 211, 153, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Best Trade</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                +{(Number(bestTrade.resultPct) / 100 * Number(bestTrade.leverage) / 1000).toFixed(2)}%
+                +{(Number(bestTrade.resultPct) / 100).toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 #{Number(bestTrade.id)} &middot; {bestTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(bestTrade.leverage)}x
@@ -2265,7 +2307,7 @@ function App() {
             <div style={{ background: 'rgba(248, 113, 113, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(248, 113, 113, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Worst Trade</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                {(Number(worstTrade.resultPct) / 100 * Number(worstTrade.leverage) / 1000).toFixed(2)}%
+                {(Number(worstTrade.resultPct) / 100).toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 #{Number(worstTrade.id)} &middot; {worstTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(worstTrade.leverage)}x
@@ -2443,7 +2485,7 @@ function App() {
                 if (!grouped[dateKey]) grouped[dateKey] = { signals: [], dayPnl: 0, wins: 0, losses: 0 };
                 grouped[dateKey].signals.push(signal);
                 if (signal.closed) {
-                  const pnl = (Number(signal.resultPct) / 100) * (Number(signal.leverage) / 1000);
+                  const pnl = Number(signal.resultPct) / 100;
                   grouped[dateKey].dayPnl += pnl;
                   if (Number(signal.resultPct) >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
                 }
@@ -2478,7 +2520,7 @@ function App() {
                   {/* Trades for this date */}
                   {group.signals.map((signal, index) => {
                     const leverage = Number(signal.leverage) / 1000;
-                    const result = Number(signal.resultPct) / 100 * leverage;
+                    const result = Number(signal.resultPct) / 100;
                     const isClosed = signal.closed;
               return (
                 <motion.div
@@ -4254,7 +4296,7 @@ function App() {
                   const todaySignals = signalHistory.filter(s => s.closed && Number(s.closedAt) >= Math.floor(Date.now() / 1000) - 86400);
                   let todayPnl = 0;
                   todaySignals.forEach(s => {
-                    todayPnl += (Number(s.resultPct) / 100) * (Number(s.leverage) / 1000);
+                    todayPnl += Number(s.resultPct) / 100;
                   });
                   return (
                     <div style={{
@@ -4281,7 +4323,7 @@ function App() {
               const now = Math.floor(Date.now() / 1000);
               const periodSignals = signalHistory.filter(s => s.closed && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
               let periodPnl = 0;
-              periodSignals.forEach(s => { periodPnl += (Number(s.resultPct) / 100) * (Number(s.leverage) / 1000); });
+              periodSignals.forEach(s => { periodPnl += Number(s.resultPct) / 100; });
 
               return (
                 <div key={label} style={{
@@ -4725,7 +4767,7 @@ function App() {
                 claimed.forEach(s => {
                   const pos = userPositions[Number(s.id)];
                   const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
-                  totalPnl += col * ((Number(s.resultPct) / 100) * (Number(s.leverage) / 1000)) / 100;
+                  totalPnl += col * (Number(s.resultPct) / 100) / 100;
                 });
 
                 return (
@@ -4750,7 +4792,7 @@ function App() {
                       signals.forEach(s => {
                         const pos = userPositions[Number(s.id)];
                         const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
-                        dayPnl += col * ((Number(s.resultPct) / 100) * (Number(s.leverage) / 1000)) / 100;
+                        dayPnl += col * (Number(s.resultPct) / 100) / 100;
                       });
 
                       return (
@@ -4785,7 +4827,7 @@ function App() {
                           {signals.map(signal => {
                             const pos = userPositions[Number(signal.id)];
                             const col = parseFloat(ethers.formatUnits(pos.collateral, USDC_DECIMALS));
-                            const pnlPct = (Number(signal.resultPct) / 100) * (Number(signal.leverage) / 1000);
+                            const pnlPct = Number(signal.resultPct) / 100;
                             const pnlUSD = col * pnlPct / 100;
                             return (
                               <div key={Number(signal.id)} style={{
@@ -4971,7 +5013,7 @@ function App() {
                 if (!grouped[dateKey]) grouped[dateKey] = { signals: [], dayPnl: 0, wins: 0, losses: 0 };
                 grouped[dateKey].signals.push(signal);
                 if (signal.closed) {
-                  const pnl = (Number(signal.resultPct) / 100) * (Number(signal.leverage) / 1000);
+                  const pnl = Number(signal.resultPct) / 100;
                   grouped[dateKey].dayPnl += pnl;
                   if (Number(signal.resultPct) >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
                 }
@@ -5031,7 +5073,7 @@ function App() {
                     const leverage = Number(signal.leverage) / 1000;
                     const isClosed = signal.closed;
                     const resultPct = Number(signal.resultPct) / 100;
-                    const pnl = resultPct * leverage;
+                    const pnl = resultPct;
                     const isWin = resultPct >= 0;
 
                     // Live PnL for open trades
@@ -5178,19 +5220,16 @@ function App() {
                     </form>
                   </div>
 
-                  {/* Close Signal */}
+                  {/* Settle Signal */}
                   <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
-                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Close Signal</h3>
+                    <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Settle Signal</h3>
                     <form onSubmit={handleCloseSignal}>
-                      <div className="input-container" style={{ marginBottom: '8px' }}>
-                        <input type="number" className="input-field" placeholder="Signal ID" value={closeSignalId} onChange={(e) => setCloseSignalId(e.target.value)} />
-                      </div>
                       <div className="input-container" style={{ marginBottom: '12px' }}>
-                        <input type="number" step="0.01" className="input-field" placeholder="Result % (e.g. 2.5 or -1.0)" value={closeResultPct} onChange={(e) => setCloseResultPct(e.target.value)} />
-                        <div className="input-suffix">%</div>
+                        <input type="number" step="0.01" className="input-field" placeholder="Total USDC returned from gTrade" value={settleTotalReturned} onChange={(e) => setSettleTotalReturned(e.target.value)} />
+                        <div className="input-suffix">USDC</div>
                       </div>
                       <button type="submit" className="btn btn-outline" style={{ width: '100%', borderColor: 'var(--danger)', color: 'var(--danger)' }} disabled={isLoading}>
-                        <X size={16} /> {isLoading ? 'Loading...' : 'Close Signal'}
+                        <X size={16} /> {isLoading ? 'Loading...' : 'Settle Signal'}
                       </button>
                     </form>
 

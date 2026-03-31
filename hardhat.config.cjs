@@ -34,4 +34,9 @@ module.exports = {
       chainId: 42161,
     },
   },
+  etherscan: {
+    apiKey: {
+      arbitrumOne: process.env.ARBISCAN_API_KEY || "",
+    },
+  },
 };
