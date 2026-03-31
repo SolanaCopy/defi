@@ -787,6 +787,19 @@ function App() {
         if (closed && originalDeposited > 0n) {
           if (totalReturned >= originalDeposited) {
             resultPct = BigInt(Math.round(Number((totalReturned - originalDeposited) * 10000n / originalDeposited)));
+          } else if (totalReturned === 0n) {
+            // Settle bug or full liquidation — cap loss based on SL distance * leverage
+            const entry = Number(core[2]) / 1e10;
+            const sl = Number(core[4]) / 1e10;
+            const lev = Number(core[5]) / 1000;
+            if (entry > 0 && sl > 0) {
+              const slPct = core[0] // long
+                ? ((entry - sl) / entry) * lev * 100
+                : ((sl - entry) / entry) * lev * 100;
+              resultPct = BigInt(Math.round(-Math.min(slPct, 100) * 100));
+            } else {
+              resultPct = -10000n;
+            }
           } else {
             resultPct = BigInt(Math.round(-Number((originalDeposited - totalReturned) * 10000n / originalDeposited)));
           }
@@ -1094,6 +1107,18 @@ function App() {
         if (closed && originalDeposited > 0n) {
           if (totalReturned >= originalDeposited) {
             resultPct = BigInt(Math.round(Number((totalReturned - originalDeposited) * 10000n / originalDeposited)));
+          } else if (totalReturned === 0n) {
+            const entry = Number(core[2]) / 1e10;
+            const sl = Number(core[4]) / 1e10;
+            const lev = Number(core[5]) / 1000;
+            if (entry > 0 && sl > 0) {
+              const slPct = core[0]
+                ? ((entry - sl) / entry) * lev * 100
+                : ((sl - entry) / entry) * lev * 100;
+              resultPct = BigInt(Math.round(-Math.min(slPct, 100) * 100));
+            } else {
+              resultPct = -10000n;
+            }
           } else {
             resultPct = BigInt(Math.round(-Number((originalDeposited - totalReturned) * 10000n / originalDeposited)));
           }
