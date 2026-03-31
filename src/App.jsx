@@ -5,7 +5,7 @@ import CountUp from 'react-countup';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
-import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown } from 'lucide-react';
+import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown, Menu } from 'lucide-react';
 import { LiFiWidget } from '@lifi/widget';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
@@ -287,6 +287,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [particlesReady, setParticlesReady] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [marketStatus, setMarketStatus] = useState(getGoldMarketStatus);
 
   // Blockchain State
@@ -5761,34 +5762,37 @@ function App() {
             <span className="brand-text">Smart <span className="text-gold-gradient">Trading</span> Club</span>
           </div>
 
-          <div className="nav-links">
-            <button className={`nav-link ${activeTab === 'invest' ? 'active' : ''}`} onClick={() => setActiveTab('invest')}>
-              Copy Trading
-            </button>
-            <button className={`nav-link ${activeTab === 'dashboard' ? 'active' : ''}`} onClick={() => setActiveTab('dashboard')}>
-              Dashboard
-            </button>
-            <button className={`nav-link ${activeTab === 'results' ? 'active' : ''}`} onClick={() => setActiveTab('results')}>
-              Results
-            </button>
-            <button className={`nav-link ${activeTab === 'referral' ? 'active' : ''}`} onClick={() => setActiveTab('referral')}>
-              Referral
-            </button>
-            <a href={`https://arbiscan.io/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
+          <div className={`nav-links ${mobileMenuOpen ? 'nav-links-open' : ''}`}>
+            {[
+              { key: 'invest', label: 'Copy Trading' },
+              { key: 'dashboard', label: 'Dashboard' },
+              { key: 'results', label: 'Results' },
+              { key: 'referral', label: 'Referral' },
+            ].map(t => (
+              <button key={t.key} className={`nav-link ${activeTab === t.key ? 'active' : ''}`} onClick={() => { setActiveTab(t.key); setMobileMenuOpen(false); }}>
+                {t.label}
+              </button>
+            ))}
+            <a href={`https://arbiscan.io/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external" onClick={() => setMobileMenuOpen(false)}>
               <ShieldCheck size={14} />
               Contract
             </a>
-            <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external">
+            <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" className="nav-link nav-link-external" onClick={() => setMobileMenuOpen(false)}>
               Community
             </a>
           </div>
 
-          <button className="connect-wallet-btn" onClick={connectWallet} disabled={isConnecting}>
-            <Wallet size={16} />
-            {account
-              ? `${account.substring(0, 6)}...${account.substring(account.length - 4)}`
-              : (isConnecting ? "Connecting..." : "Connect Wallet")}
-          </button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <button className="connect-wallet-btn" onClick={connectWallet} disabled={isConnecting}>
+              <Wallet size={16} />
+              {account
+                ? `${account.substring(0, 6)}...${account.substring(account.length - 4)}`
+                : (isConnecting ? "Connecting..." : "Connect")}
+            </button>
+            <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Menu">
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          </div>
         </nav>
 
         {/* Main Content */}
