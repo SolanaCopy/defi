@@ -823,6 +823,9 @@ function App() {
           const closePrice = isWin ? Number(core[3]) / 1e10 : Number(core[4]) / 1e10;
           const pctMove = ((closePrice - entry) / entry) * 100 * (core[0] ? 1 : -1);
           tradePct = pctMove * lev;
+          // If trade didn't close at TP (e.g. manual close), tradePct is way off — fall back to on-chain
+          const onChainPct = Number(resultPct) / 100;
+          if (isWin && tradePct > onChainPct * 5) tradePct = onChainPct;
         }
         return {
           id: Number(id),
@@ -1146,6 +1149,9 @@ function App() {
           const closePrice = isWin ? Number(core[3]) / 1e10 : Number(core[4]) / 1e10;
           const pctMove = ((closePrice - entry) / entry) * 100 * (core[0] ? 1 : -1);
           tradePct = pctMove * lev;
+          // If trade didn't close at TP (e.g. manual close), tradePct is way off — fall back to on-chain
+          const onChainPct = Number(resultPct) / 100;
+          if (isWin && tradePct > onChainPct * 5) tradePct = onChainPct;
         }
         return {
           id: Number(id),
