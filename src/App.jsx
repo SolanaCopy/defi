@@ -2598,8 +2598,9 @@ function App() {
                   <div style={{ textAlign: 'right', fontFamily: "'Space Grotesk', sans-serif" }}>
                     {(() => {
                       const totalCol = parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6));
+                      const totalRet = parseFloat(ethers.formatUnits(signal.totalReturned || 0n, 6));
                       if (isClosed) {
-                        const dollarPnl = totalCol * result / 100;
+                        const dollarPnl = totalRet > 0 ? totalRet - totalCol : totalCol * result / 100;
                         return (
                           <>
                             <div style={{ fontWeight: 700, color: result >= 0 ? 'var(--success)' : 'var(--danger)' }}>
