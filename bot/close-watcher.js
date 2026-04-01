@@ -507,11 +507,15 @@ class CloseWatcher {
           signalId: String(signalId), resultPct: pct, direction: dir, leverage: `${levNum}x`,
         });
 
+        const poolIn = Number(totalDeposited) / 1e6;
+        const poolOut = Number(totalReturned) / 1e6;
+        const pnlUsd = poolOut - poolIn;
         const lines = [
           win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
           ``,
           `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
-          `💰 Pool: $${(Number(totalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
+          `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
+          `💰 Pool: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
         ];
         lines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
         await sendTelegramPhoto(img, lines.join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
@@ -1134,10 +1138,14 @@ class CloseWatcher {
               else if (closePrice >= sl) closeReason = "SL hit.";
             }
 
+            const poolIn = Number(meta.originalDeposited) / 1e6;
+            const poolOut = Number(totalReturned) / 1e6;
+            const pnlUsd = poolOut - poolIn;
             const autoCloseLines = [
               `⚡ <b>Auto-Close Signal #${activeId}</b>`,
               ``,
               `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
+              `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
               `📈 ${closeReason}`,
             ];
             autoCloseLines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
@@ -1225,11 +1233,15 @@ class CloseWatcher {
       const img = await autoCloseImage({
         signalId: String(activeId), direction: dir, leverage: lev, resultPct: pct,
       });
+      const poolIn2 = Number(meta.originalDeposited) / 1e6;
+      const poolOut2 = Number(totalReturned) / 1e6;
+      const pnlUsd2 = poolOut2 - poolIn2;
       const closeLines2 = [
         `⚡ <b>Auto-Close Signal #${activeId}</b>`,
         ``,
         `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
-        `💰 Pool: $${(Number(meta.originalDeposited) / 1e6).toFixed(0)} → $${(Number(totalReturned) / 1e6).toFixed(0)} USDC`,
+        `💵 PnL: <b>${pnlUsd2 >= 0 ? "+" : ""}$${pnlUsd2.toFixed(2)} USDC</b>`,
+        `💰 Pool: $${poolIn2.toFixed(0)} → $${poolOut2.toFixed(0)} USDC`,
       ];
       closeLines2.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
       await sendTelegramPhoto(img, closeLines2.join("\n"), [
