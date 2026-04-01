@@ -1861,7 +1861,7 @@ function App() {
         <div className="timeline">
           {[
             { num: '01', icon: <Wallet size={22} />, title: 'Connect Wallet', desc: 'Install MetaMask and connect to Arbitrum network. Make sure you have USDC in your wallet (you can bridge from any chain).', color: 'var(--blue)' },
-            { num: '02', icon: <Eye size={22} />, title: 'Wait for Signal', desc: 'When our trader spots a gold opportunity, a live signal appears on the dashboard. You also get a notification in Telegram.', color: 'var(--emerald)' },
+            { num: '02', icon: <Eye size={22} />, title: 'Wait for Signal', desc: 'When our AI trading bot spots a gold opportunity, a live signal appears on the dashboard. You also get a notification in Telegram.', color: 'var(--emerald)' },
             { num: '03', icon: <Copy size={22} />, title: 'Click Copy Now', desc: 'Click the "Copy Now" button, enter how much USDC you want to invest. MetaMask opens — confirm and your trade is live.', color: 'var(--accent)' },
             { num: '04', icon: <Zap size={22} />, title: 'Get Paid', desc: 'The trade closes automatically when it hits profit or stop loss. Click "Claim" to receive your USDC back — including your profit.', color: 'var(--violet)' },
           ].map((step, i) => (
