@@ -398,16 +398,16 @@ class CloseWatcher {
           return;
         }
 
-        // Try gTrade indices 0-5
-        let nonce2 = await this.wallet.getNonce();
+        // Try gTrade indices 0-5 sequentially
         for (let i = 0; i <= 5; i++) {
           try {
             log(`Opening trade with gTrade index ${i}...`);
-            const openTx = await this.copyTrader.openTrade(i, { nonce: nonce2 });
+            const openTx = await this.copyTrader.openTrade(i);
             await openTx.wait();
             log(`Trade OPEN! gTrade index ${i}`);
             break;
           } catch (err) {
+            log(`Index ${i} failed: ${err.reason || 'reverted'}`);
             if (i === 5) log(`Failed to open trade on any index`);
           }
         }
