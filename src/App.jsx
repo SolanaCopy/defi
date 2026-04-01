@@ -803,16 +803,23 @@ function App() {
         // Derive active/closed/resultPct for compatibility with UI
         const active = phase === 1 || phase === 2; // COLLECTING or TRADING
         const closed = phase === 3; // SETTLED
-        // Calculate resultPct in basis points from totalReturned vs originalDeposited
+        // Calculate resultPct from entry/TP/SL price movement × leverage (not from on-chain totalReturned)
         let resultPct = 0n;
-        // Settle bug corrections: actual gTrade returns verified on-chain
-        const settleCorrections = { 7: 91750000n, 9: 122560000n, 12: 158020000n };
-        const correctedReturned = settleCorrections[Number(id)] || totalReturned;
         if (closed && originalDeposited > 0n) {
-          if (correctedReturned >= originalDeposited) {
-            resultPct = BigInt(Math.round(Number((correctedReturned - originalDeposited) * 10000n / originalDeposited)));
-          } else {
-            resultPct = BigInt(Math.round(-Number((originalDeposited - correctedReturned) * 10000n / originalDeposited)));
+          const entry = Number(core[2]) / 1e10;
+          const closedTp = Number(core[3]) / 1e10;
+          const closedSl = Number(core[4]) / 1e10;
+          const lev = Number(core[5]) / 1000;
+          const isLong = core[0];
+
+          if (totalReturned > originalDeposited || totalReturned === 0n) {
+            // Win or settle bug — use TP price
+            const pctMove = isLong ? ((closedTp - entry) / entry) : ((entry - closedTp) / entry);
+            resultPct = BigInt(Math.round(pctMove * lev * 10000));
+          } else if (totalReturned < originalDeposited) {
+            // Loss — use SL price
+            const pctMove = isLong ? ((entry - closedSl) / entry) : ((closedSl - entry) / entry);
+            resultPct = BigInt(Math.round(-pctMove * lev * 10000));
           }
         }
         return {
@@ -1115,13 +1122,19 @@ function App() {
         const active = phase === 1 || phase === 2;
         const closed = phase === 3;
         let resultPct = 0n;
-        const settleCorrections2 = { 7: 91750000n, 9: 122560000n };
-        const correctedReturned = settleCorrections2[Number(id)] || totalReturned;
         if (closed && originalDeposited > 0n) {
-          if (correctedReturned >= originalDeposited) {
-            resultPct = BigInt(Math.round(Number((correctedReturned - originalDeposited) * 10000n / originalDeposited)));
-          } else {
-            resultPct = BigInt(Math.round(-Number((originalDeposited - correctedReturned) * 10000n / originalDeposited)));
+          const entry = Number(core[2]) / 1e10;
+          const closedTp = Number(core[3]) / 1e10;
+          const closedSl = Number(core[4]) / 1e10;
+          const lev = Number(core[5]) / 1000;
+          const isLong = core[0];
+
+          if (totalReturned > originalDeposited || totalReturned === 0n) {
+            const pctMove = isLong ? ((closedTp - entry) / entry) : ((entry - closedTp) / entry);
+            resultPct = BigInt(Math.round(pctMove * lev * 10000));
+          } else if (totalReturned < originalDeposited) {
+            const pctMove = isLong ? ((entry - closedSl) / entry) : ((closedSl - entry) / entry);
+            resultPct = BigInt(Math.round(-pctMove * lev * 10000));
           }
         }
         return {
