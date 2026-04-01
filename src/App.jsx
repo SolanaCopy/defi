@@ -5228,76 +5228,70 @@ function App() {
                 exit={{ opacity: 0, height: 0 }}
                 style={{ overflow: 'hidden' }}
               >
-                {/* Quick Signal Generator */}
+                {/* Quick Signal Generator — one click trade */}
                 <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid rgba(212,168,67,0.2)', marginBottom: '16px' }}>
-                  <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Quick Signal Generator</h3>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+                  <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Quick Trade</h3>
+                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
                     <div className="input-container" style={{ flex: 1 }}>
-                      <input type="number" step="1" className="input-field" placeholder="TP distance ($)" value={signalGen.tpDistance} onChange={(e) => setSignalGen(prev => ({ ...prev, tpDistance: e.target.value }))} />
+                      <input type="number" step="1" className="input-field" placeholder="TP $" value={signalGen.tpDistance} onChange={(e) => setSignalGen(prev => ({ ...prev, tpDistance: e.target.value }))} />
                       <div className="input-suffix">TP $</div>
                     </div>
                     <div className="input-container" style={{ flex: 1 }}>
-                      <input type="number" step="1" className="input-field" placeholder="SL distance ($)" value={signalGen.slDistance} onChange={(e) => setSignalGen(prev => ({ ...prev, slDistance: e.target.value }))} />
+                      <input type="number" step="1" className="input-field" placeholder="SL $" value={signalGen.slDistance} onChange={(e) => setSignalGen(prev => ({ ...prev, slDistance: e.target.value }))} />
                       <div className="input-suffix">SL $</div>
                     </div>
                     <div className="input-container" style={{ flex: 1 }}>
-                      <input type="number" step="1" className="input-field" placeholder="Leverage" value={signalGen.leverage} onChange={(e) => setSignalGen(prev => ({ ...prev, leverage: e.target.value }))} />
+                      <input type="number" step="1" className="input-field" placeholder="Lev" value={signalGen.leverage} onChange={(e) => setSignalGen(prev => ({ ...prev, leverage: e.target.value }))} />
                       <div className="input-suffix">x</div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-                    <button
-                      type="button"
-                      className="btn btn-primary"
-                      style={{ flex: 1, padding: '10px', fontSize: '0.9rem', fontWeight: 700 }}
-                      onClick={async () => {
-                        try {
-                          const res = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2');
-                          const d = await res.json();
-                          const price = Number(d.parsed[0].price.price) * Math.pow(10, Number(d.parsed[0].price.expo));
-                          const entry = Math.round(price);
-                          const tpDist = Number(signalGen.tpDistance) || 20;
-                          const slDist = Number(signalGen.slDistance) || 30;
-                          setSignalForm({
-                            long: true,
-                            entryPrice: String(entry),
-                            tp: String(entry + tpDist),
-                            sl: String(entry - slDist),
-                            leverage: signalGen.leverage || '28',
-                          });
-                        } catch { alert('Could not fetch price'); }
-                      }}
-                    >
-                      BUY
-                    </button>
-                    <button
-                      type="button"
-                      className="btn"
-                      style={{ flex: 1, padding: '10px', fontSize: '0.9rem', fontWeight: 700, background: 'var(--danger)', color: '#fff', border: 'none', borderRadius: '10px', cursor: 'pointer' }}
-                      onClick={async () => {
-                        try {
-                          const res = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2');
-                          const d = await res.json();
-                          const price = Number(d.parsed[0].price.price) * Math.pow(10, Number(d.parsed[0].price.expo));
-                          const entry = Math.round(price);
-                          const tpDist = Number(signalGen.tpDistance) || 20;
-                          const slDist = Number(signalGen.slDistance) || 30;
-                          setSignalForm({
-                            long: false,
-                            entryPrice: String(entry),
-                            tp: String(entry - tpDist),
-                            sl: String(entry + slDist),
-                            leverage: signalGen.leverage || '28',
-                          });
-                        } catch { alert('Could not fetch price'); }
-                      }}
-                    >
-                      SELL
-                    </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    {[true, false].map(isLong => (
+                      <button
+                        key={isLong ? 'buy' : 'sell'}
+                        type="button"
+                        disabled={isLoading || activeSignal}
+                        className="btn"
+                        style={{
+                          flex: 1, padding: '14px', fontSize: '1rem', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer',
+                          background: isLong ? 'linear-gradient(135deg, var(--accent), var(--accent-light))' : 'var(--danger)',
+                          color: isLong ? 'var(--bg-primary)' : '#fff',
+                          opacity: (isLoading || activeSignal) ? 0.5 : 1,
+                        }}
+                        onClick={async () => {
+                          if (!isAdmin || !contractRef.current) return;
+                          try {
+                            setIsLoading(true);
+                            const res = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2');
+                            const d = await res.json();
+                            const price = Number(d.parsed[0].price.price) * Math.pow(10, Number(d.parsed[0].price.expo));
+                            const entry = Math.round(price);
+                            const tpDist = Number(signalGen.tpDistance) || 20;
+                            const slDist = Number(signalGen.slDistance) || 30;
+                            const lev = Math.round((Number(signalGen.leverage) || 28) * 1000);
+
+                            const entryBig = BigInt(Math.round(entry * 1e10));
+                            const tpBig = BigInt(Math.round((isLong ? entry + tpDist : entry - tpDist) * 1e10));
+                            const slBig = BigInt(Math.round((isLong ? entry - slDist : entry + slDist) * 1e10));
+
+                            const tx = await contractRef.current.postSignal(isLong, entryBig, tpBig, slBig, lev);
+                            await tx.wait();
+                            await loadData(contractRef.current, usdcRef.current, account);
+                          } catch (err) {
+                            console.error(err);
+                            alert(friendlyError(err));
+                          } finally {
+                            setIsLoading(false);
+                          }
+                        }}
+                      >
+                        {isLoading ? '...' : isLong ? 'BUY' : 'SELL'}
+                      </button>
+                    ))}
                   </div>
-                  {signalForm.entryPrice && (
-                    <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '10px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                      {signalForm.long ? '🟢 LONG' : '🔴 SHORT'} {signalForm.leverage}x · Entry ${signalForm.entryPrice} · TP ${signalForm.tp} · SL ${signalForm.sl}
+                  {activeSignal && activeSignal.phase === 1 && (
+                    <div style={{ marginTop: '12px', fontSize: '0.75rem', color: 'var(--accent)', textAlign: 'center' }}>
+                      Signal #{activeSignal.id} is collecting deposits — bot will auto-copy and open trade
                     </div>
                   )}
                 </div>
