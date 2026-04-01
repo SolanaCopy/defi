@@ -165,7 +165,7 @@ function formatGTradePrice(price) {
 }
 
 // Pro progress bar for SL → Entry → TP
-function TradeProgressBar({ entry, tp, sl, currentPrice, isLong }) {
+function TradeProgressBar({ entry, tp, sl, currentPrice, isLong, showPrices }) {
   if (!currentPrice) return null;
   const range = Math.abs(tp - sl);
   const progress = isLong
@@ -218,7 +218,7 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong }) {
       {/* Labels */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
         <span style={{ fontSize: '0.55rem', color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
-          SL {String(sl.toFixed(0)).slice(0, 2)}••
+          SL {showPrices ? `$${sl.toFixed(0)}` : `${String(sl.toFixed(0)).slice(0, 2)}••`}
         </span>
         <span style={{
           fontSize: '0.6rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
@@ -227,7 +227,7 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong }) {
           {Math.round(pctToTP)}% to TP
         </span>
         <span style={{ fontSize: '0.55rem', color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
-          TP {String(tp.toFixed(0)).slice(0, 2)}••
+          TP {showPrices ? `$${tp.toFixed(0)}` : `${String(tp.toFixed(0)).slice(0, 2)}••`}
         </span>
       </div>
     </div>
@@ -1701,7 +1701,7 @@ function App() {
                                 {isProfit ? '+' : ''}{livePnl.toFixed(2)}%
                               </span>
                             </div>
-                            <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={activeSignal.long} />
+                            <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={activeSignal.long} showPrices={isAdmin || !!userPositions[Number(activeSignal.id)]} />
                           </div>
                         );
                       })()}
@@ -1714,7 +1714,7 @@ function App() {
                           <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
                             <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>
-                              {isAdmin ? `$${item.rawValue}` : `${item.rawValue.replace(/,/g, '').slice(0, 2)}••`}
+                              {(isAdmin || (activeSignal && userPositions[Number(activeSignal.id)])) ? `$${item.rawValue}` : `${item.rawValue.replace(/,/g, '').slice(0, 2)}••`}
                             </div>
                           </div>
                         ))}
@@ -4115,7 +4115,7 @@ function App() {
                       color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
                     }}>{activeSignal.long ? 'LONG' : 'SHORT'}</span>
                     <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                      XAU/USD &middot; {formatLeverage(activeSignal.leverage)}x{isAdmin ? ` · Entry $${formatGTradePrice(activeSignal.entryPrice)}` : ''}
+                      XAU/USD &middot; {formatLeverage(activeSignal.leverage)}x{(isAdmin || (activeSignal && userPositions[Number(activeSignal.id)])) ? ` · Entry $${formatGTradePrice(activeSignal.entryPrice)}` : ''}
                     </span>
                   </div>
                 </div>
@@ -4697,7 +4697,7 @@ function App() {
 
                         {/* SL — Entry — TP progress bar */}
                         <div style={{ marginTop: '14px' }}>
-                          <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={hasPrice ? livePrice : null} isLong={activeSignal.long} />
+                          <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={hasPrice ? livePrice : null} isLong={activeSignal.long} showPrices={isAdmin || !!userPositions[Number(activeSignal.id)]} />
                         </div>
                       </div>
                     </>
@@ -5925,7 +5925,7 @@ function App() {
                     { label: 'SL', price: formatGTradePrice(activeSignal.sl), color: 'var(--danger)' },
                   ].map(item => (
                     <div key={item.label}><span style={{ color: item.color }}>{item.label}</span><br/>
-                      {isAdmin ? `$${item.price}` : `${item.price.replace(/,/g, '').slice(0, 2)}••`}
+                      {(isAdmin || (activeSignal && userPositions[Number(activeSignal.id)])) ? `$${item.price}` : `${item.price.replace(/,/g, '').slice(0, 2)}••`}
                     </div>
                   ))}
                 </div>
