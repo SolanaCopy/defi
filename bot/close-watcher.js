@@ -429,6 +429,14 @@ class CloseWatcher {
         entry: formatPrice(core.entryPrice), tp: formatPrice(core.tp), sl: formatPrice(core.sl),
       });
       const pool = Number(totalDeposited) / 1e6;
+      const levNum = Number(core.leverage) / 1000;
+      const entry = Number(core.entryPrice) / 1e10;
+      const tp = Number(core.tp) / 1e10;
+      const sl = Number(core.sl) / 1e10;
+      const tpPct = long ? ((tp - entry) / entry) * levNum * 100 : ((entry - tp) / entry) * levNum * 100;
+      const slPct = long ? ((entry - sl) / entry) * levNum * 100 : ((sl - entry) / entry) * levNum * 100;
+      const tpUsd = pool * tpPct / 100;
+      const slUsd = pool * slPct / 100;
 
       await sendTelegramPhoto(img, [
         `📡 <b>Trade Opened #${signalId}</b>`,
@@ -436,7 +444,9 @@ class CloseWatcher {
         `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
         `💰 Pool: <b>$${pool.toFixed(0)} USDC</b>`,
         ``,
-        `🔒 Entry, TP & SL are hidden until trade closes`,
+        `🎯 Target: <b>+${tpPct.toFixed(1)}%</b> (+$${tpUsd.toFixed(2)})`,
+        `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
+        ``,
         `💎 Copy now to join this trade`,
       ].join("\n"), [BTN_COPY, BTN_CONTRACT]);
     });
