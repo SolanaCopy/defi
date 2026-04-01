@@ -1132,6 +1132,13 @@ class CloseWatcher {
           return;
         }
 
+        // Make sure openTrade actually completed (originalDeposited gets set in openTrade)
+        const meta0 = await this.copyTrader.signalMeta(activeId);
+        if (Number(meta0.originalDeposited) === 0) {
+          setTimeout(check, MONITOR_INTERVAL);
+          return;
+        }
+
         // Check if gTrade trades still exist
         const gTrade = new ethers.Contract(GTRADE_DIAMOND, [
           "function getTrades(address) view returns (tuple(address,uint32,uint16,uint24,bool,bool,uint8,uint8,uint120,uint64,uint64,uint64,bool,uint160,uint24)[])",
