@@ -2509,7 +2509,7 @@ function App() {
             }
             const filtered = signalHistory.filter(s => {
               const ts = Number(s.timestamp);
-              return ts >= cutoffFrom && ts <= cutoffTo;
+              return ts >= cutoffFrom && ts <= cutoffTo && !(s.closed && Number(s.resultPct) === 0);
             });
 
             return (
@@ -5041,7 +5041,7 @@ function App() {
               const cutoff = tradeLogPeriod === 'today' ? now - 86400
                 : tradeLogPeriod === '7d' ? now - 7 * 86400
                 : 0;
-              const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff);
+              const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff && !(s.closed && Number(s.resultPct) === 0));
 
               // Group by date
               const grouped = {};
