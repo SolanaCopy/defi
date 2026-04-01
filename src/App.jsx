@@ -218,7 +218,7 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong }) {
       {/* Labels */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
         <span style={{ fontSize: '0.55rem', color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
-          SL ${sl.toFixed(0)}
+          SL {String(sl.toFixed(0)).slice(0, 2)}••
         </span>
         <span style={{
           fontSize: '0.6rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
@@ -227,7 +227,7 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong }) {
           {Math.round(pctToTP)}% to TP
         </span>
         <span style={{ fontSize: '0.55rem', color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
-          TP ${tp.toFixed(0)}
+          TP {String(tp.toFixed(0)).slice(0, 2)}••
         </span>
       </div>
     </div>
