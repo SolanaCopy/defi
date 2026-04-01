@@ -341,8 +341,7 @@ function App() {
   // Performance stats computed from signal history + user positions
   const performanceStats = useMemo(() => {
     const now = Math.floor(Date.now() / 1000);
-    const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
-    const todayCutoff = Math.floor(startOfDay.getTime() / 1000);
+    const utcNow = new Date(); const todayCutoff = Math.floor(Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), utcNow.getUTCDate()) / 1000);
     const WEEK = 7 * 86400;
     const MONTH = 30 * 86400;
 
