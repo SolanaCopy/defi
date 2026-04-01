@@ -1117,7 +1117,7 @@ class CloseWatcher {
         }
 
         const signal = await this.copyTrader.signalCore(activeId);
-        if (Number(signal.phase) !== 2) { // Not in TRADING phase
+        if (Number(signal.phase) !== 1) { // Not in TRADING phase
           setTimeout(check, MONITOR_INTERVAL);
           return;
         }
@@ -1175,7 +1175,7 @@ class CloseWatcher {
 
             // V2: calculate expected return from price movement, not balance
             const meta = await this.copyTrader.signalMeta(activeId);
-            const collateral = Number(meta.originalDeposited);
+            const collateral = Number(meta.originalDeposited) || Number(meta.totalDeposited);
             const leverage = Number(signal.leverage) / 1000;
             const posSize = collateral * leverage;
             const fees = posSize * 0.0006; // ~0.06% gTrade fees
@@ -1191,12 +1191,21 @@ class CloseWatcher {
               totalReturned = BigInt(Math.round(Math.max(0, collateral - loss - fees)));
             }
 
-            // Sanity: cap to contract balance and 3x collateral
+            // Use actual balance method: returned = balance - (balanceAtOpen - originalDeposited)
             const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
-            if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
-            if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
+            const balanceAtOpen = Number(meta.balanceAtOpen);
+            const actualReturned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
 
-            log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
+            // Use balance-based if available, otherwise fall back to price-based
+            if (actualReturned > 0n && actualReturned <= BigInt(contractBalance)) {
+              totalReturned = actualReturned;
+              log(`  Settling: returned=$${Number(totalReturned) / 1e6} (from balance)`);
+            } else {
+              // Sanity: cap to contract balance and 3x collateral
+              if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
+              if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
+              log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
+            }
             const tx = await this.copyTrader.settleSignal(totalReturned);
             await tx.wait();
             log(`  Signal #${activeId} settled via safety net!`);
