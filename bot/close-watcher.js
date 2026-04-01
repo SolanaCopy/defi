@@ -723,30 +723,47 @@ class CloseWatcher {
       const contract = this.copyTrader;
       const total = Number(await contract.signalCount());
       const now = Math.floor(Date.now() / 1000);
-      const dayAgo = now - 86400;
+      const utcNow = new Date();
+      const utcMidnight = Math.floor(Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), utcNow.getUTCDate()) / 1000);
 
       let trades = 0, wins = 0, losses = 0, volume = 0;
-      let totalResultPct = 0;
+      let totalTradePct = 0;
 
       for (let i = total; i >= 1; i--) {
         const meta = await contract.signalMeta(i);
-        const closedAt = Number(meta.closedAt);
-        if (closedAt === 0 || closedAt < dayAgo) continue;
-
         const core = await contract.signalCore(i);
-        if (Number(core.phase) !== 3) continue;
+        const closedAt = Number(meta.closedAt);
+        const dep = Number(meta.originalDeposited);
+        const ret = Number(meta.totalReturned);
+
+        // Skip if not settled or cancelled with no real trade
+        if (Number(core.phase) < 2) continue; // 0=COLLECTING, 1=TRADING — skip
+        if (dep === 0 || ret === 0) continue;
+        if (dep === ret) continue; // cancelled / full refund
+
+        // Use closedAt if available, otherwise use timestamp as fallback
+        const tradeTime = closedAt > 0 ? closedAt : Number(meta.timestamp);
+        if (tradeTime < utcMidnight) continue;
 
         trades++;
-        const resultPct = calcResultPct(meta);
-        totalResultPct += resultPct;
+        // Calculate tradePct (price × leverage) like the terminal
+        const entry = Number(core.entryPrice) / 1e10;
+        const tp = Number(core.tp) / 1e10;
+        const sl = Number(core.sl) / 1e10;
+        const lev = Number(core.leverage) / 1000;
+        const isWin = ret > dep;
+        const closePrice = isWin ? tp : sl;
+        const pctMove = ((closePrice - entry) / entry) * 100 * (core.long ? 1 : -1);
+        const tradePct = pctMove * lev;
 
-        if (resultPct >= 0) wins++;
+        totalTradePct += tradePct;
+        if (tradePct > 0) wins++;
         else losses++;
-        volume += parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
+        volume += dep / 1e6;
       }
 
       const copierCount = Number(await contract.getAutoCopyUserCount());
-      const dayProfitPct = trades > 0 ? (totalResultPct / trades).toFixed(2) : "0.00";
+      const dayProfitPct = trades > 0 ? totalTradePct.toFixed(1) : "0.0";
 
       // Calculate active auto-copy volume (USDC ready to copy next signal)
       let activeCopyVolume = 0;
@@ -768,7 +785,7 @@ class CloseWatcher {
         wins: String(wins),
         losses: String(losses),
         volume: Math.round(activeCopyVolume).toString(),
-        profit: `${totalResultPct >= 0 ? '+' : ''}${dayProfitPct}%`,
+        profit: `${totalTradePct >= 0 ? '+' : ''}${dayProfitPct}%`,
         copiers: String(copierCount),
       });
 
@@ -777,7 +794,7 @@ class CloseWatcher {
         ``,
         `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
         `💰 Active copying: <b>$${Math.round(activeCopyVolume)} USDC</b>`,
-        `🎯 Avg result: <b>${totalResultPct >= 0 ? '+' : ''}${dayProfitPct}%</b>`,
+        `🎯 Performance: <b>${totalTradePct >= 0 ? '+' : ''}${dayProfitPct}%</b>`,
         `👥 Copiers: <b>${copierCount}</b>`,
       ].join("\n"), [BTN_APP, BTN_TG]);
 
