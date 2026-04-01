@@ -1311,8 +1311,8 @@ class CloseWatcher {
 
       // Get signal info
       const signal = await this.copyTrader.signalCore(activeId);
-      if (Number(signal.phase) !== 2) { // Not in TRADING phase
-        log(`Signal #${activeId} not in trading phase`);
+      if (Number(signal.phase) !== 1) { // Not in TRADING phase (1 = TRADING)
+        log(`Signal #${activeId} not in trading phase (phase=${signal.phase})`);
         return;
       }
 
@@ -1370,21 +1370,32 @@ class CloseWatcher {
         totalReturned = BigInt(Math.round(Math.max(0, collateral + pnlAmount - fees)));
       }
 
-      // Sanity: cap to contract balance and 3x
+      // Use actual balance method (most accurate)
       const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
-      if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
-      if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
+      const balanceAtOpen = Number(meta.balanceAtOpen);
+      const actualReturned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
 
-      log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
+      if (actualReturned > 0n && actualReturned <= BigInt(contractBalance)) {
+        totalReturned = actualReturned;
+        log(`  Settling: returned=$${Number(totalReturned) / 1e6} (from balance)`);
+      } else {
+        // Fallback: cap price-based to contract balance
+        if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
+        if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
+        log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
+      }
       const tx = await this.copyTrader.settleSignal(totalReturned);
       log(`TX sent: ${tx.hash}`);
 
       const receipt = await tx.wait();
       log(`TX confirmed in block ${receipt.blockNumber} — Signal #${activeId} settled!`);
 
-      const pct = Number(totalReturned) > Number(meta.originalDeposited)
-        ? ((Number(totalReturned) - Number(meta.originalDeposited)) / Number(meta.originalDeposited)) * 100
-        : -((Number(meta.originalDeposited) - Number(totalReturned)) / Number(meta.originalDeposited)) * 100;
+      // Use tradePct (price × leverage) for display, like the terminal
+      const resultBps = signal.long
+        ? Math.round(((resultPrice - entry) / entry) * 10000)
+        : Math.round(((entry - resultPrice) / entry) * 10000);
+      const tradePctVal = Math.abs(resultBps / 100) * levNum;
+      const pct = resultBps >= 0 ? tradePctVal : -tradePctVal;
       const win = pct >= 0;
       const dir = signal.long ? "LONG" : "SHORT";
       const lev = `${levNum}x`;
