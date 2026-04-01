@@ -277,6 +277,23 @@ function getGoldMarketStatus() {
   return { open: true, reason: '' };
 }
 
+function friendlyError(err) {
+  const msg = (err.reason || err.message || "").toLowerCase();
+  if (msg.includes("not accepting deposits") || msg.includes("not collecting")) return "This trade is already live. Turn on Auto-Copy to join the next one automatically.";
+  if (msg.includes("already deposited") || msg.includes("already copied")) return "You already joined this trade.";
+  if (msg.includes("min 5")) return "Minimum deposit is 5 USDC.";
+  if (msg.includes("max 50000")) return "Maximum deposit is 50,000 USDC.";
+  if (msg.includes("pool full")) return "The pool is full for this trade.";
+  if (msg.includes("no active signal")) return "No active trade right now. Wait for the next signal.";
+  if (msg.includes("not settled")) return "This trade is still open. You can claim after it closes.";
+  if (msg.includes("already claimed")) return "You already claimed this trade.";
+  if (msg.includes("no position")) return "You don't have a position in this trade.";
+  if (msg.includes("insufficient") || msg.includes("exceeds balance")) return "Not enough USDC in your wallet.";
+  if (msg.includes("user rejected") || msg.includes("user denied")) return "Transaction cancelled.";
+  if (msg.includes("transfer failed")) return "USDC transfer failed. Make sure you have enough USDC and have approved the contract.";
+  return "Something went wrong. Please try again.";
+}
+
 function App() {
   const [account, setAccount] = useState("");
   const [activeTab, setActiveTab] = useState(() => {
@@ -1015,7 +1032,7 @@ function App() {
       await loadUserFollows();
       await loadMarketplace();
     } catch (err) {
-      alert(err.reason || err.message || "Follow failed");
+      alert(friendlyError(err));
     } finally {
       setFollowLoading(false);
     }
@@ -1033,7 +1050,7 @@ function App() {
       await loadUserFollows();
       await loadMarketplace();
     } catch (err) {
-      alert(err.reason || err.message || "Unfollow failed");
+      alert(friendlyError(err));
     } finally {
       setFollowLoading(false);
     }
@@ -1326,7 +1343,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Post signal error:", err);
-      alert(err.reason || err.message || "Failed to post signal");
+      alert(friendlyError(err));
     } finally {
       setIsLoading(false);
     }
@@ -1348,7 +1365,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Close signal error:", err);
-      alert(err.reason || err.message || "Failed to close signal");
+      alert(friendlyError(err));
     } finally {
       setIsLoading(false);
     }
@@ -1446,7 +1463,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Copy trade error:", err);
-      alert(err.reason || err.message || "Copy trade failed");
+      alert(friendlyError(err));
     } finally {
       setIsLoading(false);
     }
@@ -1468,12 +1485,7 @@ function App() {
       await loadData(contractRef.current, usdcRef.current, account);
     } catch (err) {
       console.error("Claim error:", err);
-      const reason = err.reason || err.message || "Claim failed";
-      if (reason.includes("Insufficient balance")) {
-        alert("Funds are currently locked in an active trade on gTrade. You can claim once the trade closes and funds return to the contract.");
-      } else {
-        alert(reason);
-      }
+      alert(friendlyError(err));
     } finally {
       setIsLoading(false);
     }
@@ -5291,7 +5303,7 @@ function App() {
                             await tx.wait();
                             await loadData(contractRef.current, usdcRef.current, account);
                           } catch (err) {
-                            alert(err.reason || err.message || "Failed to withdraw fees");
+                            alert(friendlyError(err));
                           } finally {
                             setIsLoading(false);
                           }
@@ -5852,7 +5864,7 @@ function App() {
                     await tx.wait();
                     setLegacyClaimed(true);
                   } catch (err) {
-                    alert(err.reason || err.message || 'Claim failed');
+                    alert(friendlyError(err));
                   } finally {
                     setIsLoading(false);
                   }
