@@ -67,6 +67,7 @@ const COPY_TRADER_ABI = [
   "function getActiveSignalId() view returns (uint256)",
   "function settleSignal(uint256 _totalReturned) external",
   "function closeTrade(uint32 _index, uint64 _expectedPrice) external",
+  "function openTrade(uint32 _gTradeIndex) external",
 ];
 
 // gTrade events — we only need the fields we care about
