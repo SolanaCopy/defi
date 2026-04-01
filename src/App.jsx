@@ -4366,12 +4366,13 @@ function App() {
                   todaySignals.forEach(s => {
                     todayPnl += s.tradePct;
                   });
+                  const avgPnl = todaySignals.length > 0 ? todayPnl / todaySignals.length : 0;
                   return (
                     <div style={{
                       fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.5rem', fontWeight: 800,
-                      color: todayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                      color: avgPnl >= 0 ? 'var(--success)' : 'var(--danger)',
                     }}>
-                      {todayPnl >= 0 ? '+' : ''}{todayPnl.toFixed(1)}%
+                      {avgPnl >= 0 ? '+' : ''}{avgPnl.toFixed(1)}%
                     </div>
                   );
                 })()}
@@ -4392,6 +4393,7 @@ function App() {
               const periodSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
               let periodPnl = 0;
               periodSignals.forEach(s => { periodPnl += s.tradePct; });
+              const avgPeriodPnl = periodSignals.length > 0 ? periodPnl / periodSignals.length : 0;
 
               return (
                 <div key={label} style={{
@@ -4407,7 +4409,7 @@ function App() {
                     fontSize: '1.1rem', fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px',
                     color: periodPnl > 0 ? 'var(--success)' : periodPnl < 0 ? 'var(--danger)' : 'var(--text-primary)',
                   }}>
-                    {data.trades > 0 ? `${periodPnl >= 0 ? '+' : ''}${periodPnl.toFixed(1)}%` : '-'}
+                    {data.trades > 0 ? `${avgPeriodPnl >= 0 ? '+' : ''}${avgPeriodPnl.toFixed(1)}%` : '-'}
                   </div>
                   <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
                     {data.trades} trades &middot; {data.winRate.toFixed(0)}% win
