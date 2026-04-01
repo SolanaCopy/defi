@@ -1138,12 +1138,22 @@ class CloseWatcher {
             closePrice = Number(p.price) * Math.pow(10, p.expo);
           } catch { closePrice = entry; }
 
-          // If price passed TP → TP was hit. If price passed SL → SL was hit.
+          // gTrade position is gone — determine if TP or SL was hit
+          // If price is between TP and SL, check which is closer
           let resultPrice;
           if (signal.long) {
-            resultPrice = closePrice >= tp ? tp : closePrice <= sl ? sl : closePrice;
+            if (closePrice >= tp) resultPrice = tp;
+            else if (closePrice <= sl) resultPrice = sl;
+            else {
+              // Price between TP and SL — gTrade closed it, so pick closest
+              resultPrice = (tp - closePrice) < (closePrice - sl) ? tp : sl;
+            }
           } else {
-            resultPrice = closePrice <= tp ? tp : closePrice >= sl ? sl : closePrice;
+            if (closePrice <= tp) resultPrice = tp;
+            else if (closePrice >= sl) resultPrice = sl;
+            else {
+              resultPrice = (closePrice - tp) < (sl - closePrice) ? tp : sl;
+            }
           }
 
           const resultBps = signal.long
@@ -1288,12 +1298,16 @@ class CloseWatcher {
       const tp = Number(signal.tp) / 1e10;
       const sl = Number(signal.sl) / 1e10;
 
-      // Determine close price based on TP/SL
+      // gTrade closed the position — determine if TP or SL was hit
       let resultPrice;
       if (signal.long) {
-        resultPrice = closePrice >= tp ? tp : closePrice <= sl ? sl : closePrice;
+        if (closePrice >= tp) resultPrice = tp;
+        else if (closePrice <= sl) resultPrice = sl;
+        else resultPrice = (tp - closePrice) < (closePrice - sl) ? tp : sl;
       } else {
-        resultPrice = closePrice <= tp ? tp : closePrice >= sl ? sl : closePrice;
+        if (closePrice <= tp) resultPrice = tp;
+        else if (closePrice >= sl) resultPrice = sl;
+        else resultPrice = (closePrice - tp) < (sl - closePrice) ? tp : sl;
       }
 
       const pricePct = signal.long
