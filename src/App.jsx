@@ -805,13 +805,14 @@ function App() {
         // Calculate resultPct from on-chain totalReturned with known bug corrections
         // Signals 7 ($0 bug) and 9 ($214 bug) use verified gTrade returns
         let resultPct = 0n;
-        const bugFixes = { 7: 91750000n, 9: 122560000n };
+        const bugFixes = { 7: 91750000n, 9: 122560000n, 19: 123775000n };
         const fixedReturned = bugFixes[Number(id)] || totalReturned;
-        if (closed && originalDeposited > 0n && fixedReturned > 0n) {
-          if (fixedReturned >= originalDeposited) {
-            resultPct = BigInt(Math.round(Number((fixedReturned - originalDeposited) * 10000n / originalDeposited)));
+        const effectiveDeposited = originalDeposited > 0n ? originalDeposited : totalDeposited;
+        if (closed && effectiveDeposited > 0n && fixedReturned > 0n) {
+          if (fixedReturned >= effectiveDeposited) {
+            resultPct = BigInt(Math.round(Number((fixedReturned - effectiveDeposited) * 10000n / effectiveDeposited)));
           } else {
-            resultPct = BigInt(Math.round(-Number((originalDeposited - fixedReturned) * 10000n / originalDeposited)));
+            resultPct = BigInt(Math.round(-Number((effectiveDeposited - fixedReturned) * 10000n / effectiveDeposited)));
           }
         }
         // tradePct: pure price movement × leverage (like live terminal, before gTrade fees)
@@ -1133,11 +1134,12 @@ function App() {
         let resultPct = 0n;
         const bugFixes2 = { 7: 91750000n, 9: 122560000n };
         const fixedReturned = bugFixes2[Number(id)] || totalReturned;
-        if (closed && originalDeposited > 0n && fixedReturned > 0n) {
-          if (fixedReturned >= originalDeposited) {
-            resultPct = BigInt(Math.round(Number((fixedReturned - originalDeposited) * 10000n / originalDeposited)));
+        const effectiveDeposited = originalDeposited > 0n ? originalDeposited : totalDeposited;
+        if (closed && effectiveDeposited > 0n && fixedReturned > 0n) {
+          if (fixedReturned >= effectiveDeposited) {
+            resultPct = BigInt(Math.round(Number((fixedReturned - effectiveDeposited) * 10000n / effectiveDeposited)));
           } else {
-            resultPct = BigInt(Math.round(-Number((originalDeposited - fixedReturned) * 10000n / originalDeposited)));
+            resultPct = BigInt(Math.round(-Number((effectiveDeposited - fixedReturned) * 10000n / effectiveDeposited)));
           }
         }
         // tradePct: pure price movement × leverage (like live terminal, before gTrade fees)
