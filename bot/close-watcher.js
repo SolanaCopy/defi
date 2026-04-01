@@ -504,9 +504,15 @@ class CloseWatcher {
       for (let i = total; i >= 1; i--) {
         try {
           const core = await contract.signalCore(i);
-          if (Number(core.phase) !== 3) continue;
+          if (Number(core.phase) !== 2) continue; // only SETTLED
           const meta = await contract.signalMeta(i);
-          if (calcResultPct(meta) >= 0) this.winStreak++;
+          const pct = calcResultPct(meta);
+          // Skip cancelled signals (full refund)
+          const dep = BigInt(meta.originalDeposited);
+          const ret = BigInt(meta.totalReturned);
+          if (dep > 0n && ret === dep) continue;
+          if (dep === 0n) continue;
+          if (pct > 0) this.winStreak++;
           else break;
         } catch { break; }
       }
