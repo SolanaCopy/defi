@@ -407,7 +407,7 @@ class CloseWatcher {
             log(`Trade OPEN! gTrade index ${i}`);
             break;
           } catch (err) {
-            log(`Index ${i} failed: ${err.reason || 'reverted'}`);
+            log(`Index ${i} failed: ${err.reason || err.shortMessage || err.message?.slice(0, 120) || 'reverted'}`);
             if (i === 5) log(`Failed to open trade on any index`);
           }
         }
@@ -428,14 +428,6 @@ class CloseWatcher {
         entry: formatPrice(core.entryPrice), tp: formatPrice(core.tp), sl: formatPrice(core.sl),
       });
       const pool = Number(totalDeposited) / 1e6;
-      const levNum = Number(core.leverage) / 1000;
-      const entry = Number(core.entryPrice) / 1e10;
-      const tp = Number(core.tp) / 1e10;
-      const sl = Number(core.sl) / 1e10;
-      const tpPct = long ? ((tp - entry) / entry) * levNum * 100 : ((entry - tp) / entry) * levNum * 100;
-      const slPct = long ? ((entry - sl) / entry) * levNum * 100 : ((sl - entry) / entry) * levNum * 100;
-      const tpUsd = pool * tpPct / 100;
-      const slUsd = pool * slPct / 100;
 
       await sendTelegramPhoto(img, [
         `📡 <b>Trade Opened #${signalId}</b>`,
@@ -443,8 +435,8 @@ class CloseWatcher {
         `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
         `💰 Pool: <b>$${pool.toFixed(0)} USDC</b>`,
         ``,
-        `🎯 TP $${formatPrice(core.tp)}: <b>+${tpPct.toFixed(1)}%</b> (+$${tpUsd.toFixed(2)})`,
-        `🛑 SL $${formatPrice(core.sl)}: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
+        `🔒 Entry, TP & SL are hidden until trade closes`,
+        `💎 Copy now to join this trade`,
       ].join("\n"), [BTN_COPY, BTN_CONTRACT]);
     });
 
@@ -537,57 +529,59 @@ class CloseWatcher {
 
       log(`SignalSettled #${signalId} result=${pct.toFixed(1)}% deposited=$${Number(totalDeposited) / 1e6} returned=$${Number(totalReturned) / 1e6}`);
 
-      // Skip cancelled signals (full refund, resultPct = 0)
-      if (Number(resultPct) === 0 && totalDeposited === totalReturned) {
+      // Cancelled signal (full refund, resultPct = 0) — skip notification but still auto-claim
+      const isCancelled = Number(resultPct) === 0 && totalDeposited === totalReturned;
+      if (isCancelled) {
         log(`  Signal #${signalId} was cancelled — no notification`);
-        return;
       }
 
-      // Streak tracking
-      if (win) {
-        this.winStreak++;
-      } else {
-        this.winStreak = 0;
-      }
+      if (!isCancelled) {
+        // Streak tracking
+        if (win) {
+          this.winStreak++;
+        } else {
+          this.winStreak = 0;
+        }
 
-      // Skip notification if already sent by auto-close handler
-      if (this.autoClosedSignals.has(Number(signalId))) {
-        this.autoClosedSignals.delete(Number(signalId));
-        log(`  Skipping SignalSettled notification — already sent by auto-close`);
-      } else {
-        const img = await signalClosedImage({
-          signalId: String(signalId), resultPct: pct, direction: dir, leverage: `${levNum}x`,
-        });
-
-        const poolIn = Number(totalDeposited) / 1e6;
-        const poolOut = Number(totalReturned) / 1e6;
-        const pnlUsd = poolOut - poolIn;
-        const lines = [
-          win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
-          ``,
-          `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
-          `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
-          `💰 Pool: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
-        ];
-        lines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
-        await sendTelegramPhoto(img, lines.join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
-      }
-
-      // Send streak image at 3, 5, 7, 10, 15, 20, 25...
-      if (this.winStreak >= 3 && (this.winStreak <= 10 || this.winStreak % 5 === 0)) {
-        try {
-          const streakImg = await winStreakImage({
-            streak: this.winStreak,
-            resultPct: pct.toFixed(1),
-            signalId: String(signalId),
+        // Skip notification if already sent by auto-close handler
+        if (this.autoClosedSignals.has(Number(signalId))) {
+          this.autoClosedSignals.delete(Number(signalId));
+          log(`  Skipping SignalSettled notification — already sent by auto-close`);
+        } else {
+          const img = await signalClosedImage({
+            signalId: String(signalId), resultPct: pct, direction: dir, leverage: `${levNum}x`,
           });
-          await sendTelegramPhoto(streakImg, [
-            `🔥 <b>${this.winStreak} WIN STREAK!</b>`,
+
+          const poolIn = Number(totalDeposited) / 1e6;
+          const poolOut = Number(totalReturned) / 1e6;
+          const pnlUsd = poolOut - poolIn;
+          const lines = [
+            win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
             ``,
-            `${this.winStreak} profitable trades without a single loss!`,
-          ].join("\n"), [BTN_APP, BTN_TG]);
-        } catch (err) {
-          log(`Streak image error: ${err.message}`);
+            `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
+            `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
+            `💰 Pool: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
+          ];
+          lines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
+          await sendTelegramPhoto(img, lines.join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
+        }
+
+        // Send streak image at 3, 5, 7, 10, 15, 20, 25...
+        if (this.winStreak >= 3 && (this.winStreak <= 10 || this.winStreak % 5 === 0)) {
+          try {
+            const streakImg = await winStreakImage({
+              streak: this.winStreak,
+              resultPct: pct.toFixed(1),
+              signalId: String(signalId),
+            });
+            await sendTelegramPhoto(streakImg, [
+              `🔥 <b>${this.winStreak} WIN STREAK!</b>`,
+              ``,
+              `${this.winStreak} profitable trades without a single loss!`,
+            ].join("\n"), [BTN_APP, BTN_TG]);
+          } catch (err) {
+            log(`Streak image error: ${err.message}`);
+          }
         }
       }
 

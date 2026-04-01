@@ -78,6 +78,9 @@ async function checkNews() {
   const events = await fetchForexCalendar();
   if (events.length === 0) return;
 
+  // Collect all-clear events to send as one message
+  const clearEvents = [];
+
   for (const event of events) {
     const minutesUntil = getMinutesUntil(event.date);
     const eventKey = `${event.date}-${event.title}`;
@@ -134,19 +137,25 @@ async function checkNews() {
     const clearKey = `clear-${eventKey}`;
     if (minutesUntil < -45 && minutesUntil > -90 && !alertedEvents.has(clearKey)) {
       alertedEvents.set(clearKey, Date.now());
-
-      const msg = [
-        ``,
-        `\u2705  <b>ALL CLEAR — SAFE TO TRADE</b>`,
-        ``,
-        ``,
-        `The no-trade zone for <b>${event.title}</b> has ended.`,
-        `Trading signals can resume.`,
-      ].join("\n");
-
+      clearEvents.push(event.title);
       console.log(`[NEWS] All-clear after: ${event.title}`);
-      await sendTelegram(msg);
     }
+  }
+
+  // Send one combined all-clear message
+  if (clearEvents.length > 0) {
+    const eventList = clearEvents.map(t => `• ${t}`).join("\n");
+    const msg = [
+      ``,
+      `\u2705  <b>ALL CLEAR — SAFE TO TRADE</b>`,
+      ``,
+      ``,
+      `The no-trade zone has ended for:`,
+      eventList,
+      ``,
+      `Trading signals can resume.`,
+    ].join("\n");
+    await sendTelegram(msg);
   }
 
   // Clean old alerts (older than 3 hours)

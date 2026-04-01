@@ -252,7 +252,7 @@ export async function signalImage({ signalId, direction, leverage, entry, tp, sl
   const dirGradH = isLong ? "green" : "red";
   const h = 655;
 
-  // Parse prices (remove commas)
+  // Parse prices for chart scaling
   const entryNum = parseFloat(String(entry).replace(/,/g, ""));
   const tpNum = parseFloat(String(tp).replace(/,/g, ""));
   const slNum = parseFloat(String(sl).replace(/,/g, ""));
@@ -283,22 +283,28 @@ export async function signalImage({ signalId, direction, leverage, entry, tp, sl
     <!-- Chart -->
     ${card(40, 227, 720, 240)}
     <text x="60" y="245" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1" opacity="0.9">XAU/USD · 5M</text>
-    <text x="740" y="245" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="end">${realCandles ? "LIVE" : ""}${realCandles ? "" : ""}</text>
+    <text x="740" y="245" font-family="${FONT}" font-size="10" fill="${GRAY}" text-anchor="end">${realCandles ? "LIVE" : ""}</text>
     ${realCandles ? `<circle cx="726" cy="241" r="3" fill="${GREEN}" opacity="0.8"/>` : ""}
     ${chartSvg}
 
-    <!-- Price cards -->
+    <!-- Price cards (hidden — revealed on close) -->
     ${card(45, 483, 220, 75)}
     <text x="155" y="509" font-family="${FONT}" font-size="11" fill="${LIGHT_GRAY}" text-anchor="middle" letter-spacing="2">ENTRY PRICE</text>
-    <text x="155" y="540" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle">$${esc(entry)}</text>
+    <text x="155" y="540" font-family="${FONT}" font-size="26" fill="${WHITE}" font-weight="700" text-anchor="middle" opacity="0.15">$${esc(entry)}</text>
+    <rect x="95" y="520" width="120" height="28" rx="6" fill="#0D0D15" opacity="0.85"/>
+    <text x="155" y="540" font-family="${FONT}" font-size="16" fill="${GRAY}" text-anchor="middle" letter-spacing="3">HIDDEN</text>
 
     ${card(290, 483, 220, 75, "#1a3a1a")}
     <text x="400" y="509" font-family="${FONT}" font-size="11" fill="${GREEN}" text-anchor="middle" letter-spacing="2">TAKE PROFIT</text>
-    <text x="400" y="540" font-family="${FONT}" font-size="26" fill="${GREEN}" font-weight="700" text-anchor="middle">$${esc(tp)}</text>
+    <text x="400" y="540" font-family="${FONT}" font-size="26" fill="${GREEN}" font-weight="700" text-anchor="middle" opacity="0.15">$${esc(tp)}</text>
+    <rect x="340" y="520" width="120" height="28" rx="6" fill="#0D0D15" opacity="0.85"/>
+    <text x="400" y="540" font-family="${FONT}" font-size="16" fill="${GRAY}" text-anchor="middle" letter-spacing="3">HIDDEN</text>
 
     ${card(535, 483, 220, 75, "#3a1a1a")}
     <text x="645" y="509" font-family="${FONT}" font-size="11" fill="${RED}" text-anchor="middle" letter-spacing="2">STOP LOSS</text>
-    <text x="645" y="540" font-family="${FONT}" font-size="26" fill="${RED}" font-weight="700" text-anchor="middle">$${esc(sl)}</text>
+    <text x="645" y="540" font-family="${FONT}" font-size="26" fill="${RED}" font-weight="700" text-anchor="middle" opacity="0.15">$${esc(sl)}</text>
+    <rect x="585" y="520" width="120" height="28" rx="6" fill="#0D0D15" opacity="0.85"/>
+    <text x="645" y="540" font-family="${FONT}" font-size="16" fill="${GRAY}" text-anchor="middle" letter-spacing="3">HIDDEN</text>
 
     <!-- CTA -->
     ${ctaButton(580, "COPY THIS TRADE NOW")}
