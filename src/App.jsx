@@ -2529,11 +2529,12 @@ function App() {
           {/* Calendar strip — days of the month */}
           {(() => {
             const today = new Date();
-            const year = today.getUTCFullYear();
-            const month = today.getUTCMonth();
+            const year = calendarMonth.year;
+            const month = calendarMonth.month;
             const daysInMonth = new Date(year, month + 1, 0).getDate();
-            const currentDay = today.getUTCDate();
-            const monthName = today.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+            const isCurrentMonth = year === today.getUTCFullYear() && month === today.getUTCMonth();
+            const currentDay = isCurrentMonth ? today.getUTCDate() : -1;
+            const monthName = new Date(Date.UTC(year, month, 1)).toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
 
             // Get trades per day for this month
             const tradesPerDay = {};
@@ -2564,7 +2565,19 @@ function App() {
 
             return (
               <div style={{ marginBottom: '12px' }}>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '6px', textAlign: 'center', fontWeight: 600 }}>{monthName} {year}</div>
+                <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginBottom: '6px' }}>
+                  <button onClick={() => setCalendarMonth(prev => {
+                    const d = new Date(Date.UTC(prev.year, prev.month - 1, 1));
+                    return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
+                  })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem', padding: '2px 6px' }}>&lt;</button>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, minWidth: '100px', textAlign: 'center' }}>{monthName} {year}</span>
+                  {!isCurrentMonth ? (
+                    <button onClick={() => setCalendarMonth(prev => {
+                      const d = new Date(Date.UTC(prev.year, prev.month + 1, 1));
+                      return { year: d.getUTCFullYear(), month: d.getUTCMonth() };
+                    })} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '0.8rem', padding: '2px 6px' }}>&gt;</button>
+                  ) : <span style={{ width: '24px' }} />}
+                </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '4px' }}>
                   {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
                     <div key={i} style={{ textAlign: 'center', fontSize: '0.55rem', color: 'var(--text-secondary)', opacity: 0.5 }}>{d}</div>
@@ -2579,7 +2592,7 @@ function App() {
                       const isSelected = selectedDay === day;
                       const hasWins = info?.wins > 0;
                       const hasLosses = info?.losses > 0;
-                      const isFuture = day > currentDay;
+                      const isFuture = isCurrentMonth && day > currentDay;
 
                       return (
                         <button key={di} onClick={() => {
@@ -2809,6 +2822,7 @@ function App() {
   const [tradeLogPeriod, setTradeLogPeriod] = useState('all');
   const [tradeLogFrom, setTradeLogFrom] = useState('');
   const [tradeLogTo, setTradeLogTo] = useState('');
+  const [calendarMonth, setCalendarMonth] = useState(() => { const n = new Date(); return { year: n.getUTCFullYear(), month: n.getUTCMonth() }; });
   const [followTarget, setFollowTarget] = useState(null); // provider address for follow modal
   const [selectedProvider, setSelectedProvider] = useState(null); // provider object for detail modal
 
