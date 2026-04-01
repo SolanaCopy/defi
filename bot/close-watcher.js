@@ -1220,10 +1220,9 @@ class CloseWatcher {
             await tx.wait();
             log(`  Signal #${activeId} settled via safety net!`);
 
-            // Send notification
-            const pct = Number(totalReturned) > Number(meta.originalDeposited)
-              ? ((Number(totalReturned) - Number(meta.originalDeposited)) / Number(meta.originalDeposited)) * 100
-              : -((Number(meta.originalDeposited) - Number(totalReturned)) / Number(meta.originalDeposited)) * 100;
+            // Send notification — use tradePct (price × leverage) like the terminal
+            const tradePct = Math.abs(resultBps / 100) * leverage;
+            const pct = resultBps >= 0 ? tradePct : -tradePct;
             const win = pct >= 0;
             const img = await autoCloseImage({
               signalId: String(activeId), direction: signal.long ? "LONG" : "SHORT",
@@ -1257,7 +1256,22 @@ class CloseWatcher {
             if (err.message?.includes("Not trading")) {
               log("  Signal already settled by another handler");
             } else {
-              logError("Safety net settleSignal failed", err);
+              // Retry with balance-based method
+              log(`  First settle attempt failed: ${err.reason || err.shortMessage || err.message?.slice(0, 100)}`);
+              try {
+                const retryBalance = await this.usdc.balanceOf(this.copyTrader.target);
+                const retryMeta = await this.copyTrader.signalMeta(activeId);
+                const retryCollateral = Number(retryMeta.originalDeposited) || Number(retryMeta.totalDeposited);
+                const retryBalAtOpen = Number(retryMeta.balanceAtOpen);
+                const retryReturned = BigInt(retryBalance) - (BigInt(retryBalAtOpen) - BigInt(retryCollateral));
+                const safeReturned = retryReturned > 0n ? retryReturned : 0n;
+                log(`  Retry settle with balance method: returned=$${Number(safeReturned) / 1e6}`);
+                const retryTx = await this.copyTrader.settleSignal(safeReturned);
+                await retryTx.wait();
+                log(`  Signal #${activeId} settled via safety net (retry)!`);
+              } catch (retryErr) {
+                logError("Safety net settle retry also failed", retryErr);
+              }
             }
           }
         }
