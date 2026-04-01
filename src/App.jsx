@@ -4362,17 +4362,21 @@ function App() {
               <div style={{ textAlign: 'right' }}>
                 {(() => {
                   const todaySignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && Number(s.closedAt) >= Math.floor(Date.now() / 1000) - 86400);
-                  let todayPnl = 0;
+                  let todayDollarPnl = 0;
+                  let todayCollateral = 0;
                   todaySignals.forEach(s => {
-                    todayPnl += s.tradePct;
+                    const dep = parseFloat(ethers.formatUnits(s.originalDeposited || s.totalCopied || 0n, 6));
+                    const ret = parseFloat(ethers.formatUnits(s.totalReturned || 0n, 6));
+                    todayDollarPnl += (ret - dep);
+                    todayCollateral += dep;
                   });
-                  const avgPnl = todaySignals.length > 0 ? todayPnl / todaySignals.length : 0;
+                  const todayPct = todayCollateral > 0 ? (todayDollarPnl / todayCollateral) * 100 : 0;
                   return (
                     <div style={{
                       fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.5rem', fontWeight: 800,
-                      color: avgPnl >= 0 ? 'var(--success)' : 'var(--danger)',
+                      color: todayPct >= 0 ? 'var(--success)' : 'var(--danger)',
                     }}>
-                      {avgPnl >= 0 ? '+' : ''}{avgPnl.toFixed(1)}%
+                      {todayPct >= 0 ? '+' : ''}{todayPct.toFixed(1)}%
                     </div>
                   );
                 })()}
@@ -4391,9 +4395,15 @@ function App() {
               const cutoff = label === 'Today' ? 86400 : label === '7 Days' ? 7 * 86400 : label === '30 Days' ? 30 * 86400 : 0;
               const now = Math.floor(Date.now() / 1000);
               const periodSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
-              let periodPnl = 0;
-              periodSignals.forEach(s => { periodPnl += s.tradePct; });
-              const avgPeriodPnl = periodSignals.length > 0 ? periodPnl / periodSignals.length : 0;
+              let periodDollarPnl = 0;
+              let periodCollateral = 0;
+              periodSignals.forEach(s => {
+                const dep = parseFloat(ethers.formatUnits(s.originalDeposited || s.totalCopied || 0n, 6));
+                const ret = parseFloat(ethers.formatUnits(s.totalReturned || 0n, 6));
+                periodDollarPnl += (ret - dep);
+                periodCollateral += dep;
+              });
+              const periodPct = periodCollateral > 0 ? (periodDollarPnl / periodCollateral) * 100 : 0;
 
               return (
                 <div key={label} style={{
@@ -4409,7 +4419,7 @@ function App() {
                     fontSize: '1.1rem', fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px',
                     color: periodPnl > 0 ? 'var(--success)' : periodPnl < 0 ? 'var(--danger)' : 'var(--text-primary)',
                   }}>
-                    {data.trades > 0 ? `${avgPeriodPnl >= 0 ? '+' : ''}${avgPeriodPnl.toFixed(1)}%` : '-'}
+                    {data.trades > 0 ? `${periodPct >= 0 ? '+' : ''}${periodPct.toFixed(1)}%` : '-'}
                   </div>
                   <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
                     {data.trades} trades &middot; {data.winRate.toFixed(0)}% win
