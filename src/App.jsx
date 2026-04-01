@@ -341,9 +341,10 @@ function App() {
   // Performance stats computed from signal history + user positions
   const performanceStats = useMemo(() => {
     const now = Math.floor(Date.now() / 1000);
-    const DAY = 86400;
-    const WEEK = 7 * DAY;
-    const MONTH = 30 * DAY;
+    const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+    const todayCutoff = Math.floor(startOfDay.getTime() / 1000);
+    const WEEK = 7 * 86400;
+    const MONTH = 30 * 86400;
 
     // Filter out cancels (totalReturned === totalCopied means full refund / cancel)
     const closedSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0);
@@ -394,13 +395,13 @@ function App() {
 
     return {
       my: {
-        today: calcPnl(mySignals, now - DAY),
+        today: calcPnl(mySignals, todayCutoff),
         week: calcPnl(mySignals, now - WEEK),
         month: calcPnl(mySignals, now - MONTH),
         all: calcPnl(mySignals, null),
       },
       platform: {
-        today: calcPlatformPnl(closedSignals, now - DAY),
+        today: calcPlatformPnl(closedSignals, todayCutoff),
         week: calcPlatformPnl(closedSignals, now - WEEK),
         month: calcPlatformPnl(closedSignals, now - MONTH),
         all: calcPlatformPnl(closedSignals, null),
@@ -4361,22 +4362,17 @@ function App() {
               </div>
               <div style={{ textAlign: 'right' }}>
                 {(() => {
-                  const todaySignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && Number(s.closedAt) >= Math.floor(Date.now() / 1000) - 86400);
-                  let todayDollarPnl = 0;
-                  let todayCollateral = 0;
-                  todaySignals.forEach(s => {
-                    const dep = parseFloat(ethers.formatUnits(s.originalDeposited || s.totalCopied || 0n, 6));
-                    const ret = parseFloat(ethers.formatUnits(s.totalReturned || 0n, 6));
-                    todayDollarPnl += (ret - dep);
-                    todayCollateral += dep;
-                  });
-                  const todayPct = todayCollateral > 0 ? (todayDollarPnl / todayCollateral) * 100 : 0;
+                  const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+                  const todayCutoff = Math.floor(startOfDay.getTime() / 1000);
+                  const todaySignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && Number(s.closedAt) >= todayCutoff);
+                  let todayPnl = 0;
+                  todaySignals.forEach(s => { todayPnl += s.tradePct; });
                   return (
                     <div style={{
                       fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.5rem', fontWeight: 800,
-                      color: todayPct >= 0 ? 'var(--success)' : 'var(--danger)',
+                      color: todayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
                     }}>
-                      {todayPct >= 0 ? '+' : ''}{todayPct.toFixed(1)}%
+                      {todayPnl >= 0 ? '+' : ''}{todayPnl.toFixed(1)}%
                     </div>
                   );
                 })()}
@@ -4394,16 +4390,12 @@ function App() {
               // Calculate total PnL for this period
               const cutoff = label === 'Today' ? 86400 : label === '7 Days' ? 7 * 86400 : label === '30 Days' ? 30 * 86400 : 0;
               const now = Math.floor(Date.now() / 1000);
-              const periodSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
-              let periodDollarPnl = 0;
-              let periodCollateral = 0;
-              periodSignals.forEach(s => {
-                const dep = parseFloat(ethers.formatUnits(s.originalDeposited || s.totalCopied || 0n, 6));
-                const ret = parseFloat(ethers.formatUnits(s.totalReturned || 0n, 6));
-                periodDollarPnl += (ret - dep);
-                periodCollateral += dep;
-              });
-              const periodPct = periodCollateral > 0 ? (periodDollarPnl / periodCollateral) * 100 : 0;
+              const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
+              const todayCutoff = Math.floor(startOfDay.getTime() / 1000);
+              const periodCutoff = label === 'Today' ? todayCutoff : label === '7 Days' ? now - 7 * 86400 : label === '30 Days' ? now - 30 * 86400 : 0;
+              const periodSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && (periodCutoff === 0 || Number(s.closedAt) >= periodCutoff));
+              let periodPct = 0;
+              periodSignals.forEach(s => { periodPct += s.tradePct; });
 
               return (
                 <div key={label} style={{
