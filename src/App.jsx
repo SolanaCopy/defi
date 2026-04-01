@@ -298,7 +298,7 @@ function App() {
   const [account, setAccount] = useState("");
   const [activeTab, setActiveTab] = useState(() => {
     const params = new URLSearchParams(window.location.search);
-    return params.get("tab") || "dashboard";
+    return params.get("tab") || "invest";
   });
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
