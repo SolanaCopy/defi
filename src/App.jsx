@@ -2561,36 +2561,25 @@ function App() {
                     const isClosed = signal.closed;
               return (
                 <motion.div
+                  className="trade-log-row"
                   key={Number(signal.id)}
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   transition={{ delay: index * 0.03 }}
-                  style={{
-                    display: 'grid', gridTemplateColumns: '50px 70px 80px 1fr 80px 80px 100px 70px',
-                    gap: '8px', padding: '12px', fontSize: '0.8rem',
-                    borderBottom: '1px solid rgba(255,255,255,0.03)',
-                    alignItems: 'center',
-                  }}
                 >
-                  <span style={{ color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>{Number(signal.id)}</span>
-                  <span style={{
+                  <span className="trade-log-id" style={{ color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>#{Number(signal.id)}</span>
+                  <span className="trade-log-dir" style={{
                     padding: '2px 8px', borderRadius: '10px', fontSize: '0.65rem', fontWeight: 700, textAlign: 'center',
                     background: signal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
                     color: signal.long ? 'var(--success)' : 'var(--danger)',
                   }}>
-                    {signal.long ? 'LONG' : 'SHORT'}
+                    {signal.long ? 'LONG' : 'SHORT'} {formatLeverage(signal.leverage)}x
                   </span>
-                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
-                    {formatLeverage(signal.leverage)}x
+                  <span className="trade-log-entry" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                    ${formatGTradePrice(signal.entryPrice)}
                   </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                    ${formatGTradePrice(signal.entryPrice)} / ${formatGTradePrice(signal.tp)} / ${formatGTradePrice(signal.sl)}
-                  </span>
-                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
-                    {Number(signal.copierCount)}
-                  </span>
-                  <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
-                    ${parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6)).toFixed(0)}
+                  <span className="trade-log-copiers" style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
+                    {Number(signal.copierCount)} · ${parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6)).toFixed(0)}
                   </span>
                   <div style={{ textAlign: 'right', fontFamily: "'Space Grotesk', sans-serif" }}>
                     {(() => {

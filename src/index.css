@@ -1056,6 +1056,15 @@ input[type="number"] { -moz-appearance: textfield; }
 
 .gold { color: var(--accent-light); }
 
+/* Trade log */
+.trade-log-row {
+  display: grid;
+  grid-template-columns: 50px 100px 80px 80px 100px 70px;
+  gap: 8px; padding: 12px; font-size: 0.8rem;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
+  align-items: center;
+}
+
 /* ======== RESPONSIVE ======== */
 @media (max-width: 900px) {
   .hero-content { grid-template-columns: 1fr; gap: 2rem; }
@@ -1144,6 +1153,21 @@ input[type="number"] { -moz-appearance: textfield; }
 
   /* Modal mobile */
   .modal-content { width: 95vw !important; margin: 1rem !important; padding: 1.25rem !important; }
+
+  /* Trade log mobile */
+  .trade-log-row {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 6px !important;
+    padding: 10px 12px !important;
+    align-items: center !important;
+    grid-template-columns: unset !important;
+  }
+  .trade-log-entry { display: none !important; }
+  .trade-log-copiers { display: none !important; }
+
+  /* Signal history mobile */
+  .dash-tx-list > div > div[style*="padding: '10px 1.75rem'"] { padding: 8px 12px !important; }
 
   /* General mobile spacing */
   .mobile-stack { flex-direction: column !important; }
