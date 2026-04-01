@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Video Timeline Editor — Scenes + Subtitles</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0b0f; color: #eee; font-family: 'Inter', -apple-system, sans-serif; overflow-x: hidden; }
+
+  .toolbar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+    background: #12141a; border-bottom: 1px solid #222; padding: 10px 20px;
+    display: flex; align-items: center; gap: 14;
+  }
+  .toolbar button {
+    padding: 8px 16px; border-radius: 8px; border: 1px solid #333; background: #1a1c24;
+    color: #eee; cursor: pointer; font-size: 13px; font-weight: 600;
+  }
+  .toolbar button:hover { background: #252830; }
+  .toolbar button.active { background: #D4A843; color: #000; border-color: #D4A843; }
+  .toolbar .time { font-size: 14px; font-weight: 700; color: #D4A843; min-width: 120px; }
+  .toolbar .frame { font-size: 12px; color: #888; }
+
+  .timeline-container { margin-top: 60px; padding: 20px; overflow-x: auto; padding-bottom: 180px; }
+
+  .video-preview {
+    position: fixed; top: 60px; right: 10px; z-index: 90;
+    width: 480px; height: 290px; background: #000; border-radius: 12px;
+    border: 1px solid #333; box-shadow: 0 10px 40px rgba(0,0,0,0.6);
+    overflow: hidden;
+  }
+  .video-preview iframe { width: 100%; height: 100%; border: none; }
+  .video-preview .drag-handle {
+    position: absolute; top: 0; left: 0; right: 0; height: 24px;
+    background: rgba(255,255,255,0.05); cursor: move; display: flex;
+    align-items: center; justify-content: center;
+    font-size: 10px; color: #555; letter-spacing: 1px;
+  }
+  .video-preview .resize-corner {
+    position: absolute; bottom: 0; right: 0; width: 16px; height: 16px;
+    cursor: nwse-resize; background: linear-gradient(135deg, transparent 50%, rgba(212,168,67,0.3) 50%);
+  }
+  .video-preview .close-btn {
+    position: absolute; top: 4px; right: 8px; cursor: pointer;
+    font-size: 14px; color: #666; z-index: 5;
+  }
+  .video-preview .close-btn:hover { color: #fff; }
+
+  .waveform-area {
+    position: relative; height: 60px; background: #111318; border-radius: 8px;
+    margin-bottom: 4px; cursor: pointer; border: 1px solid #1a1c24;
+  }
+  .waveform-area canvas { width: 100%; height: 100%; border-radius: 8px; }
+
+  .playhead {
+    position: absolute; top: 0; bottom: 0; width: 2px; background: #D4A843;
+    pointer-events: none; z-index: 10;
+    box-shadow: 0 0 8px rgba(212,168,67,0.4);
+  }
+  .playhead::after {
+    content: ''; position: absolute; top: -4px; left: -5px;
+    width: 12px; height: 12px; background: #D4A843; border-radius: 50%;
+  }
+
+  .track { position: relative; height: 40px; margin-bottom: 3px; border-radius: 6px; overflow: visible; }
+  .track-label {
+    position: absolute; left: -120px; top: 50%; transform: translateY(-50%);
+    font-size: 11px; color: #666; width: 110px; text-align: right; pointer-events: none;
+  }
+
+  .track.scenes { background: #111318; border: 1px solid #1a1c24; }
+  .track.subtitles { background: #0e1016; border: 1px solid #181a22; }
+
+  .block {
+    position: absolute; top: 3px; height: 34px; border-radius: 6px;
+    cursor: grab; display: flex; align-items: center; padding: 0 8px;
+    font-size: 10px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    user-select: none; min-width: 20px;
+  }
+  .block:hover { filter: brightness(1.2); }
+  .block.dragging { opacity: 0.7; cursor: grabbing; z-index: 50; }
+
+  .block.scene { background: rgba(59,130,246,0.2); border: 1px solid rgba(59,130,246,0.4); color: #93c5fd; }
+  .block.subtitle { background: rgba(212,168,67,0.15); border: 1px solid rgba(212,168,67,0.3); color: #D4A843; }
+
+  .resize-handle {
+    position: absolute; top: 0; bottom: 0; width: 8px; cursor: ew-resize; z-index: 5;
+  }
+  .resize-handle.left { left: 0; }
+  .resize-handle.right { right: 0; }
+  .resize-handle:hover { background: rgba(255,255,255,0.1); }
+
+  .ruler { position: relative; height: 28px; margin-bottom: 4px; margin-left: 0; }
+  .ruler span { position: absolute; top: 0; font-size: 10px; color: #555; transform: translateX(-50%); }
+  .ruler .tick { position: absolute; top: 18px; width: 1px; height: 10px; background: #333; }
+
+  .export-panel {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: #12141a; border-top: 1px solid #222; padding: 10px 20px;
+    display: flex; align-items: center; gap: 10;
+  }
+  .export-panel textarea {
+    flex: 1; height: 80px; background: #0a0b0f; border: 1px solid #333;
+    border-radius: 8px; color: #D4A843; font-family: monospace; font-size: 10px;
+    padding: 6px; resize: none;
+  }
+  .export-panel button {
+    padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-weight: 700; font-size: 12px;
+  }
+
+  .preview-subtitle {
+    position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%);
+    padding: 10px 24px; border-radius: 10px; background: rgba(0,0,0,0.8);
+    font-size: 16px; color: #fff; pointer-events: none; z-index: 200;
+    max-width: 700px; text-align: center; transition: opacity 0.15s;
+  }
+
+  .tab-bar { display: flex; gap: 4px; }
+  .tab-bar button.tab-active { background: #D4A843; color: #000; border-color: #D4A843; }
+
+  .section-label {
+    font-size: 11px; color: #555; margin: 8px 0 4px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="playBtn" onclick="togglePlay()">&#9654; Play</button>
+  <div class="time" id="timeDisplay">00:00.000</div>
+  <div class="frame" id="frameDisplay">Frame: 0</div>
+  <div style="flex:1"></div>
+  <div class="tab-bar">
+    <button id="tabScenes" class="tab-active" onclick="showTab('scenes')">Scenes</button>
+    <button id="tabSubs" onclick="showTab('subtitles')">Subtitles</button>
+    <button id="tabAll" onclick="showTab('all')">All</button>
+  </div>
+  <button onclick="togglePreview()" id="previewToggle">Preview</button>
+  <div style="width:10px"></div>
+  <button onclick="zoomOut()">-</button>
+  <span style="font-size:12px;color:#888" id="zoomLabel">100%</span>
+  <button onclick="zoomIn()">+</button>
+</div>
+
+<!-- Video preview — synced MP4 player -->
+<div class="video-preview" id="videoPreview">
+  <div class="drag-handle" id="previewDragHandle">
+    VIDEO PREVIEW — Frame: <span id="previewFrame">0</span>
+    <span id="renderStatus" style="margin-left:10px;color:#f59e0b;font-size:9px"></span>
+  </div>
+  <div class="close-btn" onclick="togglePreview()">✕</div>
+  <video id="previewVideo" muted style="width:100%;height:calc(100% - 24px);margin-top:24px;object-fit:contain;background:#000"></video>
+  <div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#555;font-size:12px;pointer-events:none" id="videoLoading">Video aan het renderen...</div>
+  <div class="resize-corner" id="resizeCorner"></div>
+</div>
+
+<div class="timeline-container" id="timelineContainer">
+  <div class="ruler" id="ruler"></div>
+  <div class="waveform-area" id="waveformArea">
+    <canvas id="waveformCanvas"></canvas>
+    <div class="playhead" id="playhead" style="left:0"></div>
+  </div>
+  <div id="tracks"></div>
+</div>
+
+<div class="preview-subtitle" id="previewSubtitle" style="opacity:0"></div>
+
+<div class="export-panel">
+  <textarea id="exportCode" readonly></textarea>
+  <button onclick="copyExport()" style="background:#D4A843;color:#000">Copy Scenes</button>
+  <button onclick="copySubExport()" style="background:#D4A843;color:#000">Copy Subs</button>
+  <button onclick="resetAll()" style="background:#333;color:#f87171">Reset</button>
+</div>
+
+<script>
+const FPS = 30;
+let pixelsPerFrame = 2;
+let audioCtx, audioBuffer, sourceNode;
+let isPlaying = false;
+let currentFrame = 0;
+let animationId;
+let playStartTime = 0;
+let playStartFrame = 0;
+let activeTab = 'all';
+
+// Scene data — from HowItWorks.jsx Sequence entries
+let scenes = [
+  { from: 0, dur: 590, name: "1. Intro", color: "#3b82f6" },
+  { from: 570, dur: 650, name: "2. Requirements", color: "#8b5cf6" },
+  { from: 1200, dur: 500, name: "3. Connect Wallet", color: "#06b6d4" },
+  { from: 1680, dur: 500, name: "4. Approve USDC", color: "#f59e0b" },
+  { from: 2160, dur: 670, name: "5. Auto-Copy", color: "#10b981" },
+  { from: 2810, dur: 620, name: "6. Results", color: "#ef4444" },
+  { from: 3410, dur: 620, name: "7. Tips", color: "#ec4899" },
+  { from: 4010, dur: 600, name: "8. Outro", color: "#6366f1" },
+];
+
+// Subtitle data
+let subtitles = [
+  { from: 12, to: 62, text: "Welcome to Smart Trading Club." },
+  { from: 88, to: 234, text: "In this tutorial, you'll learn how to copy professional gold trading signals automatically." },
+  { from: 236, to: 439, text: "Every trade is executed on-chain on Arbitrum, fully transparent and verifiable." },
+  { from: 441, to: 479, text: "Let's get started." },
+  { from: 489, to: 553, text: "Before we begin, here's what you'll need." },
+  { from: 556, to: 668, text: "First, a MetaMask wallet — it's a free browser extension." },
+  { from: 671, to: 798, text: "Second, the Arbitrum network, which our site adds automatically." },
+  { from: 800, to: 960, text: "Third, some USDC on Arbitrum — that's the stablecoin used for all trades." },
+  { from: 961, to: 1151, text: "And finally, a tiny bit of Ethereum for gas fees — about fifty cents is enough for dozens of transactions." },
+  { from: 1153, to: 1236, text: "Step one: connect your wallet." },
+  { from: 1238, to: 1338, text: "Click the Connect Wallet button in the top right corner." },
+  { from: 1341, to: 1509, text: "MetaMask will ask you to confirm the connection. No funds are moved — it's just a handshake." },
+  { from: 1510, to: 1679, text: "The site can now see your address and balances. Make sure you're on the Arbitrum One network." },
+  { from: 1680, to: 1786, text: "Step two: approve USDC spending." },
+  { from: 1786, to: 1960, text: "This is a one-time approval that lets the smart contract use your USDC when copying trades." },
+  { from: 1961, to: 2131, text: "Click Approve in the MetaMask popup. This is standard for every DeFi protocol." },
+  { from: 2131, to: 2251, text: "Your funds stay in your wallet until a trade is actually copied." },
+  { from: 2252, to: 2337, text: "You can revoke this approval at any time." },
+  { from: 2338, to: 2426, text: "Step three: enable auto-copy." },
+  { from: 2428, to: 2529, text: "Choose how much USDC you want to invest per trade." },
+  { from: 2529, to: 2763, text: "When a new signal is posted, the bot automatically executes the trade for you on gTrade, a decentralized exchange." },
+  { from: 2763, to: 2971, text: "When the trade closes, your USDC plus any profit — or minus any loss — returns to your wallet automatically." },
+  { from: 2971, to: 3037, text: "Now let's look at the results page." },
+  { from: 3037, to: 3266, text: "Every trade is recorded on the Arbitrum blockchain. Anyone can verify the results — it's fully transparent." },
+  { from: 3277, to: 3427, text: "You can see the total profit and loss, win rate, and complete trade history." },
+  { from: 3427, to: 3584, text: "Each signal shows the entry price, take profit, stop loss, and final result." },
+  { from: 3584, to: 3647, text: "Here are some important tips." },
+  { from: 3648, to: 3848, text: "Remember, trading involves risk — with twenty-five x leverage, even small moves can mean significant losses." },
+  { from: 3848, to: 3980, text: "That's why every trade uses a stop-loss to prevent large losses." },
+  { from: 3980, to: 4064, text: "Only invest what you can afford to lose." },
+  { from: 4064, to: 4253, text: "Keep enough USDC in your wallet so trades aren't skipped. Keep a small amount of Ethereum for gas fees." },
+  { from: 4253, to: 4414, text: "And join our Telegram for real-time notifications on every signal and trade closure." },
+  { from: 4414, to: 4497, text: "And that's it — you're all set!" },
+  { from: 4497, to: 4700, text: "Connect your wallet, approve USDC, enable auto-copy, and let the bot handle the rest." },
+  { from: 4700, to: 4805, text: "Head over to smarttradingclub.io to get started." },
+  { from: 4805, to: 4863, text: "See you on the next trade!" },
+];
+
+function saveToStorage() {
+  localStorage.setItem('ve_scenes', JSON.stringify(scenes));
+  localStorage.setItem('ve_subtitles', JSON.stringify(subtitles));
+}
+function loadFromStorage() {
+  try {
+    const s = localStorage.getItem('ve_scenes');
+    const sub = localStorage.getItem('ve_subtitles');
+    if (s) scenes = JSON.parse(s);
+    if (sub) subtitles = JSON.parse(sub);
+  } catch {}
+}
+
+async function loadAudio() {
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const resp = await fetch('/voiceover/tutorial-voiceover.mp3');
+  const buf = await resp.arrayBuffer();
+  audioBuffer = await audioCtx.decodeAudioData(buf);
+  drawWaveform();
+  updateTimeline();
+}
+
+function drawWaveform() {
+  const canvas = document.getElementById('waveformCanvas');
+  const totalFrames = Math.ceil(audioBuffer.duration * FPS) + 100;
+  canvas.width = totalFrames * pixelsPerFrame;
+  canvas.height = 60;
+  const ctx = canvas.getContext('2d');
+  const data = audioBuffer.getChannelData(0);
+  const samplesPerFrame = Math.floor(audioBuffer.sampleRate / FPS);
+
+  ctx.fillStyle = '#111318';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (let f = 0; f < totalFrames; f++) {
+    const sampleStart = Math.max(0, (f - 30)) * samplesPerFrame;
+    let max = 0;
+    for (let s = sampleStart; s < Math.min(sampleStart + samplesPerFrame, data.length); s++) {
+      max = Math.max(max, Math.abs(data[s]));
+    }
+    const h = max * 50;
+    const x = f * pixelsPerFrame;
+    ctx.fillStyle = 'rgba(212,168,67,0.4)';
+    ctx.fillRect(x, 30 - h / 2, Math.max(1, pixelsPerFrame - 1), h);
+  }
+}
+
+function showTab(tab) {
+  activeTab = tab;
+  document.getElementById('tabScenes').className = tab === 'scenes' || tab === 'all' ? 'tab-active' : '';
+  document.getElementById('tabSubs').className = tab === 'subtitles' || tab === 'all' ? 'tab-active' : '';
+  document.getElementById('tabAll').className = tab === 'all' ? 'tab-active' : '';
+  updateTimeline();
+}
+
+function updateTimeline() {
+  const totalFrames = 5200;
+  const totalWidth = totalFrames * pixelsPerFrame;
+
+  // Ruler
+  const ruler = document.getElementById('ruler');
+  ruler.innerHTML = '';
+  ruler.style.width = totalWidth + 'px';
+  for (let s = 0; s <= totalFrames / FPS; s += 5) {
+    const x = s * FPS * pixelsPerFrame;
+    const min = Math.floor(s / 60);
+    const sec = s % 60;
+    ruler.innerHTML += `<span style="left:${x}px">${min}:${String(sec).padStart(2,'0')}</span>`;
+    ruler.innerHTML += `<div class="tick" style="left:${x}px"></div>`;
+  }
+
+  document.getElementById('waveformArea').style.width = totalWidth + 'px';
+
+  const tracksEl = document.getElementById('tracks');
+  tracksEl.innerHTML = '';
+
+  // Scene track
+  if (activeTab === 'scenes' || activeTab === 'all') {
+    const label = document.createElement('div');
+    label.className = 'section-label';
+    label.textContent = 'Scenes';
+    tracksEl.appendChild(label);
+
+    const track = document.createElement('div');
+    track.className = 'track scenes';
+    track.style.width = totalWidth + 'px';
+    track.style.height = '44px';
+
+    scenes.forEach((scene, i) => {
+      const block = document.createElement('div');
+      block.className = 'block scene';
+      block.style.left = (scene.from * pixelsPerFrame) + 'px';
+      block.style.width = (scene.dur * pixelsPerFrame) + 'px';
+      block.style.background = scene.color + '30';
+      block.style.borderColor = scene.color + '70';
+      block.style.color = scene.color;
+      block.textContent = scene.name;
+      block.title = `${scene.name} | from: ${scene.from} | dur: ${scene.dur} | to: ${scene.from + scene.dur}`;
+
+      block.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('resize-handle')) return;
+        startDragScene(e, i);
+      });
+
+      const rightH = document.createElement('div');
+      rightH.className = 'resize-handle right';
+      rightH.addEventListener('mousedown', (e) => { e.stopPropagation(); startResizeScene(e, i); });
+      block.appendChild(rightH);
+
+      track.appendChild(block);
+    });
+    tracksEl.appendChild(track);
+  }
+
+  // Subtitle track
+  if (activeTab === 'subtitles' || activeTab === 'all') {
+    const label = document.createElement('div');
+    label.className = 'section-label';
+    label.textContent = 'Subtitles';
+    tracksEl.appendChild(label);
+
+    const track = document.createElement('div');
+    track.className = 'track subtitles';
+    track.style.width = totalWidth + 'px';
+
+    subtitles.forEach((sub, i) => {
+      const block = document.createElement('div');
+      block.className = 'block subtitle';
+      block.style.left = (sub.from * pixelsPerFrame) + 'px';
+      block.style.width = ((sub.to - sub.from) * pixelsPerFrame) + 'px';
+      block.textContent = sub.text;
+      block.title = sub.text;
+
+      block.addEventListener('mousedown', (e) => {
+        if (e.target.classList.contains('resize-handle')) return;
+        startDragSub(e, i);
+      });
+
+      const leftH = document.createElement('div');
+      leftH.className = 'resize-handle left';
+      leftH.addEventListener('mousedown', (e) => { e.stopPropagation(); startResizeSub(e, i, 'left'); });
+
+      const rightH = document.createElement('div');
+      rightH.className = 'resize-handle right';
+      rightH.addEventListener('mousedown', (e) => { e.stopPropagation(); startResizeSub(e, i, 'right'); });
+
+      block.appendChild(leftH);
+      block.appendChild(rightH);
+      track.appendChild(block);
+    });
+    tracksEl.appendChild(track);
+  }
+
+  updateExport();
+}
+
+// Helper: get frame from mouse X position (accounts for scroll + container offset)
+function getFrameFromMouseX(e, track) {
+  const container = document.getElementById('timelineContainer');
+  const trackRect = track.getBoundingClientRect();
+  const x = e.clientX - trackRect.left + track.scrollLeft;
+  return Math.max(0, Math.round(x / pixelsPerFrame));
+}
+
+// Drag scene — uses absolute position on track instead of delta
+function startDragScene(e, idx) {
+  const block = e.target.closest('.block');
+  const track = block.parentElement;
+  const offsetInBlock = e.clientX - block.getBoundingClientRect().left;
+  const offsetFrames = Math.round(offsetInBlock / pixelsPerFrame);
+  block.classList.add('dragging');
+
+  function onMove(e) {
+    const trackRect = track.getBoundingClientRect();
+    const xOnTrack = e.clientX - trackRect.left;
+    const frame = Math.max(0, Math.round(xOnTrack / pixelsPerFrame) - offsetFrames);
+    scenes[idx].from = frame;
+    block.style.left = (frame * pixelsPerFrame) + 'px';
+    updateExport();
+  }
+  function onUp() {
+    block.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function startResizeScene(e, idx) {
+  const block = document.querySelectorAll('.block.scene')[idx];
+  const track = block.parentElement;
+  const startRight = scenes[idx].from + scenes[idx].dur;
+
+  function onMove(e) {
+    const trackRect = track.getBoundingClientRect();
+    const xOnTrack = e.clientX - trackRect.left;
+    const endFrame = Math.round(xOnTrack / pixelsPerFrame);
+    scenes[idx].dur = Math.max(30, endFrame - scenes[idx].from);
+    block.style.width = (scenes[idx].dur * pixelsPerFrame) + 'px';
+    updateExport();
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// Drag subtitle — uses absolute position
+function startDragSub(e, idx) {
+  const block = e.target.closest('.block');
+  const track = block.parentElement;
+  const offsetInBlock = e.clientX - block.getBoundingClientRect().left;
+  const offsetFrames = Math.round(offsetInBlock / pixelsPerFrame);
+  const dur = subtitles[idx].to - subtitles[idx].from;
+  block.classList.add('dragging');
+
+  function onMove(e) {
+    const trackRect = track.getBoundingClientRect();
+    const xOnTrack = e.clientX - trackRect.left;
+    const frame = Math.max(0, Math.round(xOnTrack / pixelsPerFrame) - offsetFrames);
+    subtitles[idx].from = frame;
+    subtitles[idx].to = frame + dur;
+    block.style.left = (frame * pixelsPerFrame) + 'px';
+    updateExport();
+  }
+  function onUp() {
+    block.classList.remove('dragging');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+function startResizeSub(e, idx, side) {
+  const block = document.querySelectorAll('.block.subtitle')[idx];
+  const track = block.parentElement;
+
+  function onMove(e) {
+    const trackRect = track.getBoundingClientRect();
+    const xOnTrack = e.clientX - trackRect.left;
+    const frame = Math.max(0, Math.round(xOnTrack / pixelsPerFrame));
+    if (side === 'left') {
+      subtitles[idx].from = Math.min(subtitles[idx].to - 5, frame);
+    } else {
+      subtitles[idx].to = Math.max(subtitles[idx].from + 5, frame);
+    }
+    block.style.left = (subtitles[idx].from * pixelsPerFrame) + 'px';
+    block.style.width = ((subtitles[idx].to - subtitles[idx].from) * pixelsPerFrame) + 'px';
+    updateExport();
+  }
+  function onUp() {
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+  }
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+// Click waveform to seek
+document.getElementById('waveformArea').addEventListener('click', (e) => {
+  const rect = e.currentTarget.getBoundingClientRect();
+  const x = e.clientX - rect.left + e.currentTarget.parentElement.scrollLeft;
+  currentFrame = Math.round(x / pixelsPerFrame);
+  updatePlayhead();
+  syncVideoToFrame();
+  if (isPlaying) { stopPlay(); startPlay(); }
+});
+
+function togglePlay() { if (isPlaying) stopPlay(); else startPlay(); }
+
+let videoReady = false;
+
+function syncVideoToFrame() {
+  document.getElementById('previewFrame').textContent = currentFrame;
+  const video = document.getElementById('previewVideo');
+  if (video && videoReady && !isPlaying) {
+    const targetTime = currentFrame / FPS;
+    if (Math.abs(video.currentTime - targetTime) > 0.1) {
+      video.currentTime = targetTime;
+    }
+  }
+}
+
+// Load the preview video
+function tryLoadVideo() {
+  const video = document.getElementById('previewVideo');
+  video.src = '/preview.mp4?' + Date.now(); // cache bust
+  video.load();
+  video.addEventListener('loadeddata', () => {
+    videoReady = true;
+    document.getElementById('videoLoading').style.display = 'none';
+    document.getElementById('renderStatus').textContent = 'Ready';
+    document.getElementById('renderStatus').style.color = '#34d399';
+    console.log('Video loaded!');
+  }, { once: true });
+  video.addEventListener('error', () => {
+    document.getElementById('renderStatus').textContent = 'Rendering...';
+    setTimeout(tryLoadVideo, 5000);
+  }, { once: true });
+}
+
+function startPlay() {
+  isPlaying = true;
+  document.getElementById('playBtn').classList.add('active');
+  document.getElementById('playBtn').innerHTML = '&#9646;&#9646; Pause';
+
+  // Start audio
+  sourceNode = audioCtx.createBufferSource();
+  sourceNode.buffer = audioBuffer;
+  sourceNode.connect(audioCtx.destination);
+  const audioTime = Math.max(0, (currentFrame - 30) / FPS);
+  sourceNode.start(0, audioTime);
+  playStartTime = audioCtx.currentTime;
+  playStartFrame = currentFrame;
+
+  // Start video in sync
+  const video = document.getElementById('previewVideo');
+  if (video && videoReady) {
+    video.currentTime = currentFrame / FPS;
+    video.play().catch(() => {});
+  }
+
+  function tick() {
+    if (!isPlaying) return;
+    const elapsed = audioCtx.currentTime - playStartTime;
+    currentFrame = playStartFrame + Math.round(elapsed * FPS);
+    updatePlayhead();
+    updatePreview();
+    document.getElementById('previewFrame').textContent = currentFrame;
+    animationId = requestAnimationFrame(tick);
+  }
+  tick();
+}
+
+function stopPlay() {
+  isPlaying = false;
+  document.getElementById('playBtn').classList.remove('active');
+  document.getElementById('playBtn').innerHTML = '&#9654; Play';
+  if (sourceNode) { try { sourceNode.stop(); } catch {} }
+  cancelAnimationFrame(animationId);
+
+  // Pause video
+  const video = document.getElementById('previewVideo');
+  if (video && videoReady) video.pause();
+}
+
+function updatePlayhead() {
+  const x = currentFrame * pixelsPerFrame;
+  document.getElementById('playhead').style.left = x + 'px';
+  const sec = currentFrame / FPS;
+  const min = Math.floor(sec / 60);
+  const s = (sec % 60).toFixed(3);
+  document.getElementById('timeDisplay').textContent = `${min}:${s.padStart(6, '0')}`;
+  document.getElementById('frameDisplay').textContent = `Frame: ${currentFrame}`;
+  // Auto-scroll
+  const container = document.getElementById('timelineContainer');
+  if (x > container.scrollLeft + container.clientWidth - 100) container.scrollLeft = x - 200;
+}
+
+function updatePreview() {
+  const el = document.getElementById('previewSubtitle');
+  const active = subtitles.find(s => currentFrame >= s.from && currentFrame < s.to);
+  if (active) { el.textContent = active.text; el.style.opacity = '1'; }
+  else { el.style.opacity = '0'; }
+}
+
+function zoomIn() { pixelsPerFrame = Math.min(12, pixelsPerFrame + 0.5); onZoom(); }
+function zoomOut() { pixelsPerFrame = Math.max(0.5, pixelsPerFrame - 0.5); onZoom(); }
+function onZoom() {
+  document.getElementById('zoomLabel').textContent = Math.round(pixelsPerFrame / 2 * 100) + '%';
+  drawWaveform(); updateTimeline(); updatePlayhead();
+}
+
+function updateExport() {
+  // Scene export
+  const sceneCode = scenes.map(s =>
+    `    <Sequence from={${s.from}} durationInFrames={${s.dur}}>  {/* ${s.name} */}`
+  ).join('\n');
+
+  // Subtitle export
+  const subCode = 'const subtitleData = [\n' +
+    subtitles.map(s => `  { from: ${s.from}, to: ${s.to}, text: ${JSON.stringify(s.text)} },`).join('\n') +
+    '\n];';
+
+  document.getElementById('exportCode').value = `// SCENES:\n${sceneCode}\n\n// SUBTITLES:\n${subCode}`;
+  saveToStorage();
+}
+
+function copyExport() {
+  const code = scenes.map(s =>
+    `    <Sequence from={${s.from}} durationInFrames={${s.dur}}>  {/* ${s.name} */}`
+  ).join('\n');
+  navigator.clipboard.writeText(code);
+  alert('Scene code copied!');
+}
+
+function copySubExport() {
+  const code = 'const subtitleData = [\n' +
+    subtitles.map(s => `  { from: ${s.from}, to: ${s.to}, text: ${JSON.stringify(s.text)} },`).join('\n') +
+    '\n];';
+  navigator.clipboard.writeText(code);
+  alert('Subtitle code copied!');
+}
+
+function resetAll() {
+  if (confirm('Reset alles naar origineel?')) {
+    localStorage.removeItem('ve_scenes');
+    localStorage.removeItem('ve_subtitles');
+    location.reload();
+  }
+}
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'Space') { e.preventDefault(); togglePlay(); }
+  if (e.code === 'ArrowLeft') { currentFrame = Math.max(0, currentFrame - (e.shiftKey ? 10 : 1)); updatePlayhead(); updatePreview(); syncVideoToFrame(); }
+  if (e.code === 'ArrowRight') { currentFrame += e.shiftKey ? 10 : 1; updatePlayhead(); updatePreview(); syncVideoToFrame(); }
+});
+
+// Video preview drag & resize
+let previewVisible = true;
+function togglePreview() {
+  previewVisible = !previewVisible;
+  document.getElementById('videoPreview').style.display = previewVisible ? 'block' : 'none';
+}
+
+// Draggable preview window
+(function() {
+  const preview = document.getElementById('videoPreview');
+  const handle = document.getElementById('previewDragHandle');
+  let isDragging = false, startX, startY, startLeft, startTop;
+
+  handle.addEventListener('mousedown', (e) => {
+    isDragging = true;
+    startX = e.clientX; startY = e.clientY;
+    startLeft = preview.offsetLeft; startTop = preview.offsetTop;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!isDragging) return;
+    preview.style.left = (startLeft + e.clientX - startX) + 'px';
+    preview.style.top = (startTop + e.clientY - startY) + 'px';
+    preview.style.right = 'auto';
+  });
+  document.addEventListener('mouseup', () => isDragging = false);
+
+  // Resize corner
+  const corner = document.getElementById('resizeCorner');
+  let isResizing = false, rStartX, rStartY, rStartW, rStartH;
+  corner.addEventListener('mousedown', (e) => {
+    isResizing = true;
+    rStartX = e.clientX; rStartY = e.clientY;
+    rStartW = preview.offsetWidth; rStartH = preview.offsetHeight;
+    e.preventDefault(); e.stopPropagation();
+  });
+  document.addEventListener('mousemove', (e) => {
+    if (!isResizing) return;
+    preview.style.width = Math.max(320, rStartW + e.clientX - rStartX) + 'px';
+    preview.style.height = Math.max(200, rStartH + e.clientY - rStartY) + 'px';
+  });
+  document.addEventListener('mouseup', () => isResizing = false);
+})();
+
+loadFromStorage();
+loadAudio();
+tryLoadVideo();
+</script>
+</body>
+</html>
