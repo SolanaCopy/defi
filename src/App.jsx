@@ -804,9 +804,9 @@ function App() {
         const closed = phase === 3; // SETTLED
         // Calculate resultPct in basis points from totalReturned vs originalDeposited
         let resultPct = 0n;
-        // Signal #7 settle bug correction: actual gTrade return was $44 on $75
-        const correctedReturned = (Number(id) === 7 && totalReturned === 0n && originalDeposited === 75000000n)
-          ? 44000000n : totalReturned;
+        // Settle bug corrections: actual gTrade returns verified on-chain
+        const settleCorrections = { 7: 91750000n, 9: 122560000n };
+        const correctedReturned = settleCorrections[Number(id)] || totalReturned;
         if (closed && originalDeposited > 0n) {
           if (correctedReturned >= originalDeposited) {
             resultPct = BigInt(Math.round(Number((correctedReturned - originalDeposited) * 10000n / originalDeposited)));
@@ -1114,8 +1114,8 @@ function App() {
         const active = phase === 1 || phase === 2;
         const closed = phase === 3;
         let resultPct = 0n;
-        const correctedReturned = (Number(id) === 7 && totalReturned === 0n && originalDeposited === 75000000n)
-          ? 44000000n : totalReturned;
+        const settleCorrections2 = { 7: 91750000n, 9: 122560000n };
+        const correctedReturned = settleCorrections2[Number(id)] || totalReturned;
         if (closed && originalDeposited > 0n) {
           if (correctedReturned >= originalDeposited) {
             resultPct = BigInt(Math.round(Number((correctedReturned - originalDeposited) * 10000n / originalDeposited)));

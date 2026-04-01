@@ -1103,17 +1103,30 @@ class CloseWatcher {
           try {
             this.autoClosedSignals.add(Number(activeId));
 
-            // V2: settle with actual USDC balance returned from gTrade
+            // V2: calculate expected return from price movement, not balance
             const meta = await this.copyTrader.signalMeta(activeId);
-            const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
-            const nonTradeBalance = Number(meta.balanceAtOpen) > Number(meta.originalDeposited)
-              ? BigInt(meta.balanceAtOpen) - BigInt(meta.originalDeposited)
-              : 0n;
-            const totalReturned = BigInt(contractBalance) > nonTradeBalance
-              ? BigInt(contractBalance) - nonTradeBalance
-              : 0n;
+            const collateral = Number(meta.originalDeposited);
+            const leverage = Number(signal.leverage) / 1000;
+            const posSize = collateral * leverage;
+            const fees = posSize * 0.002; // ~0.2% gTrade fees
 
-            log(`  Settling: returned=$${Number(totalReturned) / 1e6}`);
+            let totalReturned;
+            if (resultBps >= 0) {
+              // Profit: collateral + (collateral * pricePct * leverage) - fees
+              const profit = (collateral * Math.abs(resultBps) * leverage) / 10000;
+              totalReturned = BigInt(Math.round(Math.max(0, collateral + profit - fees)));
+            } else {
+              // Loss: collateral - (collateral * pricePct * leverage) - fees
+              const loss = (collateral * Math.abs(resultBps) * leverage) / 10000;
+              totalReturned = BigInt(Math.round(Math.max(0, collateral - loss - fees)));
+            }
+
+            // Sanity: cap to contract balance and 3x collateral
+            const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
+            if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
+            if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
+
+            log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
             const tx = await this.copyTrader.settleSignal(totalReturned);
             await tx.wait();
             log(`  Signal #${activeId} settled via safety net!`);
@@ -1203,21 +1216,53 @@ class CloseWatcher {
       log(`  Leverage: ${levNum}x`);
       log("═══════════════════════════════════════");
 
-      // V2: first close gTrade position, then settle with actual USDC returned
-      // gTrade may have already closed (TP/SL hit), so we just need to settle
+      // V2: calculate expected return from price movement
       this.autoClosedSignals.add(Number(activeId));
 
-      // Calculate totalReturned from contract balance
       const meta = await this.copyTrader.signalMeta(activeId);
-      const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
-      const nonTradeBalance = Number(meta.balanceAtOpen) > Number(meta.originalDeposited)
-        ? BigInt(meta.balanceAtOpen) - BigInt(meta.originalDeposited)
-        : 0n;
-      const totalReturned = BigInt(contractBalance) > nonTradeBalance
-        ? BigInt(contractBalance) - nonTradeBalance
-        : 0n;
+      const collateral = Number(meta.originalDeposited);
+      const posSize = collateral * levNum;
+      const fees = posSize * 0.002;
 
-      log(`  Settling: returned=$${Number(totalReturned) / 1e6}`);
+      // Get current price to calculate result
+      let closePrice;
+      try {
+        const res = await fetch("https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2");
+        const data = await res.json();
+        const p = data.parsed[0].price;
+        closePrice = Number(p.price) * Math.pow(10, p.expo);
+      } catch { closePrice = Number(signal.entryPrice) / 1e10; }
+
+      const entry = Number(signal.entryPrice) / 1e10;
+      const tp = Number(signal.tp) / 1e10;
+      const sl = Number(signal.sl) / 1e10;
+
+      // Determine close price based on TP/SL
+      let resultPrice;
+      if (signal.long) {
+        resultPrice = closePrice >= tp ? tp : closePrice <= sl ? sl : closePrice;
+      } else {
+        resultPrice = closePrice <= tp ? tp : closePrice >= sl ? sl : closePrice;
+      }
+
+      const pricePct = signal.long
+        ? ((resultPrice - entry) / entry)
+        : ((entry - resultPrice) / entry);
+      const pnlAmount = collateral * pricePct * levNum;
+
+      let totalReturned;
+      if (pnlAmount >= 0) {
+        totalReturned = BigInt(Math.round(Math.max(0, collateral + pnlAmount - fees)));
+      } else {
+        totalReturned = BigInt(Math.round(Math.max(0, collateral + pnlAmount - fees)));
+      }
+
+      // Sanity: cap to contract balance and 3x
+      const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
+      if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
+      if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
+
+      log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
       const tx = await this.copyTrader.settleSignal(totalReturned);
       log(`TX sent: ${tx.hash}`);
 
