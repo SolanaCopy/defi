@@ -1916,7 +1916,7 @@ function App() {
             <div className="bento-hero-content">
               <div className="bento-hero-icon"><BrainCircuit size={32} /></div>
               <h3>Copy Trading<br /><span className="text-gold-gradient">Engine</span></h3>
-              <p>Copy trades from experienced gold traders. Every trade is executed on-chain via gTrade with real leverage on XAU/USD.</p>
+              <p>Copy trades from our AI trading bot. Every trade is executed on-chain via gTrade with real leverage on XAU/USD.</p>
               <div className="bento-hero-bottom">
                 <div className="bento-hero-stat">
                   <span className="bento-hero-stat-num">150x</span>
