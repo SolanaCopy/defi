@@ -2330,7 +2330,7 @@ function App() {
           transition={{ duration: 0.6 }}
           style={{ textAlign: 'center', marginBottom: '32px' }}
         >
-          <span className="section-badge">Verified On-Chain</span>
+          <span className="section-badge" style={{ marginTop: '16px', display: 'inline-block' }}>Verified On-Chain</span>
           <h2 style={{ fontSize: '2rem', margin: '16px 0 8px' }}>
             Trading <span className="text-gold-gradient">Results</span>
           </h2>
