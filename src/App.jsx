@@ -2489,41 +2489,6 @@ function App() {
                 ))}
               </div>
             </div>
-            {/* Date range picker */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input
-                type="date"
-                value={tradeLogFrom}
-                onChange={e => { setTradeLogFrom(e.target.value); if (e.target.value) setTradeLogPeriod('custom'); }}
-                style={{
-                  flex: 1, padding: '6px 10px', borderRadius: '8px', fontSize: '0.7rem',
-                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                  color: 'var(--text-primary)', fontFamily: "'Space Grotesk', sans-serif",
-                  outline: 'none', colorScheme: 'dark',
-                }}
-              />
-              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>to</span>
-              <input
-                type="date"
-                value={tradeLogTo}
-                onChange={e => { setTradeLogTo(e.target.value); if (e.target.value) setTradeLogPeriod('custom'); }}
-                style={{
-                  flex: 1, padding: '6px 10px', borderRadius: '8px', fontSize: '0.7rem',
-                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                  color: 'var(--text-primary)', fontFamily: "'Space Grotesk', sans-serif",
-                  outline: 'none', colorScheme: 'dark',
-                }}
-              />
-              {tradeLogFrom && (
-                <button onClick={() => { setTradeLogFrom(''); setTradeLogTo(''); setTradeLogPeriod('all'); }} style={{
-                  padding: '6px 8px', borderRadius: '8px', fontSize: '0.65rem',
-                  background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
-                  color: 'var(--text-secondary)', cursor: 'pointer',
-                }}>
-                  <X size={12} />
-                </button>
-              )}
-            </div>
           </div>
 
           {/* Calendar strip — days of the month */}
