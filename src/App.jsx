@@ -2024,7 +2024,7 @@ function App() {
               <span className="text-gold-gradient">XAU/USD Gold</span>
             </h2>
             <p className="strat-showcase-desc">
-              Our trader opens positions on MT5 and mirrors them via gTrade on-chain.
+              Our AI trading bot opens positions via gTrade on-chain.
               You copy with your own wallet and earn from every profitable trade.
             </p>
             <div className="strat-indicators">
