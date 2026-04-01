@@ -1712,7 +1712,7 @@ function App() {
                           <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
                             <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>
-                              {isAdmin ? `$${item.rawValue}` : <>${`$${item.rawValue.slice(0, 2)}`}<span style={{ opacity: 0.15 }}>{item.rawValue.slice(2)}</span></>}
+                              {isAdmin ? `$${item.rawValue}` : `$${item.rawValue.slice(0, 2)}••`}
                             </div>
                           </div>
                         ))}
@@ -5820,7 +5820,7 @@ function App() {
                     { label: 'SL', price: formatGTradePrice(activeSignal.sl), color: 'var(--danger)' },
                   ].map(item => (
                     <div key={item.label}><span style={{ color: item.color }}>{item.label}</span><br/>
-                      {isAdmin ? `$${item.price}` : <>${`$${item.price.slice(0, 2)}`}<span style={{ opacity: 0.15 }}>{item.price.slice(2)}</span></>}
+                      {isAdmin ? `$${item.price}` : `$${item.price.slice(0, 2)}••`}
                     </div>
                   ))}
                 </div>
