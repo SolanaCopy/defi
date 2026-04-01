@@ -1132,7 +1132,6 @@ class CloseWatcher {
             log(`  Signal #${activeId} settled via safety net!`);
 
             // Send notification
-            const leverage = Number(signal.leverage) / 1000;
             const pct = Number(totalReturned) > Number(meta.originalDeposited)
               ? ((Number(totalReturned) - Number(meta.originalDeposited)) / Number(meta.originalDeposited)) * 100
               : -((Number(meta.originalDeposited) - Number(totalReturned)) / Number(meta.originalDeposited)) * 100;
