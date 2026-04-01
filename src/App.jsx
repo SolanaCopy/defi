@@ -1919,8 +1919,8 @@ function App() {
               <p>Copy trades from our AI trading bot. Every trade is executed on-chain via gTrade with real leverage on XAU/USD.</p>
               <div className="bento-hero-bottom">
                 <div className="bento-hero-stat">
-                  <span className="bento-hero-stat-num">150x</span>
-                  <span className="bento-hero-stat-label">max leverage</span>
+                  <span className="bento-hero-stat-num">25x</span>
+                  <span className="bento-hero-stat-label">leverage</span>
                 </div>
                 <div className="bento-hero-tags">
                   <span>gTrade</span>
