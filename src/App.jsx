@@ -2526,6 +2526,91 @@ function App() {
             </div>
           </div>
 
+          {/* Calendar strip — days of the month */}
+          {(() => {
+            const today = new Date();
+            const year = today.getUTCFullYear();
+            const month = today.getUTCMonth();
+            const daysInMonth = new Date(year, month + 1, 0).getDate();
+            const currentDay = today.getUTCDate();
+            const monthName = today.toLocaleString('en-US', { month: 'long', timeZone: 'UTC' });
+
+            // Get trades per day for this month
+            const tradesPerDay = {};
+            signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0).forEach(s => {
+              const closedAt = Number(s.closedAt);
+              if (closedAt === 0) return;
+              const d = new Date(closedAt * 1000);
+              if (d.getUTCFullYear() === year && d.getUTCMonth() === month) {
+                const day = d.getUTCDate();
+                if (!tradesPerDay[day]) tradesPerDay[day] = { wins: 0, losses: 0 };
+                if (s.tradePct > 0) tradesPerDay[day].wins++;
+                else if (s.tradePct < 0) tradesPerDay[day].losses++;
+              }
+            });
+
+            // Build rows of 7 days (Mon-Sun)
+            const firstDay = new Date(Date.UTC(year, month, 1)).getUTCDay(); // 0=Sun
+            const startOffset = firstDay === 0 ? 6 : firstDay - 1; // Mon=0
+            const days = [];
+            for (let i = 0; i < startOffset; i++) days.push(null);
+            for (let d = 1; d <= daysInMonth; d++) days.push(d);
+            while (days.length % 7 !== 0) days.push(null);
+
+            const weeks = [];
+            for (let i = 0; i < days.length; i += 7) weeks.push(days.slice(i, i + 7));
+
+            const selectedDay = tradeLogPeriod === 'day' ? parseInt(tradeLogFrom) : null;
+
+            return (
+              <div style={{ marginBottom: '12px' }}>
+                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginBottom: '6px', textAlign: 'center', fontWeight: 600 }}>{monthName} {year}</div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '4px' }}>
+                  {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+                    <div key={i} style={{ textAlign: 'center', fontSize: '0.55rem', color: 'var(--text-secondary)', opacity: 0.5 }}>{d}</div>
+                  ))}
+                </div>
+                {weeks.map((week, wi) => (
+                  <div key={wi} style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '2px' }}>
+                    {week.map((day, di) => {
+                      if (!day) return <div key={di} />;
+                      const info = tradesPerDay[day];
+                      const isToday = day === currentDay;
+                      const isSelected = selectedDay === day;
+                      const hasWins = info?.wins > 0;
+                      const hasLosses = info?.losses > 0;
+                      const isFuture = day > currentDay;
+
+                      return (
+                        <button key={di} onClick={() => {
+                          if (isFuture) return;
+                          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+                          setTradeLogFrom(dateStr);
+                          setTradeLogTo(dateStr);
+                          setTradeLogPeriod('custom');
+                        }} style={{
+                          padding: '4px 0', borderRadius: '6px', fontSize: '0.65rem', fontWeight: isToday ? 700 : 500,
+                          background: isSelected ? 'rgba(212,168,67,0.2)' : hasWins && !hasLosses ? 'rgba(52,211,153,0.1)' : hasLosses && !hasWins ? 'rgba(248,113,113,0.1)' : hasWins && hasLosses ? 'rgba(212,168,67,0.08)' : 'transparent',
+                          border: isToday ? '1px solid rgba(212,168,67,0.4)' : '1px solid transparent',
+                          color: isFuture ? 'rgba(255,255,255,0.15)' : isSelected ? 'var(--accent)' : hasWins && !hasLosses ? 'var(--success)' : hasLosses && !hasWins ? 'var(--danger)' : 'var(--text-secondary)',
+                          cursor: isFuture ? 'default' : 'pointer',
+                          textAlign: 'center',
+                          position: 'relative',
+                        }}>
+                          {day}
+                          {info && <div style={{ position: 'absolute', bottom: '1px', left: '50%', transform: 'translateX(-50%)', display: 'flex', gap: '1px' }}>
+                            {Array.from({ length: info.wins }).map((_, i) => <div key={'w' + i} style={{ width: 3, height: 3, borderRadius: '50%', background: 'var(--success)' }} />)}
+                            {Array.from({ length: info.losses }).map((_, i) => <div key={'l' + i} style={{ width: 3, height: 3, borderRadius: '50%', background: 'var(--danger)' }} />)}
+                          </div>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* Trade Rows grouped by date */}
           {(() => {
             // Filter by period or custom date range
