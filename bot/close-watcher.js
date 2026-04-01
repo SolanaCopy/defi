@@ -381,6 +381,39 @@ class CloseWatcher {
       } catch (err) {
         logError("Auto-copy iteration", err);
       }
+
+      // Auto-open trade on gTrade after deposits
+      try {
+        const meta = await this.copyTrader.signalMeta(signalId);
+        const deposited = Number(meta.totalDeposited);
+        if (deposited === 0) {
+          log(`No deposits for signal #${signalId} — skipping openTrade`);
+          return;
+        }
+
+        const lev = Number(leverage) / 1000;
+        const posSize = (deposited / 1e6) * lev;
+        if (posSize < 3000) {
+          log(`Position size $${posSize.toFixed(0)} under $3000 minimum — cannot open`);
+          return;
+        }
+
+        // Try gTrade indices 0-5
+        let nonce2 = await this.wallet.getNonce();
+        for (let i = 0; i <= 5; i++) {
+          try {
+            log(`Opening trade with gTrade index ${i}...`);
+            const openTx = await this.copyTrader.openTrade(i, { nonce: nonce2 });
+            await openTx.wait();
+            log(`Trade OPEN! gTrade index ${i}`);
+            break;
+          } catch (err) {
+            if (i === 5) log(`Failed to open trade on any index`);
+          }
+        }
+      } catch (err) {
+        logError("Auto-open trade", err);
+      }
     });
 
     // ── Trade opened on gTrade — NOW send Telegram notification ──
