@@ -345,7 +345,8 @@ function App() {
     const WEEK = 7 * DAY;
     const MONTH = 30 * DAY;
 
-    const closedSignals = signalHistory.filter(s => s.closed);
+    // Filter out cancels (totalReturned === totalCopied means full refund / cancel)
+    const closedSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0);
     const mySignals = closedSignals.filter(s => userPositions[Number(s.id)]);
 
     const calcPnl = (signals, since) => {
@@ -360,13 +361,12 @@ function App() {
       for (const s of filtered) {
         const pos = userPositions[Number(s.id)];
         const col = pos ? parseFloat(ethers.formatUnits(pos.deposit, 6)) : 0;
-        const resultPct = Number(s.resultPct) / 100; // to %
-        const lev = Number(s.leverage) / 1000;
-        const pnl = col * (resultPct / 100) * lev;
+        const resultPct = Number(s.resultPct) / 100; // V2: already total PnL %
+        const pnl = col * (resultPct / 100);
         totalPnl += pnl;
         totalCollateral += col;
-        if (Number(s.resultPct) >= 0) wins++;
-        else losses++;
+        if (Number(s.resultPct) > 0) wins++;
+        else if (Number(s.resultPct) < 0) losses++;
       }
 
       return { pnl: totalPnl, wins, losses, trades: filtered.length, totalCollateral };
@@ -380,14 +380,17 @@ function App() {
       let wins = 0;
       let losses = 0;
       let totalCopied = 0;
+      let avgPnl = 0;
 
       for (const s of filtered) {
-        if (Number(s.resultPct) >= 0) wins++;
-        else losses++;
+        const pct = Number(s.resultPct);
+        if (pct > 0) wins++;
+        else if (pct < 0) losses++;
         totalCopied += parseFloat(ethers.formatUnits(s.totalCopied || 0n, 6));
+        avgPnl += pct / 100;
       }
 
-      return { wins, losses, trades: filtered.length, winRate: filtered.length > 0 ? (wins / filtered.length * 100) : 0, totalCopied };
+      return { wins, losses, trades: filtered.length, winRate: filtered.length > 0 ? (wins / filtered.length * 100) : 0, totalCopied, avgPnl: filtered.length > 0 ? avgPnl / filtered.length : 0 };
     };
 
     return {
@@ -1726,7 +1729,7 @@ function App() {
                   </div>
                   <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '48px' }}>
                     {(() => {
-                      const closed = signalHistory.filter(s => s.closed).slice(0, 12);
+                      const closed = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0).slice(0, 12);
                       if (closed.length === 0) return [{ h: 20, win: true }];
                       const maxPct = Math.max(...closed.map(s => Math.abs(Number(s.resultPct) / 100)), 1);
                       return closed.map(s => {
@@ -2216,10 +2219,9 @@ function App() {
   // ===== RESULTS PAGE =====
 
   const renderResults = () => {
-    const closedSignals = signalHistory.filter(s => s.closed);
+    const closedSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0);
     const wins = closedSignals.filter(s => Number(s.resultPct) > 0);
     const losses = closedSignals.filter(s => Number(s.resultPct) < 0);
-    const breakeven = closedSignals.filter(s => Number(s.resultPct) === 0);
     const winRate = closedSignals.length > 0 ? (wins.length / closedSignals.length * 100) : 0;
 
     // Best & worst trade (compare with leverage applied)
@@ -4339,7 +4341,7 @@ function App() {
               </div>
               <div style={{ textAlign: 'right' }}>
                 {(() => {
-                  const todaySignals = signalHistory.filter(s => s.closed && Number(s.closedAt) >= Math.floor(Date.now() / 1000) - 86400);
+                  const todaySignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && Number(s.closedAt) >= Math.floor(Date.now() / 1000) - 86400);
                   let todayPnl = 0;
                   todaySignals.forEach(s => {
                     todayPnl += Number(s.resultPct) / 100;
@@ -4367,7 +4369,7 @@ function App() {
               // Calculate total PnL for this period
               const cutoff = label === 'Today' ? 86400 : label === '7 Days' ? 7 * 86400 : label === '30 Days' ? 30 * 86400 : 0;
               const now = Math.floor(Date.now() / 1000);
-              const periodSignals = signalHistory.filter(s => s.closed && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
+              const periodSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
               let periodPnl = 0;
               periodSignals.forEach(s => { periodPnl += Number(s.resultPct) / 100; });
 
