@@ -383,11 +383,10 @@ function App() {
       let avgPnl = 0;
 
       for (const s of filtered) {
-        const pct = Number(s.resultPct);
-        if (pct > 0) wins++;
-        else if (pct < 0) losses++;
+        if (s.tradePct > 0) wins++;
+        else if (s.tradePct < 0) losses++;
         totalCopied += parseFloat(ethers.formatUnits(s.totalCopied || 0n, 6));
-        avgPnl += pct / 100;
+        avgPnl += s.tradePct;
       }
 
       return { wins, losses, trades: filtered.length, winRate: filtered.length > 0 ? (wins / filtered.length * 100) : 0, totalCopied, avgPnl: filtered.length > 0 ? avgPnl / filtered.length : 0 };
@@ -815,6 +814,16 @@ function App() {
             resultPct = BigInt(Math.round(-Number((originalDeposited - fixedReturned) * 10000n / originalDeposited)));
           }
         }
+        // tradePct: pure price movement × leverage (like live terminal, before gTrade fees)
+        let tradePct = 0;
+        if (closed && Number(core[2]) > 0n) {
+          const entry = Number(core[2]) / 1e10;
+          const lev = Number(core[5]) / 1000;
+          const isWin = Number(resultPct) > 0;
+          const closePrice = isWin ? Number(core[3]) / 1e10 : Number(core[4]) / 1e10;
+          const pctMove = ((closePrice - entry) / entry) * 100 * (core[0] ? 1 : -1);
+          tradePct = pctMove * lev;
+        }
         return {
           id: Number(id),
           long: core[0],
@@ -825,6 +834,7 @@ function App() {
           sl: core[4],
           leverage: core[5],
           resultPct,
+          tradePct,
           feeAtCreation: core[6],
           phase,
           timestamp: meta[0],
@@ -941,10 +951,13 @@ function App() {
                 timestamp: Number(meta.timestamp),
               };
             } else if (core.closed) {
-              const resultPct = Number(core.resultPct) / 100;
-              const pnl = resultPct * lev;
+              const entry = Number(core.entryPrice) / 1e10;
+              const isWin = Number(core.resultPct) > 0;
+              const closePrice = isWin ? Number(core.tp) / 1e10 : Number(core.sl) / 1e10;
+              const pctMove = ((closePrice - entry) / entry) * 100 * (core.long ? 1 : -1);
+              const pnl = pctMove * lev;
               totalPnlPct += pnl;
-              if (resultPct >= 0) wins++; else losses++;
+              if (pnl >= 0) wins++; else losses++;
               if (recent.length < 5) recent.push(pnl);
               tradeHistory.push({
                 id: Number(sid),
@@ -1124,6 +1137,16 @@ function App() {
             resultPct = BigInt(Math.round(-Number((originalDeposited - fixedReturned) * 10000n / originalDeposited)));
           }
         }
+        // tradePct: pure price movement × leverage (like live terminal, before gTrade fees)
+        let tradePct = 0;
+        if (closed && Number(core[2]) > 0n) {
+          const entry = Number(core[2]) / 1e10;
+          const lev = Number(core[5]) / 1000;
+          const isWin = Number(resultPct) > 0;
+          const closePrice = isWin ? Number(core[3]) / 1e10 : Number(core[4]) / 1e10;
+          const pctMove = ((closePrice - entry) / entry) * 100 * (core[0] ? 1 : -1);
+          tradePct = pctMove * lev;
+        }
         return {
           id: Number(id),
           long: core[0],
@@ -1134,6 +1157,7 @@ function App() {
           sl: core[4],
           leverage: core[5],
           resultPct,
+          tradePct,
           feeAtCreation: core[6],
           phase,
           timestamp: meta[0],
@@ -1732,10 +1756,10 @@ function App() {
                     {(() => {
                       const closed = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0).slice(0, 12);
                       if (closed.length === 0) return [{ h: 20, win: true }];
-                      const maxPct = Math.max(...closed.map(s => Math.abs(Number(s.resultPct) / 100)), 1);
+                      const maxPct = Math.max(...closed.map(s => Math.abs(s.tradePct)), 1);
                       return closed.map(s => {
-                        const pct = Math.abs(Number(s.resultPct) / 100);
-                        return { h: Math.max(15, (pct / maxPct) * 100), win: Number(s.resultPct) >= 0 };
+                        const pct = Math.abs(s.tradePct);
+                        return { h: Math.max(15, (pct / maxPct) * 100), win: s.tradePct >= 0 };
                       });
                     })().map((bar, i) => (
                       <motion.div
@@ -2221,12 +2245,12 @@ function App() {
 
   const renderResults = () => {
     const closedSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0);
-    const wins = closedSignals.filter(s => Number(s.resultPct) > 0);
-    const losses = closedSignals.filter(s => Number(s.resultPct) < 0);
+    const wins = closedSignals.filter(s => s.tradePct > 0);
+    const losses = closedSignals.filter(s => s.tradePct < 0);
     const winRate = closedSignals.length > 0 ? (wins.length / closedSignals.length * 100) : 0;
 
-    // Best & worst trade (compare with leverage applied)
-    const getTradeResult = (s) => Number(s.resultPct) / 100;
+    // Best & worst trade (pure price × leverage)
+    const getTradeResult = (s) => s.tradePct;
     const bestTrade = closedSignals.length > 0
       ? closedSignals.reduce((a, b) => getTradeResult(a) > getTradeResult(b) ? a : b)
       : null;
@@ -2256,7 +2280,7 @@ function App() {
         }
         if (!groups[key]) groups[key] = { wins: 0, losses: 0, trades: 0 };
         groups[key].trades++;
-        if (Number(s.resultPct) >= 0) groups[key].wins++;
+        if (s.tradePct >= 0) groups[key].wins++;
         else groups[key].losses++;
       }
       return groups;
@@ -2266,7 +2290,7 @@ function App() {
     let streak = 0;
     let streakType = '';
     for (const s of [...closedSignals].sort((a, b) => Number(b.closedAt) - Number(a.closedAt))) {
-      const isWin = Number(s.resultPct) > 0;
+      const isWin = s.tradePct > 0;
       if (streak === 0) {
         streakType = isWin ? 'win' : 'loss';
         streak = 1;
@@ -2336,7 +2360,7 @@ function App() {
             <div style={{ background: 'rgba(52, 211, 153, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(52, 211, 153, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Best Trade</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                +{(Number(bestTrade.resultPct) / 100).toFixed(2)}%
+                +{bestTrade.tradePct.toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 #{Number(bestTrade.id)} &middot; {bestTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(bestTrade.leverage)}x
@@ -2345,7 +2369,7 @@ function App() {
             <div style={{ background: 'rgba(248, 113, 113, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(248, 113, 113, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Worst Trade</div>
               <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                {(Number(worstTrade.resultPct) / 100).toFixed(2)}%
+                {worstTrade.tradePct.toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 #{Number(worstTrade.id)} &middot; {worstTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(worstTrade.leverage)}x
@@ -2523,9 +2547,8 @@ function App() {
                 if (!grouped[dateKey]) grouped[dateKey] = { signals: [], dayPnl: 0, wins: 0, losses: 0 };
                 grouped[dateKey].signals.push(signal);
                 if (signal.closed) {
-                  const pnl = Number(signal.resultPct) / 100;
-                  grouped[dateKey].dayPnl += pnl;
-                  if (Number(signal.resultPct) >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
+                  grouped[dateKey].dayPnl += signal.tradePct;
+                  if (signal.tradePct >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
                 }
               });
 
@@ -2558,7 +2581,7 @@ function App() {
                   {/* Trades for this date */}
                   {group.signals.map((signal, index) => {
                     const leverage = Number(signal.leverage) / 1000;
-                    const result = Number(signal.resultPct) / 100;
+                    const result = signal.tradePct;
                     const isClosed = signal.closed;
               return (
                 <motion.div
@@ -4335,7 +4358,7 @@ function App() {
                   const todaySignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && Number(s.closedAt) >= Math.floor(Date.now() / 1000) - 86400);
                   let todayPnl = 0;
                   todaySignals.forEach(s => {
-                    todayPnl += Number(s.resultPct) / 100;
+                    todayPnl += s.tradePct;
                   });
                   return (
                     <div style={{
@@ -4362,7 +4385,7 @@ function App() {
               const now = Math.floor(Date.now() / 1000);
               const periodSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && (cutoff === 0 || Number(s.closedAt) >= now - cutoff));
               let periodPnl = 0;
-              periodSignals.forEach(s => { periodPnl += Number(s.resultPct) / 100; });
+              periodSignals.forEach(s => { periodPnl += s.tradePct; });
 
               return (
                 <div key={label} style={{
@@ -5052,9 +5075,8 @@ function App() {
                 if (!grouped[dateKey]) grouped[dateKey] = { signals: [], dayPnl: 0, wins: 0, losses: 0 };
                 grouped[dateKey].signals.push(signal);
                 if (signal.closed) {
-                  const pnl = Number(signal.resultPct) / 100;
-                  grouped[dateKey].dayPnl += pnl;
-                  if (Number(signal.resultPct) >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
+                  grouped[dateKey].dayPnl += signal.tradePct;
+                  if (signal.tradePct >= 0) grouped[dateKey].wins++; else grouped[dateKey].losses++;
                 }
               });
 
@@ -5092,7 +5114,7 @@ function App() {
                           {group.signals.filter(s => s.closed).map((s, i) => (
                             <div key={i} style={{
                               width: '6px', height: '6px', borderRadius: '50%',
-                              background: Number(s.resultPct) >= 0 ? 'var(--success)' : 'var(--danger)',
+                              background: s.tradePct >= 0 ? 'var(--success)' : 'var(--danger)',
                               opacity: 0.7,
                             }} />
                           ))}
@@ -5111,9 +5133,8 @@ function App() {
                   {group.signals.map((signal, index) => {
                     const leverage = Number(signal.leverage) / 1000;
                     const isClosed = signal.closed;
-                    const resultPct = Number(signal.resultPct) / 100;
-                    const pnl = resultPct;
-                    const isWin = resultPct >= 0;
+                    const pnl = signal.tradePct;
+                    const isWin = pnl >= 0;
 
                     // Live PnL for open trades
                     let livePnlVal = null;
