@@ -1690,13 +1690,13 @@ function App() {
                           <div style={{ marginBottom: '8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
                               <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.1rem' }}>
-                                {isAdmin ? `$${livePrice.toFixed(2)}` : <>${`$${livePrice.toFixed(2).slice(0, 2)}`}<span style={{ opacity: 0.15 }}>{livePrice.toFixed(2).slice(2)}</span></>}
+                                ${livePrice.toFixed(2)}
                               </span>
                               <span style={{
                                 fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem',
                                 color: isProfit ? 'var(--success)' : 'var(--danger)',
                               }}>
-                                {isAdmin ? `${isProfit ? '+' : ''}${livePnl.toFixed(2)}%` : <>{`${isProfit ? '+' : ''}${livePnl.toFixed(2).slice(0, -1)}`}<span style={{ opacity: 0.15 }}>{livePnl.toFixed(2).slice(-1)}%</span></>}
+                                {isProfit ? '+' : ''}{livePnl.toFixed(2)}%
                               </span>
                             </div>
                             <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={activeSignal.long} />
@@ -1705,13 +1705,15 @@ function App() {
                       })()}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                         {[
-                          { label: 'ENTRY', value: isAdmin ? `$${formatGTradePrice(activeSignal.entryPrice)}` : '••••', color: 'var(--text-primary)' },
-                          { label: 'TP', value: isAdmin ? `$${formatGTradePrice(activeSignal.tp)}` : '••••', color: 'var(--success)' },
-                          { label: 'SL', value: isAdmin ? `$${formatGTradePrice(activeSignal.sl)}` : '••••', color: 'var(--danger)' },
+                          { label: 'ENTRY', rawValue: formatGTradePrice(activeSignal.entryPrice), color: 'var(--text-primary)' },
+                          { label: 'TP', rawValue: formatGTradePrice(activeSignal.tp), color: 'var(--success)' },
+                          { label: 'SL', rawValue: formatGTradePrice(activeSignal.sl), color: 'var(--danger)' },
                         ].map(item => (
                           <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
-                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>{item.value}</div>
+                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>
+                              {isAdmin ? `$${item.rawValue}` : <>${`$${item.rawValue.slice(0, 2)}`}<span style={{ opacity: 0.15 }}>{item.rawValue.slice(2)}</span></>}
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -5812,9 +5814,15 @@ function App() {
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', fontSize: '0.75rem' }}>
-                  <div><span style={{ color: 'var(--text-secondary)' }}>Entry</span><br/>{isAdmin ? `$${formatGTradePrice(activeSignal.entryPrice)}` : '••••'}</div>
-                  <div><span style={{ color: 'var(--success)' }}>TP</span><br/>{isAdmin ? `$${formatGTradePrice(activeSignal.tp)}` : '••••'}</div>
-                  <div><span style={{ color: 'var(--danger)' }}>SL</span><br/>{isAdmin ? `$${formatGTradePrice(activeSignal.sl)}` : '••••'}</div>
+                  {[
+                    { label: 'Entry', price: formatGTradePrice(activeSignal.entryPrice), color: 'var(--text-secondary)' },
+                    { label: 'TP', price: formatGTradePrice(activeSignal.tp), color: 'var(--success)' },
+                    { label: 'SL', price: formatGTradePrice(activeSignal.sl), color: 'var(--danger)' },
+                  ].map(item => (
+                    <div key={item.label}><span style={{ color: item.color }}>{item.label}</span><br/>
+                      {isAdmin ? `$${item.price}` : <>${`$${item.price.slice(0, 2)}`}<span style={{ opacity: 0.15 }}>{item.price.slice(2)}</span></>}
+                    </div>
+                  ))}
                 </div>
               </div>
 
