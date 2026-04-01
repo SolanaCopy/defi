@@ -1058,12 +1058,15 @@ input[type="number"] { -moz-appearance: textfield; }
 
 /* Trade log */
 .trade-log-row {
-  display: grid;
-  grid-template-columns: 50px 100px 80px 80px 100px 70px;
-  gap: 8px; padding: 12px; font-size: 0.8rem;
-  border-bottom: 1px solid rgba(255,255,255,0.03);
+  display: flex;
   align-items: center;
+  gap: 12px; padding: 12px; font-size: 0.8rem;
+  border-bottom: 1px solid rgba(255,255,255,0.03);
 }
+.trade-log-id { min-width: 35px; }
+.trade-log-dir { white-space: nowrap; }
+.trade-log-entry { flex: 1; }
+.trade-log-copiers { min-width: 60px; }
 
 /* ======== RESPONSIVE ======== */
 @media (max-width: 900px) {
