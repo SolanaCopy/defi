@@ -491,6 +491,12 @@ class CloseWatcher {
 
       log(`SignalSettled #${signalId} result=${pct.toFixed(1)}% deposited=$${Number(totalDeposited) / 1e6} returned=$${Number(totalReturned) / 1e6}`);
 
+      // Skip cancelled signals (full refund, resultPct = 0)
+      if (Number(resultPct) === 0 && totalDeposited === totalReturned) {
+        log(`  Signal #${signalId} was cancelled — no notification`);
+        return;
+      }
+
       // Streak tracking
       if (win) {
         this.winStreak++;
