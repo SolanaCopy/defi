@@ -515,16 +515,23 @@ class CloseWatcher {
     this.autoClosedSignals = new Set(); // Track signals closed by auto-close to prevent duplicate notifications
 
     contract.on("SignalSettled", async (signalId, totalDeposited, totalReturned, resultPct) => {
-      const pct = Number(resultPct) / 100; // already the total PnL %
-      const win = pct >= 0;
+      const onChainPct = Number(resultPct) / 100;
+      const win = onChainPct >= 0;
 
-      // Get direction from signal
+      // Get direction and calculate tradePct (price × leverage, like the terminal)
       let dir = "XAU/USD";
       let levNum = 25;
+      let pct = onChainPct;
+      let isLong = true;
       try {
         const signal = await this.copyTrader.signalCore(signalId);
         levNum = Number(signal.leverage) / 1000;
-        dir = signal.long ? "LONG" : "SHORT";
+        isLong = signal.long;
+        dir = isLong ? "LONG" : "SHORT";
+        const entry = Number(signal.entryPrice) / 1e10;
+        const closePrice = win ? Number(signal.tp) / 1e10 : Number(signal.sl) / 1e10;
+        const pctMove = ((closePrice - entry) / entry) * 100 * (isLong ? 1 : -1);
+        pct = pctMove * levNum;
       } catch {}
 
       log(`SignalSettled #${signalId} result=${pct.toFixed(1)}% deposited=$${Number(totalDeposited) / 1e6} returned=$${Number(totalReturned) / 1e6}`);
