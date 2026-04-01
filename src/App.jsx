@@ -1705,9 +1705,9 @@ function App() {
                       })()}
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
                         {[
-                          { label: 'ENTRY', value: `$${formatGTradePrice(activeSignal.entryPrice)}`, color: 'var(--text-primary)' },
-                          { label: 'TP', value: `$${formatGTradePrice(activeSignal.tp)}`, color: 'var(--success)' },
-                          { label: 'SL', value: `$${formatGTradePrice(activeSignal.sl)}`, color: 'var(--danger)' },
+                          { label: 'ENTRY', value: isAdmin ? `$${formatGTradePrice(activeSignal.entryPrice)}` : '••••', color: 'var(--text-primary)' },
+                          { label: 'TP', value: isAdmin ? `$${formatGTradePrice(activeSignal.tp)}` : '••••', color: 'var(--success)' },
+                          { label: 'SL', value: isAdmin ? `$${formatGTradePrice(activeSignal.sl)}` : '••••', color: 'var(--danger)' },
                         ].map(item => (
                           <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
                             <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
@@ -4010,7 +4010,7 @@ function App() {
                       color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
                     }}>{activeSignal.long ? 'LONG' : 'SHORT'}</span>
                     <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                      XAU/USD &middot; {formatLeverage(activeSignal.leverage)}x &middot; Entry ${formatGTradePrice(activeSignal.entryPrice)}
+                      XAU/USD &middot; {formatLeverage(activeSignal.leverage)}x{isAdmin ? ` · Entry $${formatGTradePrice(activeSignal.entryPrice)}` : ''}
                     </span>
                   </div>
                 </div>
@@ -5812,9 +5812,9 @@ function App() {
                   </span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', fontSize: '0.75rem' }}>
-                  <div><span style={{ color: 'var(--text-secondary)' }}>Entry</span><br/>${formatGTradePrice(activeSignal.entryPrice)}</div>
-                  <div><span style={{ color: 'var(--success)' }}>TP</span><br/>${formatGTradePrice(activeSignal.tp)}</div>
-                  <div><span style={{ color: 'var(--danger)' }}>SL</span><br/>${formatGTradePrice(activeSignal.sl)}</div>
+                  <div><span style={{ color: 'var(--text-secondary)' }}>Entry</span><br/>{isAdmin ? `$${formatGTradePrice(activeSignal.entryPrice)}` : '••••'}</div>
+                  <div><span style={{ color: 'var(--success)' }}>TP</span><br/>{isAdmin ? `$${formatGTradePrice(activeSignal.tp)}` : '••••'}</div>
+                  <div><span style={{ color: 'var(--danger)' }}>SL</span><br/>{isAdmin ? `$${formatGTradePrice(activeSignal.sl)}` : '••••'}</div>
                 </div>
               </div>
 
