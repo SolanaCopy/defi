@@ -1690,13 +1690,13 @@ function App() {
                           <div style={{ marginBottom: '8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
                               <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.1rem' }}>
-                                ${livePrice.toFixed(2)}
+                                {isAdmin ? `$${livePrice.toFixed(2)}` : <>${`$${livePrice.toFixed(2).slice(0, -2)}`}<span style={{ opacity: 0.15 }}>{livePrice.toFixed(2).slice(-2)}</span></>}
                               </span>
                               <span style={{
                                 fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem',
                                 color: isProfit ? 'var(--success)' : 'var(--danger)',
                               }}>
-                                {isProfit ? '+' : ''}{livePnl.toFixed(2)}%
+                                {isAdmin ? `${isProfit ? '+' : ''}${livePnl.toFixed(2)}%` : <>{`${isProfit ? '+' : ''}${livePnl.toFixed(2).slice(0, -1)}`}<span style={{ opacity: 0.15 }}>{livePnl.toFixed(2).slice(-1)}%</span></>}
                               </span>
                             </div>
                             <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={activeSignal.long} />
