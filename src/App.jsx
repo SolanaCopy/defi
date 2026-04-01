@@ -2544,7 +2544,7 @@ function App() {
                   ) : <span style={{ width: '24px' }} />}
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: '3px', marginBottom: '4px' }}>
-                  {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d, i) => (
                     <div key={i} style={{ textAlign: 'center', fontSize: '0.55rem', color: 'var(--text-secondary)', opacity: 0.5 }}>{d}</div>
                   ))}
                 </div>
