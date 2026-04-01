@@ -1690,7 +1690,7 @@ function App() {
                           <div style={{ marginBottom: '8px' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
                               <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.1rem' }}>
-                                {isAdmin ? `$${livePrice.toFixed(2)}` : <>${`$${livePrice.toFixed(2).slice(0, 3)}`}<span style={{ opacity: 0.15 }}>{livePrice.toFixed(2).slice(3)}</span></>}
+                                {isAdmin ? `$${livePrice.toFixed(2)}` : <>${`$${livePrice.toFixed(2).slice(0, 2)}`}<span style={{ opacity: 0.15 }}>{livePrice.toFixed(2).slice(2)}</span></>}
                               </span>
                               <span style={{
                                 fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem',
