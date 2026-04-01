@@ -4408,7 +4408,7 @@ function App() {
                   </div>
                   <div style={{
                     fontSize: '1.1rem', fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px',
-                    color: periodPnl > 0 ? 'var(--success)' : periodPnl < 0 ? 'var(--danger)' : 'var(--text-primary)',
+                    color: periodPct > 0 ? 'var(--success)' : periodPct < 0 ? 'var(--danger)' : 'var(--text-primary)',
                   }}>
                     {data.trades > 0 ? `${periodPct >= 0 ? '+' : ''}${periodPct.toFixed(1)}%` : '-'}
                   </div>
