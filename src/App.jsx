@@ -806,7 +806,7 @@ function App() {
         // Calculate resultPct in basis points from totalReturned vs originalDeposited
         let resultPct = 0n;
         // Settle bug corrections: actual gTrade returns verified on-chain
-        const settleCorrections = { 7: 91750000n, 9: 122560000n, 12: 152360000n };
+        const settleCorrections = { 7: 91750000n, 9: 122560000n, 12: 158020000n };
         const correctedReturned = settleCorrections[Number(id)] || totalReturned;
         if (closed && originalDeposited > 0n) {
           if (correctedReturned >= originalDeposited) {

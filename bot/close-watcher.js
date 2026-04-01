@@ -1170,7 +1170,7 @@ class CloseWatcher {
             const collateral = Number(meta.originalDeposited);
             const leverage = Number(signal.leverage) / 1000;
             const posSize = collateral * leverage;
-            const fees = posSize * 0.002; // ~0.2% gTrade fees
+            const fees = posSize * 0.0006; // ~0.06% gTrade fees
 
             let totalReturned;
             if (resultBps >= 0) {
