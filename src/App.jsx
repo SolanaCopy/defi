@@ -2532,17 +2532,19 @@ function App() {
             const now = Math.floor(Date.now() / 1000);
             let cutoffFrom = 0, cutoffTo = now;
 
+            const utcNow = new Date();
+            const utcMidnight = Math.floor(Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), utcNow.getUTCDate()) / 1000);
             if (tradeLogFrom) {
               cutoffFrom = Math.floor(new Date(tradeLogFrom).getTime() / 1000);
               cutoffTo = tradeLogTo ? Math.floor(new Date(tradeLogTo + 'T23:59:59').getTime() / 1000) : now;
             } else {
-              cutoffFrom = tradeLogPeriod === 'today' ? now - 86400
+              cutoffFrom = tradeLogPeriod === 'today' ? utcMidnight
                 : tradeLogPeriod === '7d' ? now - 7 * 86400
                 : tradeLogPeriod === '30d' ? now - 30 * 86400
                 : 0;
             }
             const filtered = signalHistory.filter(s => {
-              const ts = Number(s.timestamp);
+              const ts = Number(s.closedAt || s.timestamp);
               return ts >= cutoffFrom && ts <= cutoffTo && !(s.closed && Number(s.resultPct) === 0);
             });
 
@@ -5075,10 +5077,12 @@ function App() {
           <div className="dash-tx-list">
             {(() => {
               const now = Math.floor(Date.now() / 1000);
-              const cutoff = tradeLogPeriod === 'today' ? now - 86400
+              const utcNow2 = new Date();
+              const utcMidnight2 = Math.floor(Date.UTC(utcNow2.getUTCFullYear(), utcNow2.getUTCMonth(), utcNow2.getUTCDate()) / 1000);
+              const cutoff = tradeLogPeriod === 'today' ? utcMidnight2
                 : tradeLogPeriod === '7d' ? now - 7 * 86400
                 : 0;
-              const filtered = signalHistory.filter(s => Number(s.timestamp) >= cutoff && !(s.closed && Number(s.resultPct) === 0));
+              const filtered = signalHistory.filter(s => Number(s.closedAt || s.timestamp) >= cutoff && !(s.closed && Number(s.resultPct) === 0));
 
               // Group by date
               const grouped = {};
