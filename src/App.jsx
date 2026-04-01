@@ -6089,6 +6089,20 @@ function App() {
             )}
           </AnimatePresence>
         </main>
+
+        {/* Disclaimer */}
+        <footer style={{
+          padding: '24px 16px', textAlign: 'center', fontSize: '0.65rem', color: 'rgba(255,255,255,0.25)',
+          lineHeight: 1.6, maxWidth: '700px', margin: '0 auto',
+          borderTop: '1px solid rgba(255,255,255,0.04)',
+        }}>
+          <p style={{ margin: '0 0 8px' }}>
+            Trading involves significant risk. Past performance does not guarantee future results. You may lose some or all of your invested capital. Only trade with funds you can afford to lose.
+          </p>
+          <p style={{ margin: 0 }}>
+            Smart Trading Club is a decentralized protocol on Arbitrum. All trades are executed on-chain via gTrade. This is not financial advice. DYOR.
+          </p>
+        </footer>
       </div>
     </>
   );
