@@ -1132,7 +1132,7 @@ function App() {
         const active = phase === 1 || phase === 2;
         const closed = phase === 3;
         let resultPct = 0n;
-        const bugFixes2 = { 7: 91750000n, 9: 122560000n };
+        const bugFixes2 = { 7: 91750000n, 9: 122560000n, 19: 123775000n };
         const fixedReturned = bugFixes2[Number(id)] || totalReturned;
         const effectiveDeposited = originalDeposited > 0n ? originalDeposited : totalDeposited;
         if (closed && effectiveDeposited > 0n && fixedReturned > 0n) {
