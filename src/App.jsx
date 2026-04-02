@@ -4530,8 +4530,7 @@ function App() {
               </div>
               <div style={{ textAlign: 'right' }}>
                 {(() => {
-                  const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
-                  const todayCutoff = Math.floor(startOfDay.getTime() / 1000);
+                  const utcN = new Date(); const todayCutoff = Math.floor(Date.UTC(utcN.getUTCFullYear(), utcN.getUTCMonth(), utcN.getUTCDate()) / 1000);
                   const todaySignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && Number(s.closedAt) >= todayCutoff);
                   let todayPnl = 0;
                   todaySignals.forEach(s => { todayPnl += s.tradePct; });
