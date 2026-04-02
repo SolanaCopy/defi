@@ -4312,16 +4312,15 @@ function App() {
                 </div>
               </div>
 
-              {/* Bottom row: amount selection + enable */}
+              {/* Bottom: amount selection + enable */}
               <div style={{
-                display: 'flex', alignItems: 'center', gap: '10px',
                 padding: '14px 16px', borderRadius: '14px',
                 background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
               }}>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, flexShrink: 0 }}>
+                <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '10px' }}>
                   Amount per trade:
                 </span>
-                <div style={{ display: 'flex', gap: '6px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginBottom: '10px' }}>
                   {[10, 25, 50, 100].map(amt => (
                     <button
                       key={amt}
@@ -4340,36 +4339,36 @@ function App() {
                       ${amt}
                     </button>
                   ))}
-                </div>
-                <div style={{ position: 'relative', marginLeft: '4px' }}>
-                  <span style={{
-                    position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)',
-                    fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 700,
-                    fontFamily: "'Space Grotesk', sans-serif", pointerEvents: 'none',
-                  }}>$</span>
-                  <input
-                    type="number"
-                    min="5"
-                    step="1"
-                    placeholder="Custom"
-                    value={autoCopyAmount}
-                    onChange={(e) => setAutoCopyAmount(e.target.value)}
-                    style={{
-                      width: '100px', padding: '7px 10px 7px 24px',
-                      borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
-                      background: 'rgba(255,255,255,0.03)', color: 'var(--text-primary)',
-                      fontSize: '0.8rem', fontFamily: "'Space Grotesk', sans-serif",
-                      fontWeight: 600, outline: 'none', transition: 'border-color 0.2s ease',
-                    }}
-                    onFocus={(e) => e.target.style.borderColor = 'rgba(212,168,67,0.4)'}
-                    onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <span style={{
+                      position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)',
+                      fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 700,
+                      fontFamily: "'Space Grotesk', sans-serif", pointerEvents: 'none',
+                    }}>$</span>
+                    <input
+                      type="number"
+                      min="5"
+                      step="1"
+                      placeholder="Custom"
+                      value={autoCopyAmount}
+                      onChange={(e) => setAutoCopyAmount(e.target.value)}
+                      style={{
+                        width: '80px', padding: '7px 10px 7px 24px',
+                        borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'rgba(255,255,255,0.03)', color: 'var(--text-primary)',
+                        fontSize: '0.8rem', fontFamily: "'Space Grotesk', sans-serif",
+                        fontWeight: 600, outline: 'none', transition: 'border-color 0.2s ease',
+                      }}
+                      onFocus={(e) => e.target.style.borderColor = 'rgba(212,168,67,0.4)'}
+                      onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
+                    />
+                  </div>
                 </div>
                 <button
                   className="btn btn-primary btn-glow"
                   style={{
-                    padding: '8px 24px', fontSize: '0.82rem', fontWeight: 700,
-                    whiteSpace: 'nowrap', marginLeft: 'auto',
+                    padding: '10px 24px', fontSize: '0.82rem', fontWeight: 700,
+                    width: '100%',
                   }}
                   onClick={handleEnableAutoCopy}
                   disabled={autoCopyLoading || !account}
