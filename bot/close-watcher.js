@@ -851,8 +851,8 @@ class CloseWatcher {
         const dep = Number(meta.originalDeposited);
         const ret = Number(meta.totalReturned);
 
-        // Skip if not settled or cancelled with no real trade
-        if (Number(core.phase) < 2) continue; // 0=COLLECTING, 1=TRADING — skip
+        // Skip if not settled (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
+        if (Number(core.phase) !== 3) continue;
         if (dep === 0 || ret === 0) continue;
         if (dep === ret) continue; // cancelled / full refund
 
@@ -905,11 +905,11 @@ class CloseWatcher {
       });
 
       await sendTelegramPhoto(img, [
-        `📊 <b>Daily Recap</b>`,
+        `📊 <b>Daily Recap</b> (00:00 — 00:00 UTC)`,
         ``,
         `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
-        `💰 Active copying: <b>$${Math.round(activeCopyVolume)} USDC</b>`,
         `🎯 Performance: <b>${totalTradePct >= 0 ? '+' : ''}${dayProfitPct}%</b>`,
+        `💰 Active copying: <b>$${Math.round(activeCopyVolume)} USDC</b>`,
         `👥 Copiers: <b>${copierCount}</b>`,
       ].join("\n"), [BTN_APP, BTN_TG]);
 
