@@ -1432,6 +1432,20 @@ function App() {
       await tx.wait();
       setAutoCopyConfig({ enabled: true, amount });
       setAutoCopyAmount('');
+
+      // Save referral if user came via ref link
+      if (referrer && referrer !== account.toLowerCase()) {
+        try {
+          await supabase.from('referrals').upsert({
+            referrer: referrer,
+            referred: account.toLowerCase(),
+            signal_id: 0,
+            amount: amount,
+          }, { onConflict: 'referred,signal_id' });
+        } catch (e) {
+          console.error('Referral save error:', e);
+        }
+      }
     } catch (err) {
       console.error('Auto-copy enable error:', err);
       alert('Failed to enable auto-copy');
