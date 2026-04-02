@@ -3935,16 +3935,17 @@ function App() {
                     padding: '12px 16px', borderRadius: '14px',
                     background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
                   }}>
-                    <span style={{
-                      flex: 1, fontSize: '0.78rem', color: 'var(--text-secondary)',
+                    <div style={{
+                      fontSize: '0.7rem', color: 'var(--text-secondary)',
                       fontFamily: "'Space Grotesk', sans-serif",
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      marginBottom: '10px',
                     }}>
                       {referralLink}
-                    </span>
+                    </div>
                     <button
                       className="btn btn-primary"
-                      style={{ padding: '8px 20px', fontSize: '0.8rem', fontWeight: 700, flexShrink: 0 }}
+                      style={{ padding: '10px 20px', fontSize: '0.8rem', fontWeight: 700, width: '100%' }}
                       onClick={() => {
                         navigator.clipboard.writeText(referralLink);
                         setReferralCopied(true);
