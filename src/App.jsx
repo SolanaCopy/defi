@@ -4287,8 +4287,8 @@ function App() {
                   onClick={handleDisableAutoCopy}
                   disabled={autoCopyLoading}
                 >
-                  {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <Settings size={14} />}
-                  Manage
+                  {autoCopyLoading ? <Loader2 size={14} className="spin" /> : <X size={14} />}
+                  Turn Off
                 </button>
               </div>
             </div>
