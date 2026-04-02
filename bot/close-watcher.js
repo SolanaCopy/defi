@@ -348,6 +348,80 @@ class CloseWatcher {
 
     // Trade monitor: checks gTrade every 30s when signal active (replaces heavy event polling)
     this.startTradeMonitor();
+
+    // IMMEDIATE: check for stuck trades on startup (trade closed while bot was down)
+    this.checkStuckTradeOnStartup();
+  }
+
+  async checkStuckTradeOnStartup() {
+    try {
+      const activeId = await this.copyTrader.activeSignalId();
+      if (Number(activeId) === 0) return;
+
+      const signal = await this.copyTrader.signalCore(activeId);
+      if (Number(signal.phase) !== 1) return; // not TRADING
+
+      const meta = await this.copyTrader.signalMeta(activeId);
+      if (Number(meta.originalDeposited) === 0) return; // openTrade not completed
+
+      // Check if gTrade position still exists
+      const gTrade = new ethers.Contract(GTRADE_DIAMOND, [
+        "function getTrades(address) view returns (tuple(address,uint32,uint16,uint24,bool,bool,uint8,uint8,uint120,uint64,uint64,uint64,bool,uint160,uint24)[])",
+      ], this.httpProvider);
+      const trades = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
+
+      if (trades.length === 0) {
+        log("STARTUP: Found stuck trade! Signal #" + activeId + " — gTrade position gone, settling...");
+
+        const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
+        const collateral = Number(meta.originalDeposited);
+        const balanceAtOpen = Number(meta.balanceAtOpen);
+        const returned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
+
+        if (returned > 0n && returned <= BigInt(contractBalance)) {
+          log("  Settling with $" + (Number(returned) / 1e6).toFixed(2) + " (from balance)");
+          const tx = await this.copyTrader.settleSignal(returned);
+          await tx.wait();
+          log("  Signal #" + activeId + " settled on startup!");
+
+          // Send notification
+          const entry = Number(signal.entryPrice) / 1e10;
+          const tp = Number(signal.tp) / 1e10;
+          const sl = Number(signal.sl) / 1e10;
+          const lev = Number(signal.leverage) / 1000;
+          const isWin = Number(returned) > collateral;
+          const closePrice = isWin ? tp : sl;
+          const pctMove = ((closePrice - entry) / entry) * 100 * (signal.long ? 1 : -1);
+          const pct = pctMove * lev;
+          const poolIn = collateral / 1e6;
+          const poolOut = Number(returned) / 1e6;
+          const pnlUsd = poolOut - poolIn;
+          const win = pct >= 0;
+          const dir = signal.long ? "LONG" : "SHORT";
+
+          const img = await autoCloseImage({
+            signalId: String(activeId), direction: dir, leverage: `${lev}x`, resultPct: pct,
+          });
+          await sendTelegramPhoto(img, [
+            win ? `✅ <b>Signal #${activeId} Closed — Profit</b>` : `❌ <b>Signal #${activeId} Closed — Loss</b>`,
+            ``,
+            `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b>`,
+            `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
+            `💰 Pool: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
+            ``,
+            `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`,
+          ].join("\n"), [
+            win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
+          ]);
+        } else {
+          log("  Balance method failed, returned=" + Number(returned) / 1e6 + " — waiting for safety net");
+        }
+      } else {
+        log("Startup: Signal #" + activeId + " still has " + trades.length + " open gTrade position(s) — monitoring");
+      }
+    } catch (err) {
+      logError("Startup stuck trade check", err);
+    }
   }
 
   // ===== CONTRACT EVENT LISTENER =====
