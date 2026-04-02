@@ -473,18 +473,59 @@ class CloseWatcher {
           return;
         }
 
-        // Try gTrade indices 0-5 sequentially
-        for (let i = 0; i <= 5; i++) {
+        // Find next available gTrade index by checking existing trades
+        try {
+          const gTrade = new ethers.Contract(GTRADE_DIAMOND, [
+            "function getTrades(address) view returns (tuple(address,uint32,uint16,uint24,bool,bool,uint8,uint8,uint120,uint64,uint64,uint64,bool,uint160,uint24)[])",
+            "function getCounters(address) view returns (uint32)",
+          ], this.httpProvider);
+
+          // Get the counter (next trade index) for our contract
+          let nextIndex = 0;
           try {
-            log(`Opening trade with gTrade index ${i}...`);
-            const openTx = await this.copyTrader.openTrade(i);
-            await openTx.wait();
-            log(`Trade OPEN! gTrade index ${i}`);
-            break;
-          } catch (err) {
-            log(`Index ${i} failed: ${err.reason || err.shortMessage || err.message?.slice(0, 120) || 'reverted'}`);
-            if (i === 5) log(`Failed to open trade on any index`);
+            const trades = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
+            // Next index = highest existing index + 1, or 0 if no trades
+            if (trades.length > 0) {
+              const maxIdx = Math.max(...trades.map(t => Number(t[1])));
+              nextIndex = maxIdx + 1;
+            }
+          } catch {
+            // Fallback: try indices 0-20
           }
+
+          // Try the predicted index first, then scan nearby
+          const indicesToTry = [nextIndex];
+          for (let i = 0; i <= 20; i++) {
+            if (i !== nextIndex) indicesToTry.push(i);
+          }
+
+          let opened = false;
+          for (const i of indicesToTry) {
+            try {
+              log(`Opening trade with gTrade index ${i}...`);
+              const openTx = await this.copyTrader.openTrade(i);
+              await openTx.wait();
+
+              // Verify: check what index gTrade actually assigned
+              const tradesAfter = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
+              if (tradesAfter.length > 0) {
+                const actualIndex = Number(tradesAfter[tradesAfter.length - 1][1]);
+                log(`Trade OPEN! Stored index ${i}, gTrade actual index ${actualIndex}`);
+                if (actualIndex !== i) {
+                  log(`⚠️ Index mismatch! closeTrade will not work — trade will close at TP/SL`);
+                }
+              } else {
+                log(`Trade OPEN! gTrade index ${i}`);
+              }
+              opened = true;
+              break;
+            } catch (err) {
+              log(`Index ${i} failed: ${err.reason || err.shortMessage || err.message?.slice(0, 120) || 'reverted'}`);
+            }
+          }
+          if (!opened) log(`Failed to open trade on any index`);
+        } catch (err) {
+          logError("gTrade index lookup", err);
         }
       } catch (err) {
         logError("Auto-open trade", err);
