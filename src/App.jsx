@@ -3768,9 +3768,7 @@ function App() {
 
   // ===== REFERRAL PAGE =====
   const renderReferral = () => {
-    const rewardsEarned = referralStats.volume > 0
-      ? referralStats.volume * (feePercent / 10000) * 0.50
-      : 0;
+    const rewardsEarned = referralStats.referrals.reduce((sum, r) => sum + (r.reward_paid ? Number(r.reward_amount || 0) : 0), 0);
 
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.4 }}>
@@ -3997,7 +3995,7 @@ function App() {
 
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {referralStats.referrals.map((r, i) => {
-                    const estimatedReward = (Number(r.amount) || 0) * (feePercent / 10000) * 0.50;
+                    // No estimate - only show actual paid rewards
                     return (
                       <div key={i} style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -4022,10 +4020,7 @@ function App() {
                             </div>
                           ) : (
                             <div>
-                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                                ~${estimatedReward.toFixed(2)}
-                              </div>
-                              <div style={{ fontSize: '0.6rem', color: 'var(--accent)' }}>Pending</div>
+                              <div style={{ fontSize: '0.6rem', color: 'var(--accent)' }}>Active</div>
                             </div>
                           )}
                         </div>
