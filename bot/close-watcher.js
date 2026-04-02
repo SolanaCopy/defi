@@ -359,7 +359,7 @@ class CloseWatcher {
       if (Number(activeId) === 0) return;
 
       const signal = await this.copyTrader.signalCore(activeId);
-      if (Number(signal.phase) !== 1) return; // not TRADING
+      if (Number(signal.phase) !== 2) return; // not TRADING (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
 
       const meta = await this.copyTrader.signalMeta(activeId);
       if (Number(meta.originalDeposited) === 0) return; // openTrade not completed
@@ -588,7 +588,7 @@ class CloseWatcher {
       for (let i = total; i >= 1; i--) {
         try {
           const core = await contract.signalCore(i);
-          if (Number(core.phase) !== 2) continue; // only SETTLED
+          if (Number(core.phase) !== 3) continue; // only SETTLED (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
           const meta = await contract.signalMeta(i);
           const pct = calcResultPct(meta);
           // Skip cancelled signals (full refund)
@@ -1218,7 +1218,7 @@ class CloseWatcher {
         }
 
         const signal = await this.copyTrader.signalCore(activeId);
-        if (Number(signal.phase) !== 1) { // Not in TRADING phase
+        if (Number(signal.phase) !== 2) { // Not in TRADING phase (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
           setTimeout(check, MONITOR_INTERVAL);
           return;
         }
@@ -1402,7 +1402,7 @@ class CloseWatcher {
 
       // Get signal info
       const signal = await this.copyTrader.signalCore(activeId);
-      if (Number(signal.phase) !== 1) { // Not in TRADING phase (1 = TRADING)
+      if (Number(signal.phase) !== 2) { // Not in TRADING phase (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
         log(`Signal #${activeId} not in trading phase (phase=${signal.phase})`);
         return;
       }
