@@ -4419,13 +4419,10 @@ function App() {
               border: '1px solid rgba(255,255,255,0.06)',
             }}>
               <div>
-                <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '4px' }}>TODAY'S PERFORMANCE</div>
+                <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '4px' }}>TODAY'S PERFORMANCE (00:00 — 00:00 UTC)</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                   <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
                     {performanceStats.platform.today.wins}W / {performanceStats.platform.today.losses}L
-                  </span>
-                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-                    {performanceStats.platform.today.winRate.toFixed(0)}% win rate
                   </span>
                 </div>
               </div>
@@ -4483,10 +4480,7 @@ function App() {
                     {data.trades > 0 ? `${periodPct >= 0 ? '+' : ''}${periodPct.toFixed(1)}%` : '-'}
                   </div>
                   <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
-                    {data.trades} trades &middot; {data.winRate.toFixed(0)}% win
-                  </div>
-                  <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
-                    {data.wins}W / {data.losses}L
+                    {data.trades} trades · {data.wins}W / {data.losses}L
                   </div>
                 </div>
               );
