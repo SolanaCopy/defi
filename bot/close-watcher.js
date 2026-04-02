@@ -355,6 +355,10 @@ class CloseWatcher {
 
   async checkStuckTradeOnStartup() {
     try {
+      // Wait 30s after startup before checking — give gTrade time to stabilize
+      log("Startup: waiting 30s before checking for stuck trades...");
+      await new Promise(r => setTimeout(r, 30000));
+
       const activeId = await this.copyTrader.activeSignalId();
       if (Number(activeId) === 0) return;
 
@@ -371,65 +375,12 @@ class CloseWatcher {
       const trades = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
 
       if (trades.length === 0) {
-        log("STARTUP: Found stuck trade! Signal #" + activeId + " — gTrade position gone");
-
-        // Wait 10s for gTrade to finalize USDC transfer
-        await new Promise(r => setTimeout(r, 10000));
-
-        // Re-check: maybe gTrade position reappeared (timing issue)
-        const tradesRecheck = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
-        if (tradesRecheck.length > 0) {
-          log("  False alarm — gTrade position is back. Monitoring normally.");
-          return;
-        }
-
-        const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
-        const collateral = Number(meta.originalDeposited);
-        const balanceAtOpen = Number(meta.balanceAtOpen);
-        const returned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
-
-        // SAFETY: never settle with $0 or less than 10% of collateral (likely gTrade hasn't returned yet)
-        const minReturned = BigInt(Math.floor(collateral * 0.1));
-        if (returned >= minReturned && returned <= BigInt(contractBalance)) {
-          log("  Settling with $" + (Number(returned) / 1e6).toFixed(2) + " (from balance)");
-          const tx = await this.copyTrader.settleSignal(returned);
-          await tx.wait();
-          log("  Signal #" + activeId + " settled on startup!");
-
-          // Send notification
-          const entry = Number(signal.entryPrice) / 1e10;
-          const tp = Number(signal.tp) / 1e10;
-          const sl = Number(signal.sl) / 1e10;
-          const lev = Number(signal.leverage) / 1000;
-          const isWin = Number(returned) > collateral;
-          const closePrice = isWin ? tp : sl;
-          const pctMove = ((closePrice - entry) / entry) * 100 * (signal.long ? 1 : -1);
-          const pct = pctMove * lev;
-          const poolIn = collateral / 1e6;
-          const poolOut = Number(returned) / 1e6;
-          const pnlUsd = poolOut - poolIn;
-          const win = pct >= 0;
-          const dir = signal.long ? "LONG" : "SHORT";
-
-          const img = await autoCloseImage({
-            signalId: String(activeId), direction: dir, leverage: `${lev}x`, resultPct: pct,
-          });
-          await sendTelegramPhoto(img, [
-            win ? `✅ <b>Signal #${activeId} Closed — Profit</b>` : `❌ <b>Signal #${activeId} Closed — Loss</b>`,
-            ``,
-            `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b>`,
-            `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
-            `💰 Copied: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
-            ``,
-            `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`,
-          ].join("\n"), [
-            win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
-          ]);
-        } else {
-          log("  Balance method failed, returned=" + Number(returned) / 1e6 + " — waiting for safety net");
-        }
+        log("STARTUP: Signal #" + activeId + " active but no gTrade position — letting safety net handle it");
+        // DON'T settle here — the safety net will handle it with better checks
+        // This prevents the $0 settle bug that happened with signal #27
+        return;
       } else {
-        log("Startup: Signal #" + activeId + " still has " + trades.length + " open gTrade position(s) — monitoring");
+        log("Startup: Signal #" + activeId + " has " + trades.length + " open gTrade position(s) — monitoring");
       }
     } catch (err) {
       logError("Startup stuck trade check", err);
