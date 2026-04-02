@@ -1340,11 +1340,31 @@ function App() {
       }
     });
     // Auto-reconnect on page load if previously connected
-    window.ethereum.request({ method: 'eth_accounts' }).then(accounts => {
-      if (accounts.length > 0 && !account) {
-        connectWallet();
-      }
-    }).catch(() => {});
+    if (!account) {
+      window.ethereum.request({ method: 'eth_accounts' }).then(async (accounts) => {
+        if (accounts.length > 0) {
+          try {
+            const chainId = await window.ethereum.request({ method: 'eth_chainId' });
+            setCurrentChainId(chainId);
+            if (chainId === ARBITRUM_CHAIN_ID) {
+              const provider = new ethers.BrowserProvider(window.ethereum);
+              const signer = await provider.getSigner();
+              const address = await signer.getAddress();
+              setAccount(address);
+              const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, signer);
+              const usdcContract = new ethers.Contract(USDC_ADDRESS, ERC20_ABI, signer);
+              providerRef.current = provider;
+              signerRef.current = signer;
+              contractRef.current = contract;
+              usdcRef.current = usdcContract;
+              loadData(contract, usdcContract, address);
+            } else {
+              setAccount(accounts[0]);
+            }
+          } catch {}
+        }
+      }).catch(() => {});
+    }
 
     return () => {
       window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
