@@ -1107,18 +1107,19 @@ function App() {
   // Load data from contract
   const loadData = useCallback(async (contract, usdcContract, userAddress) => {
     try {
-      // Wallet USDC balance
-      const walletBal = await usdcContract.balanceOf(userAddress);
+      // Fast first: load critical UI data in parallel
+      const [walletBal, adminAddr, config, count, fee] = await Promise.all([
+        usdcContract.balanceOf(userAddress),
+        contract.admin(),
+        contract.autoCopy(userAddress),
+        contract.signalCount(),
+        contract.feePercent(),
+      ]);
+
       setWalletUSDC(parseFloat(ethers.formatUnits(walletBal, USDC_DECIMALS)));
-
-      // Check if admin
-      const adminAddr = await contract.admin();
       setIsAdmin(adminAddr.toLowerCase() === userAddress.toLowerCase());
-
-      // Signal count & fee
-      const count = await contract.signalCount();
+      setAutoCopyConfig({ enabled: config.enabled, amount: parseFloat(ethers.formatUnits(config.amount, USDC_DECIMALS)) });
       setSignalCount(Number(count));
-      const fee = await contract.feePercent();
       setFeePercent(Number(fee));
 
       // Helper to parse signal data from contract Result objects
@@ -1242,16 +1243,7 @@ function App() {
         setContractBalance(parseFloat(ethers.formatUnits(bal, 6)));
       } catch { /* keep existing */ }
 
-      // Auto-copy config
-      try {
-        const config = await contract.autoCopy(userAddress);
-        setAutoCopyConfig({
-          enabled: config.enabled,
-          amount: parseFloat(ethers.formatUnits(config.amount, USDC_DECIMALS)),
-        });
-      } catch {
-        setAutoCopyConfig({ enabled: false, amount: 0 });
-      }
+      // Auto-copy already loaded above in parallel batch
 
       // Check legacy claim status for specific wallet
       if (userAddress.toLowerCase() === '0x52de1ec42554cd0867fe7d8a7eb105d09912afb3') {
