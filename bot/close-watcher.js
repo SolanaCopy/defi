@@ -371,14 +371,26 @@ class CloseWatcher {
       const trades = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
 
       if (trades.length === 0) {
-        log("STARTUP: Found stuck trade! Signal #" + activeId + " — gTrade position gone, settling...");
+        log("STARTUP: Found stuck trade! Signal #" + activeId + " — gTrade position gone");
+
+        // Wait 10s for gTrade to finalize USDC transfer
+        await new Promise(r => setTimeout(r, 10000));
+
+        // Re-check: maybe gTrade position reappeared (timing issue)
+        const tradesRecheck = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
+        if (tradesRecheck.length > 0) {
+          log("  False alarm — gTrade position is back. Monitoring normally.");
+          return;
+        }
 
         const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
         const collateral = Number(meta.originalDeposited);
         const balanceAtOpen = Number(meta.balanceAtOpen);
         const returned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
 
-        if (returned > 0n && returned <= BigInt(contractBalance)) {
+        // SAFETY: never settle with $0 or less than 10% of collateral (likely gTrade hasn't returned yet)
+        const minReturned = BigInt(Math.floor(collateral * 0.1));
+        if (returned >= minReturned && returned <= BigInt(contractBalance)) {
           log("  Settling with $" + (Number(returned) / 1e6).toFixed(2) + " (from balance)");
           const tx = await this.copyTrader.settleSignal(returned);
           await tx.wait();
@@ -1347,20 +1359,30 @@ class CloseWatcher {
               totalReturned = BigInt(Math.round(Math.max(0, collateral - loss - fees)));
             }
 
+            // Wait for gTrade to finalize USDC transfer
+            await new Promise(r => setTimeout(r, 5000));
+
             // Use actual balance method: returned = balance - (balanceAtOpen - originalDeposited)
             const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
             const balanceAtOpen = Number(meta.balanceAtOpen);
             const actualReturned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
 
+            // SAFETY: never settle with less than 10% of collateral
+            const minReturned = BigInt(Math.floor(collateral * 0.1));
+
             // Use balance-based if available, otherwise fall back to price-based
-            if (actualReturned > 0n && actualReturned <= BigInt(contractBalance)) {
+            if (actualReturned >= minReturned && actualReturned <= BigInt(contractBalance)) {
               totalReturned = actualReturned;
               log(`  Settling: returned=$${Number(totalReturned) / 1e6} (from balance)`);
-            } else {
+            } else if (totalReturned >= minReturned) {
               // Sanity: cap to contract balance and 3x collateral
               if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
               if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
               log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
+            } else {
+              log(`  ⚠️ Returned too low ($${Number(actualReturned) / 1e6}) — gTrade may not have sent USDC yet. Skipping settle, will retry.`);
+              setTimeout(check, MONITOR_INTERVAL);
+              return;
             }
             const tx = await this.copyTrader.settleSignal(totalReturned);
             await tx.wait();
