@@ -1453,10 +1453,12 @@ function App() {
       setAutoCopyAmount('');
 
       // Save referral if user came via ref link
-      if (referrer && referrer !== account.toLowerCase()) {
+      const ref = referrer || localStorage.getItem('stc_referrer') || '';
+      console.log('Referral check:', { ref, account: account.toLowerCase(), match: ref && ref !== account.toLowerCase() });
+      if (ref && ref !== account.toLowerCase()) {
         try {
           await supabase.from('referrals').upsert({
-            referrer: referrer,
+            referrer: ref,
             referred: account.toLowerCase(),
             signal_id: 0,
             amount: amount,
@@ -1516,10 +1518,11 @@ function App() {
       setShowCopyModal(false);
 
       // Save referral to Supabase
-      if (referrer && referrer !== account.toLowerCase()) {
+      const ref2 = referrer || localStorage.getItem('stc_referrer') || '';
+      if (ref2 && ref2 !== account.toLowerCase()) {
         try {
           await supabase.from('referrals').upsert({
-            referrer: referrer,
+            referrer: ref2,
             referred: account.toLowerCase(),
             signal_id: Number(activeSignal.id),
             amount: Number(copyAmount),
