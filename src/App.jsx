@@ -4248,8 +4248,8 @@ function App() {
           borderRadius: '20px', padding: '24px 28px',
         }}>
           {autoCopyConfig.enabled ? (
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '14px' }}>
                 <div style={{
                   width: 48, height: 48, borderRadius: '14px',
                   background: 'linear-gradient(135deg, rgba(52,211,153,0.2), rgba(52,211,153,0.05))',
@@ -4258,27 +4258,25 @@ function App() {
                 }}>
                   <BrainCircuit size={22} style={{ color: 'var(--success)' }} />
                 </div>
-                <div>
+                <div style={{ flex: 1 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
                     <span style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em' }}>Auto-Copy Active</span>
                     <span className="pulse-dot" style={{ width: 8, height: 8 }} />
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                    <span style={{
-                      fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.4rem', fontWeight: 700,
-                      color: 'var(--accent-light)',
-                    }}>
-                      ${autoCopyConfig.amount.toFixed(2)}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>USDC per trade</span>
-                  </div>
+                  <span style={{
+                    fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700,
+                    color: 'var(--accent-light)',
+                  }}>
+                    ${autoCopyConfig.amount.toFixed(2)}
+                  </span>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '8px' }}>USDC per trade</span>
                 </div>
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <div style={{ display: 'flex', gap: '8px' }}>
                 <div style={{
-                  padding: '8px 14px', borderRadius: '10px',
+                  flex: 1, padding: '10px 14px', borderRadius: '10px',
                   background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.1)',
-                  display: 'flex', alignItems: 'center', gap: '6px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                 }}>
                   <CheckCircle2 size={13} style={{ color: 'var(--success)' }} />
                   <span style={{ fontSize: '0.7rem', color: 'var(--success)', fontWeight: 600 }}>Copying all signals</span>
