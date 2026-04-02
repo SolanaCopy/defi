@@ -5063,20 +5063,21 @@ function App() {
                 </div>
               </div>
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div>
                 {/* Stats */}
                 <div style={{
-                  display: 'flex', gap: '16px', padding: '8px 16px', borderRadius: '12px',
+                  display: 'flex', gap: '16px', padding: '10px 16px', borderRadius: '12px',
                   background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
+                  marginBottom: '10px',
                 }}>
-                  <div style={{ textAlign: 'center' }}>
+                  <div style={{ textAlign: 'center', flex: 1 }}>
                     <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: '#8B5CF6' }}>
                       {referralStats.count}
                     </div>
                     <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>REFERRALS</div>
                   </div>
                   <div style={{ width: 1, background: 'rgba(255,255,255,0.06)' }} />
-                  <div style={{ textAlign: 'center' }}>
+                  <div style={{ textAlign: 'center', flex: 1 }}>
                     <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
                       ${referralStats.volume.toFixed(0)}
                     </div>
@@ -5086,20 +5087,18 @@ function App() {
 
                 {/* Copy link button */}
                 <div style={{
-                  display: 'flex', alignItems: 'center', gap: '8px',
-                  padding: '8px 12px', borderRadius: '12px',
+                  padding: '10px 12px', borderRadius: '12px',
                   background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-                  fontSize: '0.72rem', color: 'var(--text-secondary)',
-                  fontFamily: "'Space Grotesk', sans-serif',",
-                  maxWidth: '240px', overflow: 'hidden',
+                  fontSize: '0.7rem', color: 'var(--text-secondary)',
+                  fontFamily: "'Space Grotesk', sans-serif",
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                  marginBottom: '10px',
                 }}>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    smarttradingclub.io/?ref={account.slice(0, 6)}...
-                  </span>
+                  smarttradingclub.io/?ref={account.slice(0, 6)}...
                 </div>
                 <button
                   className="btn btn-primary"
-                  style={{ padding: '10px 20px', fontSize: '0.8rem', fontWeight: 700, whiteSpace: 'nowrap' }}
+                  style={{ padding: '10px 20px', fontSize: '0.8rem', fontWeight: 700, width: '100%' }}
                   onClick={() => {
                     navigator.clipboard.writeText(referralLink);
                     setReferralCopied(true);
