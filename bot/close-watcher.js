@@ -550,8 +550,11 @@ class CloseWatcher {
       const sl = Number(core.sl) / 1e10;
       const tpPct = long ? ((tp - entry) / entry) * levNum * 100 : ((entry - tp) / entry) * levNum * 100;
       const slPct = long ? ((entry - sl) / entry) * levNum * 100 : ((sl - entry) / entry) * levNum * 100;
-      const tpUsd = pool * tpPct / 100;
-      const slUsd = pool * slPct / 100;
+      // Estimate after gTrade fees (~0.06% open + 0.06% close on position size)
+      const posSize = pool * levNum;
+      const estFees = posSize * 0.0012;
+      const tpUsd = Math.max(0, pool * tpPct / 100 - estFees);
+      const slUsd = pool * slPct / 100 + estFees;
 
       await sendTelegramPhoto(img, [
         `📡 <b>Trade Opened #${signalId}</b>`,
