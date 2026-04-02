@@ -1042,15 +1042,17 @@ class CloseWatcher {
       }
       const copierCount = Number(await contract.getAutoCopyUserCount());
 
-      // Also calc current profit
+      // Also calc current profit (returned - deposited for settled signals)
       let initProfit = 0;
       for (let i = 1; i <= total; i++) {
         const meta = await contract.signalMeta(i);
-        const vol = parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
         const core = await contract.signalCore(i);
-        if (Number(core.phase) === 3) {
-          const resultPct = calcResultPct(meta);
-          initProfit += vol * (resultPct / 100);
+        if (Number(core.phase) === 3) { // SETTLED
+          const dep = Number(meta.originalDeposited);
+          const ret = Number(meta.totalReturned);
+          if (dep > 0 && ret > 0 && dep !== ret) {
+            initProfit += (ret - dep) / 1e6;
+          }
         }
       }
 
@@ -1090,11 +1092,13 @@ class CloseWatcher {
       }
       for (let i = 1; i <= total; i++) {
         const core = await contract.signalCore(i);
-        if (Number(core.phase) === 3) {
+        if (Number(core.phase) === 3) { // SETTLED
           const meta = await contract.signalMeta(i);
-          const vol = parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
-          const resultPct = calcResultPct(meta);
-          totalProfit += vol * (resultPct / 100);
+          const dep = Number(meta.originalDeposited);
+          const ret = Number(meta.totalReturned);
+          if (dep > 0 && ret > 0 && dep !== ret) {
+            totalProfit += (ret - dep) / 1e6;
+          }
         }
       }
 
