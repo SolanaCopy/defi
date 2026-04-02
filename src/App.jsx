@@ -5185,7 +5185,7 @@ function App() {
       )}
 
       {/* ===== BOTTOM: Protocol info + Signal History + Transactions ===== */}
-      <div className="dash-bottom-grid">
+      <div className="dash-bottom-grid" style={{ marginTop: '20px' }}>
 
         {/* Protocol bar */}
         <motion.div className="dash-protocol-bar" variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}>
