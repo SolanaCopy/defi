@@ -318,7 +318,7 @@ function App() {
   // Referral State
   const [referrer, setReferrer] = useState('');
   const [referralLink, setReferralLink] = useState('');
-  const [referralStats, setReferralStats] = useState({ count: 0, volume: 0 });
+  const [referralStats, setReferralStats] = useState({ count: 0, volume: 0, referrals: [] });
   const [referralCopied, setReferralCopied] = useState(false);
 
   // Signal State
@@ -499,12 +499,13 @@ function App() {
       try {
         const { data } = await supabase
           .from('referrals')
-          .select('amount')
+          .select('*')
           .eq('referrer', account.toLowerCase());
         if (data) {
           setReferralStats({
             count: data.length,
             volume: data.reduce((sum, r) => sum + (Number(r.amount) || 0), 0),
+            referrals: data,
           });
         }
       } catch (err) {
@@ -3980,6 +3981,73 @@ function App() {
             </div>
           </motion.div>
         </motion.section>
+
+        {/* Rewards History */}
+        {account && referralStats.referrals.length > 0 && (
+          <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '1.5rem' }}>
+            <div style={{ maxWidth: '700px', margin: '0 auto' }}>
+              <div style={{
+                background: 'var(--bg-card)', borderRadius: '16px', padding: '20px 24px',
+                border: '1px solid var(--border)',
+              }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <TrendingUp size={16} style={{ color: '#8B5CF6' }} />
+                  Your Referrals
+                </h3>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {referralStats.referrals.map((r, i) => {
+                    const estimatedReward = (Number(r.amount) || 0) * (feePercent / 10000) * 0.50;
+                    return (
+                      <div key={i} style={{
+                        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                        padding: '12px 14px', borderRadius: '10px',
+                        background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
+                      }}>
+                        <div>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
+                            {r.referred?.slice(0, 6)}...{r.referred?.slice(-4)}
+                          </div>
+                          <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                            ${Number(r.amount || 0).toFixed(0)} per trade
+                          </div>
+                        </div>
+                        <div style={{ textAlign: 'right' }}>
+                          {r.reward_paid ? (
+                            <div>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                                +${Number(r.reward_amount || 0).toFixed(2)}
+                              </div>
+                              <div style={{ fontSize: '0.6rem', color: 'var(--success)' }}>Paid</div>
+                            </div>
+                          ) : (
+                            <div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                                ~${estimatedReward.toFixed(2)}
+                              </div>
+                              <div style={{ fontSize: '0.6rem', color: 'var(--accent)' }}>Pending</div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div style={{
+                  marginTop: '14px', padding: '10px 14px', borderRadius: '10px',
+                  background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)',
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                }}>
+                  <span style={{ fontSize: '0.75rem', color: '#8B5CF6', fontWeight: 600 }}>Total Rewards</span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#8B5CF6', fontFamily: "'Space Grotesk', sans-serif" }}>
+                    ${referralStats.referrals.reduce((sum, r) => sum + (r.reward_paid ? Number(r.reward_amount || 0) : 0), 0).toFixed(2)} earned
+                  </span>
+                </div>
+              </div>
+            </div>
+          </motion.section>
+        )}
 
         {/* FAQ */}
         <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '3rem' }}>
