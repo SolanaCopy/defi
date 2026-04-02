@@ -1339,6 +1339,13 @@ function App() {
         connectWallet();
       }
     });
+    // Auto-reconnect on page load if previously connected
+    window.ethereum.request({ method: 'eth_accounts' }).then(accounts => {
+      if (accounts.length > 0 && !account) {
+        connectWallet();
+      }
+    }).catch(() => {});
+
     return () => {
       window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
       window.ethereum.removeListener('chainChanged', () => {});
