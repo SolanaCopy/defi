@@ -806,7 +806,7 @@ function App() {
         // Calculate resultPct from on-chain totalReturned with known bug corrections
         // Signals 7 ($0 bug) and 9 ($214 bug) use verified gTrade returns
         let resultPct = 0n;
-        const bugFixes = { 7: 91750000n, 9: 122560000n, 19: 123775000n };
+        const bugFixes = { 7: 91750000n, 9: 122560000n, 19: 123775000n, 27: 764630000n };
         const fixedReturned = bugFixes[Number(id)] || totalReturned;
         const effectiveDeposited = originalDeposited > 0n ? originalDeposited : totalDeposited;
         if (closed && effectiveDeposited > 0n && fixedReturned > 0n) {
