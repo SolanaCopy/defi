@@ -8,7 +8,7 @@ const {
   TELEGRAM_CHAT_ID,
 } = process.env;
 
-const CHECK_INTERVAL = 30 * 60 * 1000; // Check every 30 minutes
+const CHECK_INTERVAL = 10 * 60 * 1000; // Check every 10 minutes
 const ALERT_BEFORE = 60; // Alert 60 minutes before
 const ALERT_AFTER = 60;  // No-trade zone 60 minutes after
 
@@ -262,13 +262,12 @@ export async function startNewsAlerts() {
   polling = true;
   console.log("[NEWS] Forex news alerts started — checking every 30 minutes");
 
-  // On startup: mark events that are already in their alert window as alerted
-  // This prevents duplicate alerts after bot restart
+  // On startup: only mark "now" and "clear" events as already alerted
+  // Do NOT mark pre-alerts — better to send a duplicate than miss an alert
   const bootEvents = await fetchForexCalendar();
   for (const event of bootEvents) {
     const minutesUntil = getMinutesUntil(event.date);
     const eventKey = `${event.date}-${event.title}`;
-    if (minutesUntil > 45 && minutesUntil <= 90) alertedEvents.set(`pre-${eventKey}`, Date.now());
     if (minutesUntil > -15 && minutesUntil <= 15) alertedEvents.set(`now-${eventKey}`, Date.now());
     if (minutesUntil < -45 && minutesUntil > -90) alertedEvents.set(`clear-${eventKey}`, Date.now());
   }
