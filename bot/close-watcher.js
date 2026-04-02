@@ -407,7 +407,7 @@ class CloseWatcher {
             ``,
             `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b>`,
             `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
-            `💰 Pool: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
+            `💰 Copied: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
             ``,
             `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`,
           ].join("\n"), [
@@ -557,7 +557,7 @@ class CloseWatcher {
         `📡 <b>Trade Opened #${signalId}</b>`,
         ``,
         `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
-        `💰 Pool: <b>$${pool.toFixed(0)} USDC</b>`,
+        `💰 Total copied: <b>$${pool.toFixed(0)} USDC</b>`,
         ``,
         `🎯 Target: <b>+${tpPct.toFixed(1)}%</b> (+$${tpUsd.toFixed(2)})`,
         `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
@@ -699,7 +699,7 @@ class CloseWatcher {
             ``,
             `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
             `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
-            `💰 Pool: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
+            `💰 Copied: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
           ];
           lines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
           await sendTelegramPhoto(img, lines.join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
@@ -1546,7 +1546,7 @@ class CloseWatcher {
         ``,
         `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
         `💵 PnL: <b>${pnlUsd2 >= 0 ? "+" : ""}$${pnlUsd2.toFixed(2)} USDC</b>`,
-        `💰 Pool: $${poolIn2.toFixed(0)} → $${poolOut2.toFixed(0)} USDC`,
+        `💰 Copied: $${poolIn2.toFixed(0)} → $${poolOut2.toFixed(0)} USDC`,
       ];
       closeLines2.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
       await sendTelegramPhoto(img, closeLines2.join("\n"), [
