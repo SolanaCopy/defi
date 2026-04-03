@@ -8,8 +8,8 @@ const {
   TELEGRAM_CHAT_ID,
 } = process.env;
 
-const CHECK_INTERVAL = 10 * 60 * 1000; // Check every 10 minutes
-const ALERT_BEFORE = 60; // Alert 60 minutes before
+const CHECK_INTERVAL = 5 * 60 * 1000; // Check every 5 minutes
+const ALERT_BEFORE = 15; // Alert 15 minutes before
 const ALERT_AFTER = 60;  // No-trade zone 60 minutes after
 
 let alertedEvents = new Map(); // Track eventKey -> timestamp of when we alerted
@@ -78,71 +78,73 @@ async function checkNews() {
   const events = await fetchForexCalendar();
   if (events.length === 0) return;
 
-  // Collect all-clear events to send as one message
+  // ===== DAILY OVERVIEW (once per day, at 06:00-06:10 UTC) =====
+  const now = new Date();
+  const dailyKey = `daily-${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+  if (now.getUTCHours() === 6 && now.getUTCMinutes() < 10 && !alertedEvents.has(dailyKey)) {
+    // Get today's events
+    const todayStr = now.toISOString().slice(0, 10);
+    const todayEvents = events.filter(e => e.date && e.date.startsWith(todayStr));
+
+    if (todayEvents.length > 0) {
+      alertedEvents.set(dailyKey, Date.now());
+      const lines = [
+        ``,
+        `\u{1F4C5}  <b>TODAY'S HIGH IMPACT NEWS</b>`,
+        ``,
+      ];
+      todayEvents.forEach(e => {
+        lines.push(`\u{1F534} <b>${e.title}</b> — ${formatEventTime(e.date)}`);
+        if (e.forecast) lines.push(`   Forecast: ${e.forecast}${e.previous ? ` | Previous: ${e.previous}` : ''}`);
+      });
+      lines.push(``, `We avoid trading 15 min before and 60 min after each event.`);
+
+      console.log(`[NEWS] Daily overview: ${todayEvents.length} events`);
+      await sendTelegram(lines.join("\n"));
+    }
+  }
+
+  // ===== 15 MIN WARNING (bundled) =====
+  const warningEvents = [];
   const clearEvents = [];
 
   for (const event of events) {
     const minutesUntil = getMinutesUntil(event.date);
     const eventKey = `${event.date}-${event.title}`;
 
-    // 1 hour before alert (tight window: 55-65 min before)
+    // 15 min before alert (window: 13-18 min before)
     const preAlertKey = `pre-${eventKey}`;
-    if (minutesUntil > 55 && minutesUntil <= 65 && !alertedEvents.has(preAlertKey)) {
+    if (minutesUntil > 13 && minutesUntil <= 18 && !alertedEvents.has(preAlertKey)) {
       alertedEvents.set(preAlertKey, Date.now());
-
-      const msg = [
-        ``,
-        `\u26A0\uFE0F  <b>HIGH IMPACT NEWS IN 1 HOUR</b>`,
-        ``,
-        ``,
-        `\u{1F4C5} <b>${event.title}</b>`,
-        `\u{1F553} ${formatEventTime(event.date)}`,
-        `\u{1F4B5} Currency: USD`,
-        `\u{1F534} Impact: <b>HIGH</b>`,
-        event.forecast ? `\u{1F4CA} Forecast: ${event.forecast}` : "",
-        event.previous ? `\u{1F4C8} Previous: ${event.previous}` : "",
-        ``,
-        `\u{1F6D1} <b>No-trade zone: 1 hour before and after this event.</b>`,
-        `We will not open any signals during this time.`,
-      ].filter(Boolean).join("\n");
-
-      console.log(`[NEWS] Alert: ${event.title} in ~1 hour`);
-      await sendTelegram(msg);
+      warningEvents.push(event);
+      console.log(`[NEWS] Alert: ${event.title} in ~15 min`);
     }
 
-    // Event happening now alert (wide window: -15 to +15 min)
-    const nowAlertKey = `now-${eventKey}`;
-    if (minutesUntil > -15 && minutesUntil <= 15 && !alertedEvents.has(nowAlertKey)) {
-      alertedEvents.set(nowAlertKey, Date.now());
-
-      const msg = [
-        ``,
-        `\u{1F534}  <b>HIGH IMPACT NEWS NOW</b>`,
-        ``,
-        ``,
-        `\u{1F4C5} <b>${event.title}</b>`,
-        `\u{1F4B5} USD | <b>HIGH IMPACT</b>`,
-        event.forecast ? `\u{1F4CA} Forecast: ${event.forecast}` : "",
-        event.previous ? `\u{1F4C8} Previous: ${event.previous}` : "",
-        ``,
-        `\u{1F6D1} <b>Do NOT trade for the next 60 minutes.</b>`,
-        `Expect high volatility on XAU/USD.`,
-      ].filter(Boolean).join("\n");
-
-      console.log(`[NEWS] Alert: ${event.title} happening NOW`);
-      await sendTelegram(msg);
-    }
-
-    // All-clear alert (1 hour after event, wide window: 45-90 min after)
+    // All-clear alert (1 hour after event, wide window: 55-75 min after)
     const clearKey = `clear-${eventKey}`;
-    if (minutesUntil < -45 && minutesUntil > -90 && !alertedEvents.has(clearKey)) {
+    if (minutesUntil < -55 && minutesUntil > -75 && !alertedEvents.has(clearKey)) {
       alertedEvents.set(clearKey, Date.now());
       clearEvents.push(event.title);
       console.log(`[NEWS] All-clear after: ${event.title}`);
     }
   }
 
-  // Send one combined all-clear message
+  // Send ONE bundled 15-min warning
+  if (warningEvents.length > 0) {
+    const lines = [
+      ``,
+      `\u26A0\uFE0F  <b>HIGH IMPACT NEWS IN 15 MINUTES</b>`,
+      ``,
+    ];
+    warningEvents.forEach(e => {
+      lines.push(`\u{1F534} <b>${e.title}</b> — ${formatEventTime(e.date)}`);
+      if (e.forecast) lines.push(`   Forecast: ${e.forecast}${e.previous ? ` | Previous: ${e.previous}` : ''}`);
+    });
+    lines.push(``, `\u{1F6D1} <b>No new signals until 60 min after.</b>`);
+    await sendTelegram(lines.join("\n"));
+  }
+
+  // Send ONE bundled all-clear message
   if (clearEvents.length > 0) {
     const eventList = clearEvents.map(t => `• ${t}`).join("\n");
     const msg = [
