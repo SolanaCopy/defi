@@ -81,7 +81,7 @@ async function checkNews() {
   // ===== DAILY OVERVIEW (once per day, at 06:00-06:10 UTC) =====
   const now = new Date();
   const dailyKey = `daily-${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
-  if (now.getUTCHours() === 6 && now.getUTCMinutes() < 10 && !alertedEvents.has(dailyKey)) {
+  if (now.getUTCHours() === 8 && now.getUTCMinutes() < 10 && !alertedEvents.has(dailyKey)) {
     // Get today's events
     const todayStr = now.toISOString().slice(0, 10);
     const todayEvents = events.filter(e => e.date && e.date.startsWith(todayStr));
