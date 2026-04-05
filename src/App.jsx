@@ -5,7 +5,7 @@ import CountUp from 'react-countup';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
-import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown, Menu } from 'lucide-react';
+import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown, Menu, BookOpen, FileText, Code, GitBranch } from 'lucide-react';
 import { LiFiWidget } from '@lifi/widget';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
@@ -467,6 +467,7 @@ function App() {
       dashboard: { url: base + '/?tab=dashboard', title: 'Copy Gold Trades Dashboard — Smart Trading Club', desc: 'Copy live gold signals on Arbitrum. Auto-copy mode, manage positions, track profits. On-chain copy trading with USDC.' },
       results: { url: base + '/?tab=results', title: 'Gold Trading Results & Performance — Smart Trading Club', desc: 'Verified on-chain gold trading results. Win rate, profit history, and trade performance on Arbitrum.' },
       referral: { url: base + '/?tab=referral', title: 'Earn 50% Referral Rewards — Smart Trading Club', desc: 'Earn 50% of platform fees by referring friends to Smart Trading Club. Share your link, earn USDC automatically.' },
+      docs: { url: base + '/?tab=docs', title: 'Smart Contract Documentation — Smart Trading Club', desc: 'GoldCopyTraderV3 smart contract documentation. Audited, 323 tests, fully transparent on-chain copy trading.' },
     };
     const m = meta[activeTab] || meta.invest;
     document.title = m.title;
@@ -792,7 +793,7 @@ function App() {
       } catch { /* contract may not have this function */ }
 
       // Helper to parse signal data (V2 pool-based contract)
-      // signalCore: long, phase(uint8), entryPrice, tp, sl, leverage, feeAtCreation, gTradeIndex
+      // signalCore: long, phase(uint8), entryPrice, tp, sl, leverage, feeAtCreation
       // signalMeta: timestamp, closedAt, totalDeposited, totalReturned, copierCount, originalDeposited, totalEmergencyWithdrawn, totalClaimed, balanceAtOpen
       // Phase: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED
       const parseSignal = (id, core, meta) => {
@@ -1124,7 +1125,7 @@ function App() {
       setFeePercent(Number(fee));
 
       // Helper to parse signal data from contract Result objects
-      // V2 pool-based: signalCore returns [long, phase, entryPrice, tp, sl, leverage, feeAtCreation, gTradeIndex]
+      // V3 pool-based: signalCore returns [long, phase, entryPrice, tp, sl, leverage, feeAtCreation]
       // signalMeta returns [timestamp, closedAt, totalDeposited, totalReturned, copierCount, originalDeposited, totalEmergencyWithdrawn, totalClaimed, balanceAtOpen]
       const parseSignal = (id, core, meta) => {
         const phase = Number(core[1]);
@@ -2843,6 +2844,279 @@ function App() {
       }));
       setEditProfileOpen(false);
     } catch (err) { console.error('Profile save error:', err); }
+  };
+
+  // ═══════════════════════════════════════════
+  //  DOCS TAB
+  // ═══════════════════════════════════════════
+  const renderDocs = () => {
+    const GITHUB_URL = 'https://github.com/SmartTradingDev/TradingContracts';
+    const CONTRACT_ADDR = CONTRACT_ADDRESS;
+
+    const sections = [
+      {
+        id: 'overview',
+        icon: <BookOpen size={20} />,
+        title: 'Contract Overview',
+        content: [
+          { label: 'Contract', value: 'GoldCopyTraderV3' },
+          { label: 'Network', value: 'Arbitrum One' },
+          { label: 'Collateral', value: 'USDC (6 decimals)' },
+          { label: 'Trade Pair', value: 'XAU/USD via gTrade (Gains Network)' },
+          { label: 'Size', value: '~19KB (deployed with via-ir optimizer)' },
+          { label: 'Tests', value: '323+ tests, 0 failures' },
+          { label: 'Audits', value: '3 Pashov AI audit rounds, all findings fixed' },
+        ]
+      },
+      {
+        id: 'lifecycle',
+        icon: <Zap size={20} />,
+        title: 'Signal Lifecycle',
+        steps: [
+          { phase: 'COLLECTING', desc: 'Admin posts signal. Users deposit USDC. Auto-copy executes.' },
+          { phase: 'TRADING', desc: 'Funds sent to gTrade. Leveraged XAU/USD position opens. TP/SL monitored.' },
+          { phase: 'SETTLED', desc: 'Trade closed. Returns auto-calculated. Users claim proportional share.' },
+        ]
+      },
+      {
+        id: 'constants',
+        icon: <Settings size={20} />,
+        title: 'Parameters',
+        content: [
+          { label: 'Min Deposit', value: '5 USDC' },
+          { label: 'Max Deposit', value: '50,000 USDC per user' },
+          { label: 'Max Pool', value: '500,000 USDC per signal' },
+          { label: 'Performance Fee', value: '20% of profit (0% on loss)' },
+          { label: 'Leverage Range', value: '2x — 250x' },
+          { label: 'Emergency Delay', value: '7 days' },
+          { label: 'Collecting Timeout', value: '24 hours (permissionless cancel)' },
+          { label: 'Abandon Timeout', value: '90 days (admin sweep)' },
+        ]
+      },
+      {
+        id: 'security',
+        icon: <Shield size={20} />,
+        title: 'Security',
+        features: [
+          'Vault isolation — each signal has independent accounting',
+          'Reentrancy guards on all state-changing functions',
+          'SafeERC20 for all token transfers',
+          '2-step admin transfer (prevents accidental loss)',
+          '3x cap on settlement (prevents accounting manipulation)',
+          'Sweep blocked during active trades',
+          'reSettle increase-only (prevents admin theft)',
+          'Fee snapshot at signal creation (immune to mid-trade changes)',
+        ]
+      },
+      {
+        id: 'escapes',
+        icon: <Lock size={20} />,
+        title: 'Escape Hatches',
+        desc: 'No scenario exists where funds are permanently locked.',
+        escapes: [
+          { phase: 'COLLECTING', action: 'withdrawDeposit()', who: 'User', wait: 'Instant' },
+          { phase: 'COLLECTING', action: 'cancelSignal()', who: 'Admin', wait: 'Instant' },
+          { phase: 'COLLECTING', action: 'userCancelExpiredSignal()', who: 'Anyone', wait: '24 hours' },
+          { phase: 'TRADING', action: 'emergencyWithdraw()', who: 'User', wait: '7 days' },
+          { phase: 'TRADING', action: 'forceUnstick()', who: 'Admin', wait: '7 days' },
+          { phase: 'SETTLED', action: 'claim()', who: 'User', wait: 'Instant' },
+          { phase: 'SETTLED', action: 'reSettleSignal()', who: 'Admin', wait: 'Instant' },
+        ]
+      },
+      {
+        id: 'tests',
+        icon: <CheckCircle2 size={20} />,
+        title: 'Test Coverage',
+        tests: [
+          { suite: 'Unit Tests', count: 29, desc: 'Basic lifecycle' },
+          { suite: 'Invariant Tests', count: 19, desc: 'Solvency, reserves, overpay' },
+          { suite: 'Stuck-Funds Tests', count: 112, desc: '73 scenarios where funds could get stuck' },
+          { suite: 'Attack Tests', count: 37, desc: 'Reentrancy, sandwich, griefing, admin abuse' },
+          { suite: 'Business Logic', count: 36, desc: 'Fee math, proportional shares, state machine' },
+          { suite: 'Math Tests', count: 24, desc: 'Rounding, cap boundaries, precision' },
+          { suite: 'Pashov Regression', count: 14, desc: 'Audit finding regression tests' },
+          { suite: 'Disprove Tests', count: 14, desc: 'False-positive audit refutations' },
+          { suite: 'Fork Tests', count: 17, desc: 'Real USDC + real gTrade on Arbitrum' },
+          { suite: 'Anvil E2E', count: 21, desc: '20 trades, 5 users, auto-claim' },
+        ]
+      }
+    ];
+
+    const cardStyle = {
+      background: 'rgba(255,255,255,0.03)',
+      border: '1px solid rgba(255,255,255,0.06)',
+      borderRadius: '16px',
+      padding: '28px',
+      marginBottom: '20px',
+    };
+    const headerStyle = {
+      display: 'flex', alignItems: 'center', gap: '12px',
+      marginBottom: '20px', color: '#FFD700',
+      fontSize: '1.15rem', fontWeight: 600,
+    };
+    const rowStyle = {
+      display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.04)',
+    };
+    const labelStyle = { color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem' };
+    const valueStyle = { color: '#fff', fontSize: '0.85rem', fontWeight: 500, textAlign: 'right' };
+    const badgeStyle = (color) => ({
+      display: 'inline-block', padding: '3px 10px', borderRadius: '6px', fontSize: '0.7rem',
+      fontWeight: 600, background: color + '22', color: color, letterSpacing: '0.03em',
+    });
+    const phaseColor = { COLLECTING: '#3B82F6', TRADING: '#F59E0B', SETTLED: '#10B981' };
+
+    return (
+      <div style={{ maxWidth: '800px', margin: '0 auto', padding: '0 16px' }}>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '8px' }}>
+            <span style={{ color: '#FFD700' }}>Smart Contract</span> Documentation
+          </h1>
+          <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', marginBottom: '20px' }}>
+            GoldCopyTraderV3 — Audited, tested, transparent
+          </p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
+                background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
+                borderRadius: '10px', color: '#fff', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 500 }}>
+              <GitBranch size={16} /> GitHub Repository <ExternalLink size={13} />
+            </a>
+            <a href={`https://arbiscan.io/address/${CONTRACT_ADDR}`} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
+                background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.2)',
+                borderRadius: '10px', color: '#FFD700', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 500 }}>
+              <ShieldCheck size={16} /> Verified on Arbiscan <ExternalLink size={13} />
+            </a>
+          </div>
+        </div>
+
+        {/* Overview */}
+        <div style={cardStyle}>
+          <div style={headerStyle}>{sections[0].icon} {sections[0].title}</div>
+          {sections[0].content.map((r, i) => (
+            <div key={i} style={rowStyle}>
+              <span style={labelStyle}>{r.label}</span>
+              <span style={valueStyle}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Lifecycle */}
+        <div style={cardStyle}>
+          <div style={headerStyle}>{sections[1].icon} {sections[1].title}</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {sections[1].steps.map((s, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '14px' }}>
+                <div style={{ ...badgeStyle(phaseColor[s.phase]), minWidth: '95px', textAlign: 'center', marginTop: '2px' }}>
+                  {s.phase}
+                </div>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    {i < 2 && <ArrowRight size={14} style={{ color: 'rgba(255,255,255,0.3)' }} />}
+                  </div>
+                  <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem', margin: 0 }}>{s.desc}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Parameters */}
+        <div style={cardStyle}>
+          <div style={headerStyle}>{sections[2].icon} {sections[2].title}</div>
+          {sections[2].content.map((r, i) => (
+            <div key={i} style={rowStyle}>
+              <span style={labelStyle}>{r.label}</span>
+              <span style={valueStyle}>{r.value}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Security */}
+        <div style={cardStyle}>
+          <div style={headerStyle}>{sections[3].icon} {sections[3].title}</div>
+          <div style={{ display: 'grid', gap: '10px' }}>
+            {sections[3].features.map((f, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
+                <CheckCircle2 size={15} style={{ color: '#10B981', marginTop: '2px', flexShrink: 0 }} />
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem' }}>{f}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Escape Hatches */}
+        <div style={cardStyle}>
+          <div style={headerStyle}>{sections[4].icon} {sections[4].title}</div>
+          <p style={{ color: '#10B981', fontSize: '0.8rem', fontWeight: 500, marginBottom: '16px' }}>
+            {sections[4].desc}
+          </p>
+          <div style={{ overflowX: 'auto' }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+              <thead>
+                <tr style={{ borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  {['Phase', 'Function', 'Who', 'Wait'].map(h => (
+                    <th key={h} style={{ padding: '8px', textAlign: 'left', color: 'rgba(255,255,255,0.4)', fontWeight: 500 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sections[4].escapes.map((e, i) => (
+                  <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                    <td style={{ padding: '8px' }}><span style={badgeStyle(phaseColor[e.phase])}>{e.phase}</span></td>
+                    <td style={{ padding: '8px', color: '#FFD700', fontFamily: 'monospace', fontSize: '0.75rem' }}>{e.action}</td>
+                    <td style={{ padding: '8px', color: 'rgba(255,255,255,0.7)' }}>{e.who}</td>
+                    <td style={{ padding: '8px', color: 'rgba(255,255,255,0.5)' }}>{e.wait}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Test Coverage */}
+        <div style={cardStyle}>
+          <div style={headerStyle}>{sections[5].icon} {sections[5].title}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px',
+            padding: '14px 18px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: '10px' }}>
+            <CheckCircle2 size={20} style={{ color: '#10B981' }} />
+            <div>
+              <div style={{ color: '#10B981', fontWeight: 600, fontSize: '1.1rem' }}>
+                {sections[5].tests.reduce((s, t) => s + t.count, 0)}+ Tests Passing
+              </div>
+              <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }}>0 failures across all suites</div>
+            </div>
+          </div>
+          {sections[5].tests.map((t, i) => (
+            <div key={i} style={{ ...rowStyle, gap: '12px' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ color: '#fff', fontSize: '0.85rem', fontWeight: 500 }}>{t.suite}</div>
+                <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem' }}>{t.desc}</div>
+              </div>
+              <span style={{ ...badgeStyle('#10B981'), minWidth: '40px', textAlign: 'center' }}>{t.count}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Full Docs Link */}
+        <div style={{ textAlign: 'center', padding: '30px 0' }}>
+          <a href={GITHUB_URL + '/tree/main/docs'} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '14px 28px',
+              background: 'linear-gradient(135deg, rgba(255,215,0,0.15), rgba(255,215,0,0.05))',
+              border: '1px solid rgba(255,215,0,0.3)', borderRadius: '12px',
+              color: '#FFD700', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600 }}>
+            <FileText size={18} />
+            Full Technical Documentation
+            <ExternalLink size={14} />
+          </a>
+          <p style={{ color: 'rgba(255,255,255,0.3)', fontSize: '0.75rem', marginTop: '12px' }}>
+            Accounting, Bot Guide, Admin Guide, Events, Errors — all on GitHub
+          </p>
+        </div>
+      </div>
+    );
   };
 
   const renderStrategies = () => {
@@ -6060,6 +6334,7 @@ function App() {
               { key: 'dashboard', label: 'Dashboard' },
               { key: 'results', label: 'Results' },
               { key: 'referral', label: 'Referral' },
+              { key: 'docs', label: 'Docs' },
             ].map(t => (
               <button key={t.key} className={`nav-link ${activeTab === t.key ? 'active' : ''}`} onClick={() => { setActiveTab(t.key); setMobileMenuOpen(false); }}>
                 {t.label}
@@ -6145,6 +6420,10 @@ function App() {
             ) : activeTab === 'referral' ? (
               <motion.div key="referral" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
                 {renderReferral()}
+              </motion.div>
+            ) : activeTab === 'docs' ? (
+              <motion.div key="docs" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                {renderDocs()}
               </motion.div>
             ) : activeTab === 'strategies' ? (
               <motion.div key="strategies" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
