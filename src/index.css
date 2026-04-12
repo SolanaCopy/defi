@@ -77,11 +77,11 @@ input[type="number"] { -moz-appearance: textfield; }
 
 /* ======== MULTI-LAYER BACKGROUND ======== */
 .bg-system { position: fixed; inset: 0; z-index: -1; pointer-events: none; overflow: hidden; }
-.bg-hero-image { position: absolute; top: 0; left: 0; right: 0; height: 110vh; background-size: cover; background-position: center 30%; opacity: 0.35; filter: saturate(1.4) brightness(0.8); }
-.bg-hero-fade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,7,10,0) 0%, rgba(5,7,10,0.2) 25%, rgba(5,7,10,0.75) 50%, rgba(5,7,10,0.97) 65%, rgba(5,7,10,1) 75%); }
+.bg-hero-image { position: absolute; top: 0; left: 0; right: 0; height: 110vh; background-size: 100% 100%; background-position: center center; background-repeat: no-repeat; opacity: 0.35; filter: saturate(1.4) brightness(0.7) contrast(1.1); }
+.bg-hero-fade { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(5,7,10,0) 0%, rgba(5,7,10,0.1) 30%, rgba(5,7,10,0.6) 50%, rgba(5,7,10,0.95) 65%, rgba(5,7,10,1) 75%); }
 .bg-mesh { position: absolute; inset: 0; background: radial-gradient(ellipse 700px 700px at 10% 15%, rgba(212,168,67,0.15) 0%, transparent 55%), radial-gradient(ellipse 600px 600px at 90% 10%, rgba(139,92,246,0.1) 0%, transparent 55%), radial-gradient(ellipse 500px 500px at 75% 55%, rgba(59,130,246,0.08) 0%, transparent 55%), radial-gradient(ellipse 450px 450px at 15% 70%, rgba(52,211,153,0.06) 0%, transparent 55%), radial-gradient(ellipse 600px 400px at 50% 35%, rgba(212,168,67,0.06) 0%, transparent 55%); animation: meshDrift 30s ease-in-out infinite alternate; }
 .bg-orb { position: absolute; border-radius: 50%; filter: blur(90px); animation: orbFloat 25s infinite ease-in-out alternate; }
-.bg-orb-1 { width: 600px; height: 600px; background: var(--accent); opacity: 0.12; top: -200px; right: -150px; }
+.bg-orb-1 { width: 700px; height: 700px; background: var(--accent); opacity: 0.1; top: -200px; right: -100px; }
 .bg-orb-2 { width: 500px; height: 500px; background: var(--violet); opacity: 0.1; bottom: 15%; left: -150px; animation-delay: -8s; animation-duration: 30s; }
 .bg-orb-3 { width: 400px; height: 400px; background: var(--blue); opacity: 0.08; top: 35%; right: 5%; animation-delay: -15s; animation-duration: 35s; }
 .bg-orb-4 { width: 350px; height: 350px; background: var(--emerald); opacity: 0.06; bottom: 5%; right: 25%; animation-delay: -20s; animation-duration: 28s; }

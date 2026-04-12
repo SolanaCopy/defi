@@ -19,13 +19,19 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "signalId",
+        "type": "uint256"
+      },
+      {
         "indexed": false,
         "internalType": "uint256",
         "name": "amount",
         "type": "uint256"
       }
     ],
-    "name": "AdminDeposited",
+    "name": "AbandonedSwept",
     "type": "event"
   },
   {
@@ -123,6 +129,19 @@
       {
         "indexed": false,
         "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      }
+    ],
+    "name": "ExcessSwept",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint256",
         "name": "newFeePercent",
         "type": "uint256"
       }
@@ -141,6 +160,32 @@
       }
     ],
     "name": "FeesWithdrawn",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "signalId",
+        "type": "uint256"
+      }
+    ],
+    "name": "GTradeOpenConfirmed",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint32",
+        "name": "index",
+        "type": "uint32"
+      }
+    ],
+    "name": "GTradeOrderCancelled",
     "type": "event"
   },
   {
@@ -168,14 +213,27 @@
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "totalDeposited",
+        "name": "dust",
+        "type": "uint256"
+      }
+    ],
+    "name": "ReserveDust",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "signalId",
         "type": "uint256"
       },
       {
         "indexed": false,
-        "internalType": "uint32",
-        "name": "gTradeIndex",
-        "type": "uint32"
+        "internalType": "uint256",
+        "name": "totalDeposited",
+        "type": "uint256"
       }
     ],
     "name": "SignalOpened",
@@ -222,6 +280,31 @@
       }
     ],
     "name": "SignalPosted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "signalId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "oldReturned",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newReturned",
+        "type": "uint256"
+      }
+    ],
+    "name": "SignalReSettled",
     "type": "event"
   },
   {
@@ -351,71 +434,6 @@
   },
   {
     "inputs": [],
-    "name": "COLLECTING_TIMEOUT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "EMERGENCY_DELAY",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_DEPOSIT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MAX_POOL",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
-    "name": "MIN_DEPOSIT",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [],
     "name": "acceptAdmin",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -445,32 +463,6 @@
       }
     ],
     "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "adminDeposit",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_amount",
-        "type": "uint256"
-      }
-    ],
-    "name": "adminWithdrawDeposit",
-    "outputs": [],
-    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -517,8 +509,34 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_index",
+        "type": "uint32"
+      }
+    ],
+    "name": "cancelGTradeOrder",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "cancelSignal",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_orderIndex",
+        "type": "uint32"
+      }
+    ],
+    "name": "cancelStuckMarketOrder",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -557,17 +575,45 @@
   {
     "inputs": [
       {
-        "internalType": "uint32",
-        "name": "_index",
-        "type": "uint32"
-      },
-      {
         "internalType": "uint64",
         "name": "_expectedPrice",
         "type": "uint64"
       }
     ],
     "name": "closeTrade",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "collectingTimeout",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "confirmClose",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint32",
+        "name": "_tradeIndex",
+        "type": "uint32"
+      }
+    ],
+    "name": "confirmGTradeOpen",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -606,14 +652,8 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_signalId",
-        "type": "uint256"
-      }
-    ],
-    "name": "emergencyWithdraw",
+    "inputs": [],
+    "name": "disableRescue",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -627,6 +667,13 @@
       }
     ],
     "name": "enableAutoCopy",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "enableRescue",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -660,6 +707,20 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "forceSettle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "forceUnstick",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -702,19 +763,8 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_user",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "_id",
-        "type": "uint256"
-      }
-    ],
-    "name": "getExpectedPayout",
+    "inputs": [],
+    "name": "getTotalReserved",
     "outputs": [
       {
         "internalType": "uint256",
@@ -747,14 +797,85 @@
   {
     "inputs": [
       {
-        "internalType": "uint32",
-        "name": "_gTradeIndex",
-        "type": "uint32"
+        "internalType": "uint256",
+        "name": "_signalId",
+        "type": "uint256"
       }
     ],
+    "name": "getVaultBalance",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxDeposit",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxPool",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "minDeposit",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "openTrade",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "outflowsSinceOpen",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -807,6 +928,16 @@
         "internalType": "bool",
         "name": "claimed",
         "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "paidOut",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "feesPaid",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -846,16 +977,94 @@
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "reservedForSignals",
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_signalId",
+        "type": "uint256"
+      }
+    ],
+    "name": "previewClaim",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "payout",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "fee",
         "type": "uint256"
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_signalId",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_newReturned",
+        "type": "uint256"
+      }
+    ],
+    "name": "reSettleSignal",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "rescueEnabled",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_user",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_signalId",
+        "type": "uint256"
+      }
+    ],
+    "name": "rescueUser",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_timeout",
+        "type": "uint256"
+      }
+    ],
+    "name": "setCollectingTimeout",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -874,6 +1083,45 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "_max",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxDeposit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_max",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxPool",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_min",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMinDeposit",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "bool",
         "name": "_paused",
         "type": "bool"
@@ -885,13 +1133,7 @@
     "type": "function"
   },
   {
-    "inputs": [
-      {
-        "internalType": "uint256",
-        "name": "_totalReturned",
-        "type": "uint256"
-      }
-    ],
+    "inputs": [],
     "name": "settleSignal",
     "outputs": [],
     "stateMutability": "nonpayable",
@@ -913,7 +1155,7 @@
         "type": "bool"
       },
       {
-        "internalType": "enum GoldCopyTraderV2.SignalPhase",
+        "internalType": "enum GoldCopyTraderV3.SignalPhase",
         "name": "phase",
         "type": "uint8"
       },
@@ -941,11 +1183,6 @@
         "internalType": "uint256",
         "name": "feeAtCreation",
         "type": "uint256"
-      },
-      {
-        "internalType": "uint32",
-        "name": "gTradeIndex",
-        "type": "uint32"
       }
     ],
     "stateMutability": "view",
@@ -972,7 +1209,7 @@
         "type": "uint256"
       }
     ],
-    "name": "signalMeta",
+    "name": "signalVault",
     "outputs": [
       {
         "internalType": "uint256",
@@ -991,22 +1228,12 @@
       },
       {
         "internalType": "uint256",
-        "name": "totalReturned",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "copierCount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
         "name": "originalDeposited",
         "type": "uint256"
       },
       {
         "internalType": "uint256",
-        "name": "totalEmergencyWithdrawn",
+        "name": "realizedReturned",
         "type": "uint256"
       },
       {
@@ -1016,24 +1243,56 @@
       },
       {
         "internalType": "uint256",
-        "name": "balanceAtOpen",
+        "name": "copierCount",
         "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "vaultBalance",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "gTradePending",
+        "type": "bool"
+      },
+      {
+        "internalType": "bool",
+        "name": "closePending",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "balanceSnapshot",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint32",
+        "name": "tradeIndex",
+        "type": "uint32"
       }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "totalAdminDeposited",
-    "outputs": [
+    "inputs": [
       {
         "internalType": "uint256",
-        "name": "",
+        "name": "_signalId",
         "type": "uint256"
       }
     ],
-    "stateMutability": "view",
+    "name": "sweepAbandonedSignal",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "sweepExcessBalance",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {
@@ -1050,10 +1309,23 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "totalUnclaimedReserved",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "address",
-        "name": "_newAdmin",
+        "name": "_new",
         "type": "address"
       }
     ],

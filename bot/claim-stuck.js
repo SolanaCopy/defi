@@ -7,7 +7,7 @@ import { ethers } from "ethers";
 
 const { ARBITRUM_RPC_HTTPS, ADMIN_PRIVATE_KEY } = process.env;
 // Use the contract address from the running bot (Railway), not the local .env
-const GOLD_COPY_TRADER_ADDRESS = "0x684252b3b0544D8E0f9B51AA58f4D7552BEf2386";
+const GOLD_COPY_TRADER_ADDRESS = "0xbE1E770670a0186772594ED381F573B3161029a2";
 
 const ABI = [
   "function claimFor(address _user, uint256 _signalId) external",
@@ -19,7 +19,12 @@ const provider = new ethers.JsonRpcProvider(ARBITRUM_RPC_HTTPS || "https://arb1.
 const wallet = new ethers.Wallet(ADMIN_PRIVATE_KEY.trim(), provider);
 const contract = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, ABI, wallet);
 
-const SIGNALS = [14, 15];
+const SIGNALS = [27];
+
+// Skip this address — excluded by admin
+const SKIP = new Set([
+  "0xADa3abe97B3c5b03AaF3756bbfc99a5722611927".toLowerCase(),
+]);
 
 async function main() {
   console.log(`Wallet: ${wallet.address}`);
@@ -35,6 +40,7 @@ async function main() {
 
     for (const user of users) {
       try {
+        if (SKIP.has(user.toLowerCase())) continue;
         const pos = await contract.positions(user, signalId);
         if (pos.deposit > 0n && !pos.claimed) {
           const short = user.slice(0, 6) + "..." + user.slice(-4);

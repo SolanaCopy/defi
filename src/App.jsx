@@ -26,7 +26,7 @@ const PYTH_XAU_USD_FEED = "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f
 const PYTH_HERMES_URL = "https://hermes.pyth.network/v2/updates/price/latest";
 
 // ===== ARBITRUM CONFIG =====
-const CONTRACT_ADDRESS = "0x684252b3b0544D8E0f9B51AA58f4D7552BEf2386";
+const CONTRACT_ADDRESS = "0xbE1E770670a0186772594ED381F573B3161029a2";
 const MARKETPLACE_ADDRESS = "0x63E44E8319187115C1802D40750D69773d5B1468";
 const USDC_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831"; // Native USDC on Arbitrum
 const ARBITRUM_CHAIN_ID = "0xa4b1"; // 42161
@@ -792,23 +792,22 @@ function App() {
         setUniqueCopiers(Number(copierCount));
       } catch { /* contract may not have this function */ }
 
-      // Helper to parse signal data (V2 pool-based contract)
+      // Helper to parse signal data (V3 pool-based contract)
       // signalCore: long, phase(uint8), entryPrice, tp, sl, leverage, feeAtCreation
-      // signalMeta: timestamp, closedAt, totalDeposited, totalReturned, copierCount, originalDeposited, totalEmergencyWithdrawn, totalClaimed, balanceAtOpen
+      // signalVault: timestamp, closedAt, totalDeposited, originalDeposited, realizedReturned, totalClaimed, copierCount, vaultBalance, gTradePending, closePending, balanceSnapshot, tradeIndex
       // Phase: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED
-      const parseSignal = (id, core, meta) => {
+      const parseSignal = (id, core, vault) => {
         const phase = Number(core[1]);
-        const totalDeposited = meta[2];
-        const totalReturned = meta[3];
-        const originalDeposited = meta[5];
+        const totalDeposited = vault[2];
+        const totalReturned = vault[4]; // realizedReturned
+        const originalDeposited = vault[3];
         // Derive active/closed/resultPct for compatibility with UI
         const active = phase === 1 || phase === 2; // COLLECTING or TRADING
         const closed = phase === 3; // SETTLED
         // Calculate resultPct from on-chain totalReturned with known bug corrections
         // Signals 7 ($0 bug) and 9 ($214 bug) use verified gTrade returns
         let resultPct = 0n;
-        const bugFixes = { 7: 91750000n, 9: 122560000n, 19: 123775000n, 27: 764630000n };
-        const fixedReturned = bugFixes[Number(id)] || totalReturned;
+        const fixedReturned = totalReturned;
         const effectiveDeposited = originalDeposited > 0n ? originalDeposited : totalDeposited;
         if (closed && effectiveDeposited > 0n && fixedReturned > 0n) {
           if (fixedReturned >= effectiveDeposited) {
@@ -843,12 +842,12 @@ function App() {
           tradePct,
           feeAtCreation: core[6],
           phase,
-          timestamp: meta[0],
-          closedAt: meta[1],
+          timestamp: vault[0],
+          closedAt: vault[1],
           totalCopied: totalDeposited, // map totalDeposited to totalCopied for UI compat
           totalReturned,
           originalDeposited,
-          copierCount: meta[4],
+          copierCount: vault[6],
         };
       };
 
@@ -857,8 +856,8 @@ function App() {
         const activeId = await publicContract.getActiveSignalId();
         if (Number(activeId) > 0) {
           const core = await publicContract.signalCore(activeId);
-          const meta = await publicContract.signalMeta(activeId);
-          setActiveSignal(parseSignal(activeId, core, meta));
+          const vault = await publicContract.signalVault(activeId);
+          setActiveSignal(parseSignal(activeId, core, vault));
         } else {
           setActiveSignal(null);
         }
@@ -873,8 +872,8 @@ function App() {
         const start = Math.max(1, total - 19);
         for (let i = total; i >= start; i--) {
           const core = await publicContract.signalCore(i);
-          const meta = await publicContract.signalMeta(i);
-          histArr.push(parseSignal(i, core, meta));
+          const vault = await publicContract.signalVault(i);
+          histArr.push(parseSignal(i, core, vault));
         }
         setSignalHistory(histArr);
       } catch {
@@ -1126,17 +1125,16 @@ function App() {
 
       // Helper to parse signal data from contract Result objects
       // V3 pool-based: signalCore returns [long, phase, entryPrice, tp, sl, leverage, feeAtCreation]
-      // signalMeta returns [timestamp, closedAt, totalDeposited, totalReturned, copierCount, originalDeposited, totalEmergencyWithdrawn, totalClaimed, balanceAtOpen]
-      const parseSignal = (id, core, meta) => {
+      // signalVault: timestamp, closedAt, totalDeposited, originalDeposited, realizedReturned, totalClaimed, copierCount, vaultBalance, gTradePending, closePending, balanceSnapshot, tradeIndex
+      const parseSignal = (id, core, vault) => {
         const phase = Number(core[1]);
-        const totalDeposited = meta[2];
-        const totalReturned = meta[3];
-        const originalDeposited = meta[5];
+        const totalDeposited = vault[2];
+        const totalReturned = vault[4]; // realizedReturned
+        const originalDeposited = vault[3];
         const active = phase === 1 || phase === 2;
         const closed = phase === 3;
         let resultPct = 0n;
-        const bugFixes2 = { 7: 91750000n, 9: 122560000n, 19: 123775000n };
-        const fixedReturned = bugFixes2[Number(id)] || totalReturned;
+        const fixedReturned = totalReturned;
         const effectiveDeposited = originalDeposited > 0n ? originalDeposited : totalDeposited;
         if (closed && effectiveDeposited > 0n && fixedReturned > 0n) {
           if (fixedReturned >= effectiveDeposited) {
@@ -1171,12 +1169,12 @@ function App() {
           tradePct,
           feeAtCreation: core[6],
           phase,
-          timestamp: meta[0],
-          closedAt: meta[1],
+          timestamp: vault[0],
+          closedAt: vault[1],
           totalCopied: totalDeposited,
           totalReturned,
           originalDeposited,
-          copierCount: meta[4],
+          copierCount: vault[6],
         };
       };
 
@@ -1185,8 +1183,8 @@ function App() {
         const activeId = await contract.getActiveSignalId();
         if (Number(activeId) > 0) {
           const core = await contract.signalCore(activeId);
-          const meta = await contract.signalMeta(activeId);
-          setActiveSignal(parseSignal(activeId, core, meta));
+          const vault = await contract.signalVault(activeId);
+          setActiveSignal(parseSignal(activeId, core, vault));
         } else {
           setActiveSignal(null);
         }
@@ -1201,8 +1199,8 @@ function App() {
         const start = Math.max(1, total - 19);
         for (let i = total; i >= start; i--) {
           const core = await contract.signalCore(i);
-          const meta = await contract.signalMeta(i);
-          histArr.push(parseSignal(i, core, meta));
+          const vault = await contract.signalVault(i);
+          histArr.push(parseSignal(i, core, vault));
         }
         setSignalHistory(histArr);
       } catch {
@@ -2863,9 +2861,8 @@ function App() {
           { label: 'Network', value: 'Arbitrum One' },
           { label: 'Collateral', value: 'USDC (6 decimals)' },
           { label: 'Trade Pair', value: 'XAU/USD via gTrade (Gains Network)' },
-          { label: 'Size', value: '~19KB (deployed with via-ir optimizer)' },
-          { label: 'Tests', value: '323+ tests, 0 failures' },
-          { label: 'Audits', value: '3 Pashov AI audit rounds, all findings fixed' },
+          { label: 'Tests', value: '490+ tests, 0 failures' },
+          { label: 'Audits', value: 'Pashov AI audit, all findings fixed' },
         ]
       },
       {
@@ -2875,7 +2872,7 @@ function App() {
         steps: [
           { phase: 'COLLECTING', desc: 'Admin posts signal. Users deposit USDC. Auto-copy executes.' },
           { phase: 'TRADING', desc: 'Funds sent to gTrade. Leveraged XAU/USD position opens. TP/SL monitored.' },
-          { phase: 'SETTLED', desc: 'Trade closed. Returns auto-calculated. Users claim proportional share.' },
+          { phase: 'SETTLED', desc: 'Trade closed. Returns auto-calculated on-chain. Users claim proportional share.' },
         ]
       },
       {
@@ -2883,14 +2880,14 @@ function App() {
         icon: <Settings size={20} />,
         title: 'Parameters',
         content: [
-          { label: 'Min Deposit', value: '5 USDC' },
-          { label: 'Max Deposit', value: '50,000 USDC per user' },
-          { label: 'Max Pool', value: '500,000 USDC per signal' },
+          { label: 'Min Deposit', value: '5 USDC (configurable)' },
+          { label: 'Max Deposit', value: '50,000 USDC per user (configurable)' },
+          { label: 'Max Pool', value: '500,000 USDC per signal (configurable)' },
           { label: 'Performance Fee', value: '20% of profit (0% on loss)' },
           { label: 'Leverage Range', value: '2x — 250x' },
-          { label: 'Emergency Delay', value: '7 days' },
+          { label: 'Force Settle Delay', value: '7 days (admin only, when gTrade unresponsive)' },
           { label: 'Collecting Timeout', value: '24 hours (permissionless cancel)' },
-          { label: 'Abandon Timeout', value: '90 days (admin sweep)' },
+          { label: 'Rescue Delay', value: '1 day after settle (admin emergency)' },
         ]
       },
       {
@@ -2898,7 +2895,8 @@ function App() {
         icon: <Shield size={20} />,
         title: 'Security',
         features: [
-          'Vault isolation — each signal has independent accounting',
+          'On-chain settle calculation — no off-chain math, no $0 settle bugs',
+          'Vault isolation per signal — independent accounting, no cross-contamination',
           'Reentrancy guards on all state-changing functions',
           'SafeERC20 for all token transfers',
           '2-step admin transfer (prevents accidental loss)',
@@ -2906,6 +2904,8 @@ function App() {
           'Sweep blocked during active trades',
           'reSettle increase-only (prevents admin theft)',
           'Fee snapshot at signal creation (immune to mid-trade changes)',
+          'No emergencyWithdraw — replaced with admin-gated rescueUser',
+          'Outflow tracking during TRADING (claims/fees compensated in settle)',
         ]
       },
       {
@@ -2917,10 +2917,13 @@ function App() {
           { phase: 'COLLECTING', action: 'withdrawDeposit()', who: 'User', wait: 'Instant' },
           { phase: 'COLLECTING', action: 'cancelSignal()', who: 'Admin', wait: 'Instant' },
           { phase: 'COLLECTING', action: 'userCancelExpiredSignal()', who: 'Anyone', wait: '24 hours' },
-          { phase: 'TRADING', action: 'emergencyWithdraw()', who: 'User', wait: '7 days' },
+          { phase: 'TRADING', action: 'cancelGTradeOrder()', who: 'Admin', wait: 'Instant' },
+          { phase: 'TRADING', action: 'forceSettle()', who: 'Admin', wait: '7 days' },
           { phase: 'TRADING', action: 'forceUnstick()', who: 'Admin', wait: '7 days' },
           { phase: 'SETTLED', action: 'claim()', who: 'User', wait: 'Instant' },
+          { phase: 'SETTLED', action: 'claimFor()', who: 'Admin/Bot', wait: 'Instant' },
           { phase: 'SETTLED', action: 'reSettleSignal()', who: 'Admin', wait: 'Instant' },
+          { phase: 'SETTLED', action: 'rescueUser()', who: 'Admin (opt-in)', wait: '1 day' },
         ]
       },
       {
@@ -2928,16 +2931,20 @@ function App() {
         icon: <CheckCircle2 size={20} />,
         title: 'Test Coverage',
         tests: [
-          { suite: 'Unit Tests', count: 29, desc: 'Basic lifecycle' },
-          { suite: 'Invariant Tests', count: 19, desc: 'Solvency, reserves, overpay' },
-          { suite: 'Stuck-Funds Tests', count: 112, desc: '73 scenarios where funds could get stuck' },
-          { suite: 'Attack Tests', count: 37, desc: 'Reentrancy, sandwich, griefing, admin abuse' },
-          { suite: 'Business Logic', count: 36, desc: 'Fee math, proportional shares, state machine' },
-          { suite: 'Math Tests', count: 24, desc: 'Rounding, cap boundaries, precision' },
-          { suite: 'Pashov Regression', count: 14, desc: 'Audit finding regression tests' },
-          { suite: 'Disprove Tests', count: 14, desc: 'False-positive audit refutations' },
-          { suite: 'Fork Tests', count: 17, desc: 'Real USDC + real gTrade on Arbitrum' },
-          { suite: 'Anvil E2E', count: 21, desc: '20 trades, 5 users, auto-claim' },
+          { suite: 'Main Suite', count: 167, desc: 'All functions, access control, edge cases' },
+          { suite: 'Pashov Regression', count: 20, desc: 'Audit finding regression tests' },
+          { suite: 'Bot Flow', count: 18, desc: 'Bot lifecycle and ABI compatibility' },
+          { suite: 'Stress Tests', count: 42, desc: 'Crash scenarios, race conditions, recovery' },
+          { suite: 'Bulletproof', count: 41, desc: 'Reserves, pause, admin transfer, 30-signal stress' },
+          { suite: 'Extreme Edge Cases', count: 47, desc: 'Boundaries, nonces, streaks, 50-signal mega' },
+          { suite: 'Realistic gTrade', count: 18, desc: 'Real USDC consumption + return flows' },
+          { suite: 'Production Sim', count: 11, desc: 'gTrade fees + PnL calculations' },
+          { suite: 'Timebomb Regression', count: 17, desc: 'V2 failure scenario reproduction' },
+          { suite: 'Final Path', count: 20, desc: 'Index tracking, 50-signal full production' },
+          { suite: 'Edge Cases R2', count: 27, desc: 'gTrade rejects, wrong index, missing confirm' },
+          { suite: 'Edge Cases R3', count: 25, desc: 'reSettle, 3x cap, timeouts, leverage extremes' },
+          { suite: 'Index Tracking', count: 12, desc: 'gTrade trade index assignment and tracking' },
+          { suite: 'Rescue Tests', count: 25, desc: 'Emergency rescue function with safety guards' },
         ]
       }
     ];
@@ -6308,7 +6315,7 @@ function App() {
     <>
       {/* ===== BACKGROUND ===== */}
       <div className="bg-system">
-        <div className="bg-hero-image" style={{ backgroundImage: "url('/Screenshot_1-12-1024x692.png')" }} />
+        <div className="bg-hero-image" style={{ backgroundImage: "url('/hero-bg.png')" }} />
         <div className="bg-hero-fade" />
         <div className="bg-mesh" />
         <div className="bg-orb bg-orb-1" />
