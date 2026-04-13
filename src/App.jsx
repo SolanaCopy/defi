@@ -5,7 +5,7 @@ import CountUp from 'react-countup';
 import Particles, { initParticlesEngine } from '@tsparticles/react';
 import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
-import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown, Menu, BookOpen, FileText, Code, GitBranch } from 'lucide-react';
+import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown, Menu, BookOpen, FileText, Code, GitBranch, Play } from 'lucide-react';
 import { LiFiWidget } from '@lifi/widget';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
@@ -1923,6 +1923,29 @@ function App() {
             </motion.div>
           ))}
         </div>
+
+        {/* Video Tutorial */}
+        <motion.div
+          variants={fadeUp}
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true }}
+          style={{ maxWidth: '720px', margin: '3rem auto 0', borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
+        >
+          <video
+            controls
+            playsInline
+            preload="metadata"
+            poster=""
+            style={{ width: '100%', display: 'block', background: '#000' }}
+          >
+            <source src="/HowItWorks.mp4" type="video/mp4" />
+          </video>
+          <div style={{ padding: '12px 16px', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Play size={16} style={{ color: 'var(--accent)' }} />
+            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Watch: How to copy trade in 2 minutes</span>
+          </div>
+        </motion.div>
       </section>
 
       {/* ===== FEATURES ===== */}
