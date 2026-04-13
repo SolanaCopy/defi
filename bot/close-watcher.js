@@ -516,35 +516,52 @@ class CloseWatcher {
       }
     });
 
-    // ── Trade opened on gTrade — NOW send Telegram notification ──
+    // ── Trade opened on gTrade — send Telegram with real gTrade entry price ──
     contract.on("SignalOpened", async (signalId, totalDeposited, event) => {
       log(`SignalOpened #${signalId} — $${Number(totalDeposited) / 1e6} USDC`);
       const core = await this.copyTrader.signalCore(signalId);
       const long = core.long;
       const dir = long ? "LONG" : "SHORT";
-      const lev = `${Number(core.leverage) / 1000}x`;
-      const img = await signalImage({
-        signalId: String(signalId), direction: dir, leverage: lev,
-        entry: formatPrice(core.entryPrice), tp: formatPrice(core.tp), sl: formatPrice(core.sl),
-      });
-      const pool = Number(totalDeposited) / 1e6;
       const levNum = Number(core.leverage) / 1000;
-      const entry = Number(core.entryPrice) / 1e10;
+      const lev = `${levNum}x`;
+      const pool = Number(totalDeposited) / 1e6;
       const tp = Number(core.tp) / 1e10;
       const sl = Number(core.sl) / 1e10;
-      const tpPct = long ? ((tp - entry) / entry) * levNum * 100 : ((entry - tp) / entry) * levNum * 100;
-      const slPct = long ? ((entry - sl) / entry) * levNum * 100 : ((sl - entry) / entry) * levNum * 100;
-      // Estimate after gTrade fees (~0.06% open + 0.06% close on position size)
+
+      // Wait a moment for gTrade to fill, then read actual entry price
+      let realEntry = Number(core.entryPrice) / 1e10; // fallback to signal entry
+      try {
+        await new Promise(r => setTimeout(r, 5000));
+        const gTradeRead = new ethers.Contract(GTRADE_DIAMOND, [
+          "function getTrades(address) view returns (tuple(address,uint32,uint16,uint24,bool,bool,uint8,uint8,uint120,uint64,uint64,uint64,bool,uint160,uint24)[])",
+        ], this.httpProvider);
+        const trades = await gTradeRead.getTrades(GOLD_COPY_TRADER_ADDRESS);
+        if (trades.length > 0) {
+          realEntry = Number(trades[trades.length - 1][9]) / 1e10;
+          log(`  Real gTrade entry: $${realEntry.toFixed(2)} (signal: $${(Number(core.entryPrice) / 1e10).toFixed(2)})`);
+        }
+      } catch (err) {
+        log(`  Could not read gTrade entry, using signal entry: ${err.message?.slice(0, 60)}`);
+      }
+
+      const tpPct = long ? ((tp - realEntry) / realEntry) * levNum * 100 : ((realEntry - tp) / realEntry) * levNum * 100;
+      const slPct = long ? ((realEntry - sl) / realEntry) * levNum * 100 : ((sl - realEntry) / realEntry) * levNum * 100;
       const posSize = pool * levNum;
       const estFees = posSize * 0.0012;
       const tpUsd = Math.max(0, pool * tpPct / 100 - estFees);
       const slUsd = pool * slPct / 100 + estFees;
+
+      const img = await signalImage({
+        signalId: String(signalId), direction: dir, leverage: lev,
+        entry: realEntry.toFixed(2), tp: formatPrice(core.tp), sl: formatPrice(core.sl),
+      });
 
       await sendTelegramPhoto(img, [
         `📡 <b>Trade Opened #${signalId}</b>`,
         ``,
         `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
         `💰 Total copied: <b>$${pool.toFixed(0)} USDC</b>`,
+        `📍 Entry: <b>$${realEntry.toFixed(2)}</b>`,
         ``,
         `🎯 Target: <b>+${tpPct.toFixed(1)}%</b> (+$${tpUsd.toFixed(2)})`,
         `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
