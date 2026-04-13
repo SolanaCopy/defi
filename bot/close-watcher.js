@@ -1377,7 +1377,7 @@ class CloseWatcher {
             const poolIn = Number(vault.originalDeposited) / 1e6;
             const poolOut = Number(vault.realizedReturned) / 1e6;
             const pnlUsd = poolOut - poolIn;
-            const pct = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 * levNum : 0;
+            const pct = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 : 0;
             const win = pct >= 0;
 
             const img = await autoCloseImage({
@@ -1492,7 +1492,7 @@ class CloseWatcher {
       const poolIn = Number(vault.originalDeposited) / 1e6;
       const poolOut = Number(vault.realizedReturned) / 1e6;
       const pnlUsd = poolOut - poolIn;
-      const resultPctRaw = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 * levNum : 0;
+      const resultPctRaw = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 : 0;
       const win = resultPctRaw >= 0;
       const dir = signal.long ? "LONG" : "SHORT";
       const lev = `${levNum}x`;
