@@ -4671,7 +4671,7 @@ function App() {
                 }}>
                   <AlertTriangle size={16} style={{ color: '#F59E0B', flexShrink: 0 }} />
                   <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)', flex: 1 }}>
-                    Balance <b>${arbUsdcBalance.toFixed(2)}</b> is below your auto-copy amount. You may miss the next trade.
+                    Balance <b>${arbUsdcBalance.toFixed(2)}</b> is below your auto-copy of <b>${autoCopyConfig.amount.toFixed(0)}</b>. Top up your wallet or you'll miss the next trade.
                   </span>
                   {activeSignal && Number(activeSignal.phase) === 0 && (
                     <button
