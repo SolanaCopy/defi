@@ -1293,6 +1293,27 @@ class CloseWatcher {
         }
 
         const signal = await this.copyTrader.signalCore(activeId);
+
+        // Phase 1 (PENDING): deposits came in but openTrade not yet called — retry if enough
+        if (Number(signal.phase) === 1) {
+          const vault = await this.copyTrader.signalVault(activeId);
+          const deposited = Number(vault.totalDeposited) / 1e6;
+          const levNum = Number(signal.leverage) / 1000;
+          const posSize = deposited * levNum;
+          if (posSize >= 3000) {
+            log(`Trade monitor: Signal #${activeId} has $${deposited.toFixed(0)} × ${levNum}x = $${posSize.toFixed(0)} — opening trade`);
+            try {
+              const openTx = await this.copyTrader.openTrade();
+              await openTx.wait();
+              log(`  openTrade confirmed: ${openTx.hash}`);
+            } catch (err) {
+              log(`  openTrade retry failed: ${err.reason || err.message?.slice(0, 80)}`);
+            }
+          }
+          setTimeout(check, MONITOR_INTERVAL);
+          return;
+        }
+
         if (Number(signal.phase) !== 2) { // Not in TRADING phase (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
           setTimeout(check, MONITOR_INTERVAL);
           return;
