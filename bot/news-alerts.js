@@ -257,6 +257,59 @@ async function checkSundayOpen() {
   }
 }
 
+// ===== WEEKLY REFERRAL LEADERBOARD (Friday 20:00 UTC) =====
+async function checkReferralLeaderboard() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 5=Friday
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
+  const weekKey = `ref-${now.getUTCFullYear()}-W${Math.ceil((now.getUTCDate() + new Date(now.getUTCFullYear(), now.getUTCMonth(), 1).getUTCDay()) / 7)}`;
+
+  if (day !== 5 || hour !== 20 || minute >= 10 || lastLeaderboardDate === weekKey) return;
+  lastLeaderboardDate = weekKey;
+
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+
+  try {
+    const { createClient } = await import("@supabase/supabase-js");
+    const supabaseUrl = process.env.SUPABASE_URL;
+    const supabaseKey = process.env.SUPABASE_KEY;
+    if (!supabaseUrl || !supabaseKey) return;
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data: refs } = await supabase.from('referrals').select('referrer');
+    if (!refs || refs.length === 0) return;
+
+    // Count referrals per referrer
+    const counts = {};
+    refs.forEach(r => { counts[r.referrer] = (counts[r.referrer] || 0) + 1; });
+
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 5);
+    if (sorted.length === 0) return;
+
+    const medals = ['🥇', '🥈', '🥉', '4️⃣', '5️⃣'];
+    const lines = [
+      ``,
+      `📣  <b>REFERRAL LEADERBOARD</b>`,
+      ``,
+    ];
+    sorted.forEach(([addr, count], i) => {
+      lines.push(`  ${medals[i]} <code>${addr.slice(0, 6)}...${addr.slice(-4)}</code> — ${count} referral${count > 1 ? 's' : ''}`);
+    });
+    lines.push(
+      ``,
+      `Total referrals: <b>${refs.length}</b>`,
+      ``,
+      `Invite friends and earn <b>50% of their fees</b>! 🎁`,
+    );
+
+    await sendTelegram(lines.join("\n"));
+    console.log(`[NEWS] Referral leaderboard sent — ${refs.length} total referrals`);
+  } catch (err) {
+    console.error("[NEWS] Referral leaderboard error:", err.message);
+  }
+}
+
 export async function startNewsAlerts() {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log("[NEWS] No Telegram config — news alerts disabled");
@@ -287,6 +340,7 @@ export async function startNewsAlerts() {
     await checkWeekendClose();
     await checkSundayOpen();
     await checkDailyPoll();
+    await checkReferralLeaderboard();
     setTimeout(loop, CHECK_INTERVAL);
   };
   setTimeout(loop, CHECK_INTERVAL);
@@ -295,7 +349,11 @@ export async function startNewsAlerts() {
 // ===== DAILY GOLD POLL (12:00 UTC) + RESULT (21:00 UTC) =====
 let lastPollDate = "";
 let lastResultDate = "";
+let lastLeaderboardDate = "";
 let pollOpenPrice = null;
+
+// Poll streak tracking: userId -> { firstName, streak, totalCorrect }
+const pollScores = new Map();
 
 const PYTH_GOLD_URL = "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
 
@@ -370,9 +428,30 @@ async function checkDailyPoll() {
       `✅ Correct answer: <b>${winnerLabel}</b>`,
     ];
 
+    // Update poll streaks
+    const allVoters = [...pollVotes.values()].flat();
+    for (const voter of allVoters) {
+      if (!pollScores.has(voter.userId)) {
+        pollScores.set(voter.userId, { firstName: voter.firstName, streak: 0, totalCorrect: 0 });
+      }
+      const score = pollScores.get(voter.userId);
+      score.firstName = voter.firstName;
+      const isWinner = winners.some(w => w.userId === voter.userId);
+      if (isWinner) {
+        score.streak++;
+        score.totalCorrect++;
+      } else {
+        score.streak = 0;
+      }
+    }
+
     if (winners.length > 0) {
       lines.push(``, `🎯 <b>${winners.length}/${totalVoters} got it right:</b>`);
-      winners.forEach(w => lines.push(`  • ${w.firstName}`));
+      winners.forEach(w => {
+        const score = pollScores.get(w.userId);
+        const streakText = score && score.streak >= 2 ? ` — 🔥 ${score.streak} streak!` : '';
+        lines.push(`  • ${w.firstName}${streakText}`);
+      });
       lines.push(``, `Well played! 👏`);
     } else if (totalVoters > 0) {
       lines.push(``, `Nobody got it right this time! 😅`);
@@ -380,10 +459,23 @@ async function checkDailyPoll() {
       lines.push(``, `No votes today — vote tomorrow! 🗳`);
     }
 
+    // Show top predictors if we have enough data
+    const topScorers = [...pollScores.values()]
+      .filter(s => s.totalCorrect > 0)
+      .sort((a, b) => b.totalCorrect - a.totalCorrect || b.streak - a.streak)
+      .slice(0, 3);
+    if (topScorers.length >= 2) {
+      lines.push(``, `📊 <b>Top Predictors (all-time):</b>`);
+      const medals = ['🥇', '🥈', '🥉'];
+      topScorers.forEach((s, i) => {
+        lines.push(`  ${medals[i]} ${s.firstName} — ${s.totalCorrect} correct${s.streak >= 2 ? ` (🔥${s.streak} streak)` : ''}`);
+      });
+    }
+
     await sendTelegram(lines.join("\n"));
     console.log(`[NEWS] Poll result: $${pollOpenPrice.toFixed(2)} → $${closePrice.toFixed(2)} (${direction}) — ${winners.length}/${totalVoters} correct`);
 
-    // Clear votes for next day
+    // Clear votes for next day (keep scores)
     pollVotes.clear();
     pollOpenPrice = null;
   }
