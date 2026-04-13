@@ -42,14 +42,13 @@ const ARBISCAN_ADDR = "https://arbiscan.io/address/";
 // ===== ABI FRAGMENTS =====
 const COPY_TRADER_ABI = [
   "function cancelSignal() external",
-  "function closeTradeMarket(uint32 _index, uint64 _expectedPrice) external",
   "function activeSignalId() view returns (uint256)",
   "function admin() view returns (address)",
   "function getAutoCopyUsers() view returns (address[])",
   "function autoCopy(address) view returns (uint256 amount, bool enabled)",
   "function executeCopyFor(address _user, uint256 _signalId) external",
   "event SignalPosted(uint256 indexed signalId, bool long, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage)",
-  "event SignalOpened(uint256 indexed signalId, uint256 totalDeposited, uint32 gTradeIndex)",
+  "event SignalOpened(uint256 indexed signalId, uint256 totalDeposited)",
   "event SignalSettled(uint256 indexed signalId, uint256 totalDeposited, uint256 totalReturned, int256 resultPct)",
   "event UserDeposited(address indexed user, uint256 indexed signalId, uint256 amount)",
   "event AutoCopied(address indexed user, uint256 indexed signalId, uint256 amount)",
@@ -59,15 +58,17 @@ const COPY_TRADER_ABI = [
   "event AutoCopyDisabled(address indexed user)",
   "function getAutoCopyUserCount() view returns (uint256)",
   "function signalCount() view returns (uint256)",
-  "function signalCore(uint256) view returns (bool long, uint8 phase, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage, uint256 feeAtCreation, uint32 gTradeIndex)",
-  "function signalMeta(uint256) view returns (uint256 timestamp, uint256 closedAt, uint256 totalDeposited, uint256 totalReturned, uint256 copierCount, uint256 originalDeposited, uint256 totalEmergencyWithdrawn, uint256 totalClaimed, uint256 balanceAtOpen)",
+  "function signalCore(uint256) view returns (bool long, uint8 phase, uint64 entryPrice, uint64 tp, uint64 sl, uint24 leverage, uint256 feeAtCreation)",
+  "function signalVault(uint256) view returns (uint256 timestamp, uint256 closedAt, uint256 totalDeposited, uint256 originalDeposited, uint256 realizedReturned, uint256 totalClaimed, uint256 copierCount, uint256 vaultBalance, bool gTradePending, bool closePending, uint256 balanceSnapshot, uint32 tradeIndex)",
   "function claimFor(address _user, uint256 _signalId) external",
-  "function positions(address, uint256) view returns (uint256 deposit, bool claimed)",
+  "function positions(address, uint256) view returns (uint256 deposit, bool claimed, uint256 paidOut, uint256 feesPaid)",
   "function getUserSignalIds(address) view returns (uint256[])",
   "function getActiveSignalId() view returns (uint256)",
-  "function settleSignal(uint256 _totalReturned) external",
-  "function closeTrade(uint32 _index, uint64 _expectedPrice) external",
-  "function openTrade(uint32 _gTradeIndex) external",
+  "function settleSignal() external",
+  "function closeTrade(uint64 _expectedPrice) external",
+  "function openTrade() external",
+  "function confirmGTradeOpen(uint32 _tradeIndex) external",
+  "function confirmClose() external",
 ];
 
 // gTrade events — we only need the fields we care about
@@ -181,10 +182,10 @@ function formatPrice(price) {
   return num.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// V2: calculate result % from meta (totalReturned vs originalDeposited)
-function calcResultPct(meta) {
-  const returned = BigInt(meta.totalReturned);
-  const original = BigInt(meta.originalDeposited);
+// V3: calculate result % from vault (realizedReturned vs originalDeposited)
+function calcResultPct(vault) {
+  const returned = BigInt(vault.realizedReturned);
+  const original = BigInt(vault.originalDeposited);
   if (original === 0n) return 0;
   if (returned >= original) {
     return Number((returned - original) * 10000n / original) / 100;
@@ -365,8 +366,8 @@ class CloseWatcher {
       const signal = await this.copyTrader.signalCore(activeId);
       if (Number(signal.phase) !== 2) return; // not TRADING (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
 
-      const meta = await this.copyTrader.signalMeta(activeId);
-      if (Number(meta.originalDeposited) === 0) return; // openTrade not completed
+      const vault = await this.copyTrader.signalVault(activeId);
+      if (Number(vault.originalDeposited) === 0) return; // openTrade not completed
 
       // Check if gTrade position still exists
       const gTrade = new ethers.Contract(GTRADE_DIAMOND, [
@@ -376,8 +377,6 @@ class CloseWatcher {
 
       if (trades.length === 0) {
         log("STARTUP: Signal #" + activeId + " active but no gTrade position — letting safety net handle it");
-        // DON'T settle here — the safety net will handle it with better checks
-        // This prevents the $0 settle bug that happened with signal #27
         return;
       } else {
         log("Startup: Signal #" + activeId + " has " + trades.length + " open gTrade position(s) — monitoring");
@@ -422,8 +421,8 @@ class CloseWatcher {
 
       // Auto-open trade on gTrade after deposits
       try {
-        const meta = await this.copyTrader.signalMeta(signalId);
-        const deposited = Number(meta.totalDeposited);
+        const vault = await this.copyTrader.signalVault(signalId);
+        const deposited = Number(vault.totalDeposited);
         if (deposited === 0) {
           log(`No deposits for signal #${signalId} — skipping openTrade`);
           return;
@@ -436,59 +435,78 @@ class CloseWatcher {
           return;
         }
 
-        // Find next available gTrade index by checking existing trades
         try {
-          const gTrade = new ethers.Contract(GTRADE_DIAMOND, [
+          log(`Opening trade on gTrade...`);
+          const openTx = await this.copyTrader.openTrade();
+          const receipt = await openTx.wait();
+          log(`openTrade TX confirmed: ${openTx.hash}`);
+
+          // Find gTrade index — same approach as proven V2 bot:
+          // 1. Snapshot trades BEFORE open (to know what's new)
+          // 2. After open TX confirms, read trades again
+          // 3. Compare to find the newly opened trade
+          // 4. If not found, poll up to 30s (gTrade pending order)
+          const gTradeRead = new ethers.Contract(GTRADE_DIAMOND, [
             "function getTrades(address) view returns (tuple(address,uint32,uint16,uint24,bool,bool,uint8,uint8,uint120,uint64,uint64,uint64,bool,uint160,uint24)[])",
-            "function getCounters(address) view returns (uint32)",
           ], this.httpProvider);
 
-          // Get the counter (next trade index) for our contract
-          let nextIndex = 0;
+          // Snapshot existing trades BEFORE open (in case there are old stuck ones)
+          let tradesBefore = [];
           try {
-            const trades = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
-            // Next index = highest existing index + 1, or 0 if no trades
-            if (trades.length > 0) {
-              const maxIdx = Math.max(...trades.map(t => Number(t[1])));
-              nextIndex = maxIdx + 1;
-            }
-          } catch {
-            // Fallback: try indices 0-20
-          }
+            tradesBefore = await gTradeRead.getTrades(GOLD_COPY_TRADER_ADDRESS);
+          } catch {}
+          const indexesBefore = new Set(tradesBefore.map(t => Number(t[1])));
 
-          // Try the predicted index first, then scan nearby
-          const indicesToTry = [nextIndex];
-          for (let i = 0; i <= 20; i++) {
-            if (i !== nextIndex) indicesToTry.push(i);
-          }
+          let tradeIndex = null;
 
-          let opened = false;
-          for (const i of indicesToTry) {
+          // Poll for new trade (max 30s)
+          for (let attempt = 1; attempt <= 6; attempt++) {
             try {
-              log(`Opening trade with gTrade index ${i}...`);
-              const openTx = await this.copyTrader.openTrade(i);
-              await openTx.wait();
+              await new Promise(r => setTimeout(r, 5000));
+              const tradesAfter = await gTradeRead.getTrades(GOLD_COPY_TRADER_ADDRESS);
 
-              // Verify: check what index gTrade actually assigned
-              const tradesAfter = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
-              if (tradesAfter.length > 0) {
-                const actualIndex = Number(tradesAfter[tradesAfter.length - 1][1]);
-                log(`Trade OPEN! Stored index ${i}, gTrade actual index ${actualIndex}`);
-                if (actualIndex !== i) {
-                  log(`⚠️ Index mismatch! closeTrade will not work — trade will close at TP/SL`);
+              // Find the NEW trade (not in before snapshot)
+              for (const t of tradesAfter) {
+                const idx = Number(t[1]);
+                if (!indexesBefore.has(idx)) {
+                  tradeIndex = idx;
+                  log(`  New gTrade trade found! index=${tradeIndex} (attempt ${attempt})`);
+                  break;
                 }
-              } else {
-                log(`Trade OPEN! gTrade index ${i}`);
               }
-              opened = true;
-              break;
+
+              if (tradeIndex !== null) break;
+
+              // Fallback: if before was empty and after has trades, use the last one
+              if (tradesBefore.length === 0 && tradesAfter.length > 0) {
+                tradeIndex = Number(tradesAfter[tradesAfter.length - 1][1]);
+                log(`  gTrade trade found (first trade): index=${tradeIndex}`);
+                break;
+              }
+
+              log(`  Attempt ${attempt}/6: no new gTrade trade yet — waiting...`);
             } catch (err) {
-              log(`Index ${i} failed: ${err.reason || err.shortMessage || err.message?.slice(0, 120) || 'reverted'}`);
+              logError(`getTrades attempt ${attempt}`, err);
             }
           }
-          if (!opened) log(`Failed to open trade on any index`);
+
+          if (tradeIndex === null) {
+            log(`⚠️ Could not find gTrade trade after 30s — NOT confirming.`);
+            log(`  gTradePending stays true. MarketExecuted event or safety net will confirm later.`);
+            // DON'T confirm with wrong index!
+            return;
+          }
+
+          // Confirm with the REAL index from gTrade
+          try {
+            const confirmTx = await this.copyTrader.confirmGTradeOpen(tradeIndex);
+            await confirmTx.wait();
+            log(`  confirmGTradeOpen(${tradeIndex}) confirmed`);
+          } catch (err) {
+            logError("confirmGTradeOpen", err);
+          }
         } catch (err) {
-          logError("gTrade index lookup", err);
+          logError("openTrade", err);
         }
       } catch (err) {
         logError("Auto-open trade", err);
@@ -496,8 +514,8 @@ class CloseWatcher {
     });
 
     // ── Trade opened on gTrade — NOW send Telegram notification ──
-    contract.on("SignalOpened", async (signalId, totalDeposited, gTradeIndex, event) => {
-      log(`SignalOpened #${signalId} — $${Number(totalDeposited) / 1e6} USDC, gTrade index ${gTradeIndex}`);
+    contract.on("SignalOpened", async (signalId, totalDeposited, event) => {
+      log(`SignalOpened #${signalId} — $${Number(totalDeposited) / 1e6} USDC`);
       const core = await this.copyTrader.signalCore(signalId);
       const long = core.long;
       const dir = long ? "LONG" : "SHORT";
@@ -596,11 +614,11 @@ class CloseWatcher {
         try {
           const core = await contract.signalCore(i);
           if (Number(core.phase) !== 3) continue; // only SETTLED (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
-          const meta = await contract.signalMeta(i);
+          const meta = await contract.signalVault(i);
           const pct = calcResultPct(meta);
           // Skip cancelled signals (full refund)
           const dep = BigInt(meta.originalDeposited);
-          const ret = BigInt(meta.totalReturned);
+          const ret = BigInt(meta.realizedReturned);
           if (dep > 0n && ret === dep) continue;
           if (dep === 0n) continue;
           if (pct > 0) this.winStreak++;
@@ -811,11 +829,15 @@ class CloseWatcher {
       let totalTradePct = 0;
 
       for (let i = total; i >= 1; i--) {
-        const meta = await contract.signalMeta(i);
-        const core = await contract.signalCore(i);
+        const meta = await contract.signalVault(i);
         const closedAt = Number(meta.closedAt);
+
+        // EARLY EXIT: signals are sequential, so if we go past midnight, all earlier are too
+        if (closedAt > 0 && closedAt < utcMidnight) break;
+
+        const core = await contract.signalCore(i);
         const dep = Number(meta.originalDeposited);
-        const ret = Number(meta.totalReturned);
+        const ret = Number(meta.realizedReturned);
 
         // Skip if not settled (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
         if (Number(core.phase) !== 3) continue;
@@ -930,7 +952,7 @@ class CloseWatcher {
       let totalTrades = 0, totalVolume = 0, totalResultPct = 0;
 
       for (let i = total; i >= 1; i--) {
-        const meta = await contract.signalMeta(i);
+        const meta = await contract.signalVault(i);
         const closedAt = Number(meta.closedAt);
         if (closedAt === 0 || closedAt < days[0].start) continue;
         if (closedAt > days[4].end) continue;
@@ -1003,7 +1025,7 @@ class CloseWatcher {
       const total = Number(await contract.signalCount());
       let totalVolume = 0;
       for (let i = 1; i <= total; i++) {
-        const meta = await contract.signalMeta(i);
+        const meta = await contract.signalVault(i);
         totalVolume += parseFloat(ethers.formatUnits(meta.totalDeposited, 6));
       }
       const copierCount = Number(await contract.getAutoCopyUserCount());
@@ -1011,11 +1033,11 @@ class CloseWatcher {
       // Also calc current profit (returned - deposited for settled signals)
       let initProfit = 0;
       for (let i = 1; i <= total; i++) {
-        const meta = await contract.signalMeta(i);
+        const meta = await contract.signalVault(i);
         const core = await contract.signalCore(i);
         if (Number(core.phase) === 3) { // SETTLED
           const dep = Number(meta.originalDeposited);
-          const ret = Number(meta.totalReturned);
+          const ret = Number(meta.realizedReturned);
           if (dep > 0 && ret > 0 && dep !== ret) {
             initProfit += (ret - dep) / 1e6;
           }
@@ -1034,7 +1056,7 @@ class CloseWatcher {
       this.lastProfitMilestone = 0;
       log(`Milestone init error: ${err.message}`);
     }
-    setInterval(() => this.checkMilestones(), 300_000); // check every 5 min
+    setInterval(() => this.checkMilestones(), 3600_000); // check every 1 hour (was 5 min)
     log("Milestone tracker started");
   }
 
@@ -1043,30 +1065,39 @@ class CloseWatcher {
       const contract = this.copyTrader;
       const total = Number(await contract.signalCount());
 
+      // Cache settled signals — they don't change anymore
+      if (!this.settledCache) this.settledCache = new Map();
+      let cachedProfit = this.cachedProfit || 0;
+
       // Calculate real volume (unclaimed collateral) + profit
       let totalVolume = 0;
-      let totalProfit = 0;
       const users = await contract.getAutoCopyUsers();
+      // Use volume from auto-copy config (much cheaper than iterating positions)
       for (const user of users) {
-        const ids = await contract.getUserSignalIds(user);
-        for (const id of ids) {
-          const pos = await contract.positions(user, id);
-          if (Number(pos.deposit) > 0 && !pos.claimed) {
-            totalVolume += parseFloat(ethers.formatUnits(pos.deposit, 6));
-          }
-        }
+        const config = await contract.autoCopy(user);
+        if (config.enabled) totalVolume += Number(config.amount) / 1e6;
       }
+
+      // Only read signals that are NOT yet cached as settled
+      let totalProfit = cachedProfit;
       for (let i = 1; i <= total; i++) {
+        if (this.settledCache.has(i)) continue; // already counted
+
         const core = await contract.signalCore(i);
         if (Number(core.phase) === 3) { // SETTLED
-          const meta = await contract.signalMeta(i);
-          const dep = Number(meta.originalDeposited);
-          const ret = Number(meta.totalReturned);
+          const vault = await contract.signalVault(i);
+          const dep = Number(vault.originalDeposited);
+          const ret = Number(vault.realizedReturned);
           if (dep > 0 && ret > 0 && dep !== ret) {
-            totalProfit += (ret - dep) / 1e6;
+            const pnl = (ret - dep) / 1e6;
+            totalProfit += pnl;
+            this.settledCache.set(i, pnl);
+          } else {
+            this.settledCache.set(i, 0); // mark as counted
           }
         }
       }
+      this.cachedProfit = totalProfit;
 
       const copierCount = Number(await contract.getAutoCopyUserCount());
 
@@ -1164,18 +1195,41 @@ class CloseWatcher {
       // Filter: only events where user == our contract
       const contractAddr = GOLD_COPY_TRADER_ADDRESS;
 
-      // MarketExecuted (trade closed via market order)
+      // MarketExecuted (trade opened or closed via market order)
       this.gTradeDiamond.on("MarketExecuted", async (...args) => {
         try {
-          const event = args[args.length - 1]; // last arg is the event object
+          const event = args[args.length - 1];
           const decoded = event.args;
           const user = decoded.user;
           const open = decoded.open;
 
           if (user.toLowerCase() !== contractAddr.toLowerCase()) return;
-          if (open) return; // only care about closes
 
-          log(`MarketExecuted detected! user=${user}, percentProfit=${decoded.percentProfit}`);
+          if (open) {
+            // TRADE OPENED on gTrade — confirm the index on our contract
+            const index = Number(decoded.index);
+            log(`MarketExecuted OPEN detected! index=${index}`);
+
+            try {
+              const activeId = await this.copyTrader.activeSignalId();
+              if (activeId > 0n) {
+                const vault = await this.copyTrader.signalVault(activeId);
+                if (vault.gTradePending) {
+                  const tx = await this.copyTrader.confirmGTradeOpen(index);
+                  await tx.wait();
+                  log(`  confirmGTradeOpen(${index}) via MarketExecuted event`);
+                } else {
+                  log(`  gTrade already confirmed — skipping`);
+                }
+              }
+            } catch (err) {
+              logError("confirmGTradeOpen via event", err);
+            }
+            return;
+          }
+
+          // TRADE CLOSED
+          log(`MarketExecuted CLOSE detected! user=${user}, percentProfit=${decoded.percentProfit}`);
           await this.handleTradeClose(decoded.percentProfit);
         } catch (err) {
           logError("MarketExecuted handler", err);
@@ -1235,8 +1289,8 @@ class CloseWatcher {
         }
 
         // Make sure openTrade actually completed (originalDeposited gets set in openTrade)
-        const meta0 = await this.copyTrader.signalMeta(activeId);
-        if (Number(meta0.originalDeposited) === 0) {
+        const vault0 = await this.copyTrader.signalVault(activeId);
+        if (Number(vault0.originalDeposited) === 0) {
           setTimeout(check, MONITOR_INTERVAL);
           return;
         }
@@ -1247,150 +1301,92 @@ class CloseWatcher {
         ], this.httpProvider);
         const trades = await gTrade.getTrades(GOLD_COPY_TRADER_ADDRESS);
 
+        // SAFETY NET: auto-confirm gTrade if still pending
+        if (vault0.gTradePending && trades.length > 0) {
+          const tradeIndex = Number(trades[trades.length - 1][1]);
+          log(`  Safety net: confirming gTrade index ${tradeIndex} (was pending)`);
+          try {
+            const tx = await this.copyTrader.confirmGTradeOpen(tradeIndex);
+            await tx.wait();
+            log(`  confirmGTradeOpen(${tradeIndex}) confirmed via safety net`);
+          } catch (err) {
+            log(`  confirmGTradeOpen failed: ${err.reason || err.message?.slice(0, 60)}`);
+          }
+          setTimeout(check, MONITOR_INTERVAL);
+          return;
+        }
+
         if (trades.length === 0) {
           log("⚠️  SAFETY NET: gTrade trades gone but signal still active! Auto-closing...");
-
-          // Determine result from TP/SL
-          const entry = Number(signal.entryPrice) / 1e10;
-          const tp = Number(signal.tp) / 1e10;
-          const sl = Number(signal.sl) / 1e10;
-
-          // Use TP price if trade was profitable direction, SL otherwise
-          // Check current price to determine which was hit
-          let closePrice;
-          try {
-            const res = await fetch("https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2");
-            const data = await res.json();
-            const p = data.parsed[0].price;
-            closePrice = Number(p.price) * Math.pow(10, p.expo);
-          } catch { closePrice = entry; }
-
-          // gTrade position is gone — determine if TP or SL was hit
-          // If price is between TP and SL, check which is closer
-          let resultPrice;
-          if (signal.long) {
-            if (closePrice >= tp) resultPrice = tp;
-            else if (closePrice <= sl) resultPrice = sl;
-            else {
-              // Price between TP and SL — gTrade closed it, so pick closest
-              resultPrice = (tp - closePrice) < (closePrice - sl) ? tp : sl;
-            }
-          } else {
-            if (closePrice <= tp) resultPrice = tp;
-            else if (closePrice >= sl) resultPrice = sl;
-            else {
-              resultPrice = (closePrice - tp) < (sl - closePrice) ? tp : sl;
-            }
-          }
-
-          const resultBps = signal.long
-            ? Math.round(((resultPrice - entry) / entry) * 10000)
-            : Math.round(((entry - resultPrice) / entry) * 10000);
-
-          log(`  Entry: ${entry}, Close: ${resultPrice}, Result: ${resultBps} bps`);
 
           try {
             this.autoClosedSignals.add(Number(activeId));
 
-            // V2: calculate expected return from price movement, not balance
-            const meta = await this.copyTrader.signalMeta(activeId);
-            const collateral = Number(meta.originalDeposited) || Number(meta.totalDeposited);
-            const leverage = Number(signal.leverage) / 1000;
-            const posSize = collateral * leverage;
-            const fees = posSize * 0.0006; // ~0.06% gTrade fees
-
-            let totalReturned;
-            if (resultBps >= 0) {
-              // Profit: collateral + (collateral * pricePct * leverage) - fees
-              const profit = (collateral * Math.abs(resultBps) * leverage) / 10000;
-              totalReturned = BigInt(Math.round(Math.max(0, collateral + profit - fees)));
-            } else {
-              // Loss: collateral - (collateral * pricePct * leverage) - fees
-              const loss = (collateral * Math.abs(resultBps) * leverage) / 10000;
-              totalReturned = BigInt(Math.round(Math.max(0, collateral - loss - fees)));
-            }
-
             // Wait for gTrade to finalize USDC transfer
             await new Promise(r => setTimeout(r, 5000));
 
-            // Use actual balance method: returned = balance - (balanceAtOpen - originalDeposited)
-            const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
-            const balanceAtOpen = Number(meta.balanceAtOpen);
-            const actualReturned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
-
-            // SAFETY: never settle with less than 10% of collateral
-            const minReturned = BigInt(Math.floor(collateral * 0.1));
-
-            // Use balance-based if available, otherwise fall back to price-based
-            if (actualReturned >= minReturned && actualReturned <= BigInt(contractBalance)) {
-              totalReturned = actualReturned;
-              log(`  Settling: returned=$${Number(totalReturned) / 1e6} (from balance)`);
-            } else if (totalReturned >= minReturned) {
-              // Sanity: cap to contract balance and 3x collateral
-              if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
-              if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
-              log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
-            } else {
-              log(`  ⚠️ Returned too low ($${Number(actualReturned) / 1e6}) — gTrade may not have sent USDC yet. Skipping settle, will retry.`);
-              setTimeout(check, MONITOR_INTERVAL);
-              return;
+            // V3: confirmClose only if closePending is true
+            // When gTrade auto-closes (TP/SL/LIQ), closePending is false — skip confirmClose.
+            try {
+              const safetyVault = await this.copyTrader.signalVault(activeId);
+              if (safetyVault.closePending) {
+                const confirmTx = await this.copyTrader.confirmClose();
+                await confirmTx.wait();
+                log(`  confirmClose confirmed`);
+              } else {
+                log(`  closePending=false — skipping confirmClose`);
+              }
+            } catch (err) {
+              log(`  confirmClose check skipped: ${err.reason || err.message?.slice(0, 60)}`);
             }
-            const tx = await this.copyTrader.settleSignal(totalReturned);
-            await tx.wait();
-            log(`  Signal #${activeId} settled via safety net!`);
 
-            // Send notification — use tradePct (price × leverage) like the terminal
-            const tradePct = Math.abs(resultBps / 100) * leverage;
-            const pct = resultBps >= 0 ? tradePct : -tradePct;
+            // Settle with retry — USDC may not have arrived yet
+            let settled = false;
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              try {
+                const stx = await this.copyTrader.settleSignal();
+                await stx.wait();
+                log(`  Signal #${activeId} settled via safety net!`);
+                settled = true;
+                break;
+              } catch (settleErr) {
+                if (settleErr.reason?.includes("No return detected") || settleErr.message?.includes("No return detected")) {
+                  log(`  Safety net attempt ${attempt}/3: USDC not yet back — will retry next cycle`);
+                  break; // let the 30s timer retry
+                }
+                throw settleErr;
+              }
+            }
+            if (!settled) break; // exit, retry in 30s
+
+            // Read result for notification
+            const vault = await this.copyTrader.signalVault(activeId);
+            const levNum = Number(signal.leverage) / 1000;
+            const poolIn = Number(vault.originalDeposited) / 1e6;
+            const poolOut = Number(vault.realizedReturned) / 1e6;
+            const pnlUsd = poolOut - poolIn;
+            const pct = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 * levNum : 0;
             const win = pct >= 0;
+
             const img = await autoCloseImage({
               signalId: String(activeId), direction: signal.long ? "LONG" : "SHORT",
-              leverage: `${leverage}x`, resultPct: pct,
+              leverage: `${levNum}x`, resultPct: pct,
             });
-            // Determine if TP or SL was actually hit based on price
-            let closeReason = "Trade closed.";
-            if (signal.long) {
-              if (closePrice >= tp) closeReason = "TP hit!";
-              else if (closePrice <= sl) closeReason = "SL hit.";
-            } else {
-              if (closePrice <= tp) closeReason = "TP hit!";
-              else if (closePrice >= sl) closeReason = "SL hit.";
-            }
-
-            const poolIn = Number(meta.originalDeposited) / 1e6;
-            const poolOut = Number(totalReturned) / 1e6;
-            const pnlUsd = poolOut - poolIn;
             const autoCloseLines = [
               `⚡ <b>Auto-Close Signal #${activeId}</b>`,
               ``,
               `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
               `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
-              `📈 ${closeReason}`,
             ];
             autoCloseLines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
             await sendTelegramPhoto(img, autoCloseLines.join("\n"), [
-              win ? { text: "🏆 Claim Profits", url: "https://www.smarttradingclub.io?tab=dashboard" } : { text: "🚀 Open App", url: "https://www.smarttradingclub.io?tab=dashboard" },
+              win ? BTN_CLAIM : BTN_APP,
             ]);
           } catch (err) {
             if (err.message?.includes("Not trading")) {
               log("  Signal already settled by another handler");
             } else {
-              // Retry with balance-based method
-              log(`  First settle attempt failed: ${err.reason || err.shortMessage || err.message?.slice(0, 100)}`);
-              try {
-                const retryBalance = await this.usdc.balanceOf(this.copyTrader.target);
-                const retryMeta = await this.copyTrader.signalMeta(activeId);
-                const retryCollateral = Number(retryMeta.originalDeposited) || Number(retryMeta.totalDeposited);
-                const retryBalAtOpen = Number(retryMeta.balanceAtOpen);
-                const retryReturned = BigInt(retryBalance) - (BigInt(retryBalAtOpen) - BigInt(retryCollateral));
-                const safeReturned = retryReturned > 0n ? retryReturned : 0n;
-                log(`  Retry settle with balance method: returned=$${Number(safeReturned) / 1e6}`);
-                const retryTx = await this.copyTrader.settleSignal(safeReturned);
-                await retryTx.wait();
-                log(`  Signal #${activeId} settled via safety net (retry)!`);
-              } catch (retryErr) {
-                logError("Safety net settle retry also failed", retryErr);
-              }
+              logError("Safety net settle failed", err);
             }
           }
         }
@@ -1423,13 +1419,12 @@ class CloseWatcher {
 
       // Get signal info
       const signal = await this.copyTrader.signalCore(activeId);
-      if (Number(signal.phase) !== 2) { // Not in TRADING phase (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
+      if (Number(signal.phase) !== 2) {
         log(`Signal #${activeId} not in trading phase (phase=${signal.phase})`);
         return;
       }
 
-      const leverage = Number(signal.leverage);
-      const levNum = leverage / 1000;
+      const levNum = Number(signal.leverage) / 1000;
 
       log("═══════════════════════════════════════");
       log(`  Signal #${activeId} — Settling automatically`);
@@ -1437,100 +1432,76 @@ class CloseWatcher {
       log(`  Leverage: ${levNum}x`);
       log("═══════════════════════════════════════");
 
-      // V2: calculate expected return from price movement
       this.autoClosedSignals.add(Number(activeId));
 
-      const meta = await this.copyTrader.signalMeta(activeId);
-      const collateral = Number(meta.originalDeposited);
-      const posSize = collateral * levNum;
-      const fees = posSize * 0.002;
-
-      // Get current price to calculate result
-      let closePrice;
+      // V3: confirmClose (if needed) + settleSignal — contract auto-calculates returned
+      // closePending is only true if bot called closeTrade() manually.
+      // For TP/SL/LIQ auto-triggers by gTrade, closePending is false — skip confirmClose.
       try {
-        const res = await fetch("https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2");
-        const data = await res.json();
-        const p = data.parsed[0].price;
-        closePrice = Number(p.price) * Math.pow(10, p.expo);
-      } catch { closePrice = Number(signal.entryPrice) / 1e10; }
-
-      const entry = Number(signal.entryPrice) / 1e10;
-      const tp = Number(signal.tp) / 1e10;
-      const sl = Number(signal.sl) / 1e10;
-
-      // gTrade closed the position — determine if TP or SL was hit
-      let resultPrice;
-      if (signal.long) {
-        if (closePrice >= tp) resultPrice = tp;
-        else if (closePrice <= sl) resultPrice = sl;
-        else resultPrice = (tp - closePrice) < (closePrice - sl) ? tp : sl;
-      } else {
-        if (closePrice <= tp) resultPrice = tp;
-        else if (closePrice >= sl) resultPrice = sl;
-        else resultPrice = (closePrice - tp) < (sl - closePrice) ? tp : sl;
+        const vault = await this.copyTrader.signalVault(activeId);
+        if (vault.closePending) {
+          const confirmTx = await this.copyTrader.confirmClose();
+          await confirmTx.wait();
+          log(`  confirmClose confirmed`);
+        } else {
+          log(`  closePending=false (gTrade auto-closed) — skipping confirmClose`);
+        }
+      } catch (err) {
+        log(`  confirmClose skipped: ${err.reason || err.message?.slice(0, 60)}`);
       }
 
-      const pricePct = signal.long
-        ? ((resultPrice - entry) / entry)
-        : ((entry - resultPrice) / entry);
-      const pnlAmount = collateral * pricePct * levNum;
-
-      let totalReturned;
-      if (pnlAmount >= 0) {
-        totalReturned = BigInt(Math.round(Math.max(0, collateral + pnlAmount - fees)));
-      } else {
-        totalReturned = BigInt(Math.round(Math.max(0, collateral + pnlAmount - fees)));
+      // settleSignal with retry — gTrade may not have returned USDC yet
+      let settled = false;
+      for (let attempt = 1; attempt <= 5; attempt++) {
+        try {
+          const tx = await this.copyTrader.settleSignal();
+          log(`  settleSignal TX sent: ${tx.hash}`);
+          const receipt = await tx.wait();
+          log(`  TX confirmed in block ${receipt.blockNumber} — Signal #${activeId} settled!`);
+          settled = true;
+          break;
+        } catch (settleErr) {
+          const reason = settleErr.reason || settleErr.message?.slice(0, 100);
+          if (reason?.includes("No return detected")) {
+            log(`  Attempt ${attempt}/5: USDC not yet received from gTrade — waiting 10s...`);
+            await new Promise(r => setTimeout(r, 10000));
+          } else {
+            throw settleErr; // different error — don't retry
+          }
+        }
+      }
+      if (!settled) {
+        log(`  ⚠️ settleSignal failed after 5 attempts — safety net will retry in 30s`);
+        return;
       }
 
-      // Use actual balance method (most accurate)
-      const contractBalance = await this.usdc.balanceOf(this.copyTrader.target);
-      const balanceAtOpen = Number(meta.balanceAtOpen);
-      const actualReturned = BigInt(contractBalance) - (BigInt(balanceAtOpen) - BigInt(collateral));
-
-      if (actualReturned > 0n && actualReturned <= BigInt(contractBalance)) {
-        totalReturned = actualReturned;
-        log(`  Settling: returned=$${Number(totalReturned) / 1e6} (from balance)`);
-      } else {
-        // Fallback: cap price-based to contract balance
-        if (totalReturned > BigInt(contractBalance)) totalReturned = BigInt(contractBalance);
-        if (totalReturned > BigInt(collateral) * 3n) totalReturned = BigInt(collateral) * 3n;
-        log(`  Settling: returned=$${Number(totalReturned) / 1e6} (calculated from price)`);
-      }
-      const tx = await this.copyTrader.settleSignal(totalReturned);
-      log(`TX sent: ${tx.hash}`);
-
-      const receipt = await tx.wait();
-      log(`TX confirmed in block ${receipt.blockNumber} — Signal #${activeId} settled!`);
-
-      // Use tradePct (price × leverage) for display, like the terminal
-      const resultBps = signal.long
-        ? Math.round(((resultPrice - entry) / entry) * 10000)
-        : Math.round(((entry - resultPrice) / entry) * 10000);
-      const tradePctVal = Math.abs(resultBps / 100) * levNum;
-      const pct = resultBps >= 0 ? tradePctVal : -tradePctVal;
-      const win = pct >= 0;
+      // Read settled result for notification
+      const vault = await this.copyTrader.signalVault(activeId);
+      const poolIn = Number(vault.originalDeposited) / 1e6;
+      const poolOut = Number(vault.realizedReturned) / 1e6;
+      const pnlUsd = poolOut - poolIn;
+      const resultPctRaw = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 * levNum : 0;
+      const win = resultPctRaw >= 0;
       const dir = signal.long ? "LONG" : "SHORT";
       const lev = `${levNum}x`;
+
       const img = await autoCloseImage({
-        signalId: String(activeId), direction: dir, leverage: lev, resultPct: pct,
+        signalId: String(activeId), direction: dir, leverage: lev, resultPct: resultPctRaw,
       });
-      const poolIn2 = Number(meta.originalDeposited) / 1e6;
-      const poolOut2 = Number(totalReturned) / 1e6;
-      const pnlUsd2 = poolOut2 - poolIn2;
-      const closeLines2 = [
+      const closeLines = [
         `⚡ <b>Auto-Close Signal #${activeId}</b>`,
         ``,
-        `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
-        `💵 PnL: <b>${pnlUsd2 >= 0 ? "+" : ""}$${pnlUsd2.toFixed(2)} USDC</b>`,
-        `💰 Copied: $${poolIn2.toFixed(0)} → $${poolOut2.toFixed(0)} USDC`,
+        `📊 Result: <b>${win ? "+" : ""}${resultPctRaw.toFixed(1)}%</b> on collateral`,
+        `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
+        `💰 Copied: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
       ];
-      closeLines2.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
-      await sendTelegramPhoto(img, closeLines2.join("\n"), [
+      closeLines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
+      await sendTelegramPhoto(img, closeLines.join("\n"), [
         win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
         { text: "🔗 View TX", url: `${ARBISCAN_TX}${tx.hash}` },
       ]);
     } catch (err) {
-      if (err.message?.includes("Not active signal") || err.message?.includes("Invalid")) {
+      if (err.message?.includes("Not active signal") || err.message?.includes("Not trading")) {
         log("Signal already closed (contract rejected) — no action needed");
       } else {
         logError("handleTradeClose failed", err);
