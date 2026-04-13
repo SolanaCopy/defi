@@ -290,8 +290,22 @@ export async function startNewsAlerts() {
   setTimeout(loop, CHECK_INTERVAL);
 }
 
-// ===== DAILY GOLD POLL (12:00 UTC) =====
+// ===== DAILY GOLD POLL (12:00 UTC) + RESULT (21:00 UTC) =====
 let lastPollDate = "";
+let lastResultDate = "";
+let pollOpenPrice = null;
+
+const PYTH_GOLD_URL = "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
+
+async function fetchGoldPrice() {
+  try {
+    const res = await fetch(PYTH_GOLD_URL, { signal: AbortSignal.timeout(10000) });
+    const data = await res.json();
+    const p = data.parsed?.[0]?.price;
+    if (p) return Number(p.price) * Math.pow(10, Number(p.expo));
+    return null;
+  } catch { return null; }
+}
 
 async function checkDailyPoll() {
   const now = new Date();
@@ -300,13 +314,14 @@ async function checkDailyPoll() {
 
   const hour = now.getUTCHours();
   const minute = now.getUTCMinutes();
-  const dateKey = `poll-${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+  const dateKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
 
-  // 12:00-12:10 UTC
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+
+  // 12:00-12:10 UTC — Send poll + save price
   if (hour === 12 && minute < 10 && lastPollDate !== dateKey) {
     lastPollDate = dateKey;
-
-    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+    pollOpenPrice = await fetchGoldPrice();
 
     try {
       const body = {
@@ -320,10 +335,39 @@ async function checkDailyPoll() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      console.log("[NEWS] Daily gold poll sent");
+      console.log(`[NEWS] Daily gold poll sent — price at poll: $${pollOpenPrice?.toFixed(2)}`);
     } catch (err) {
       console.error("[NEWS] Poll error:", err.message);
     }
+  }
+
+  // 21:00-21:10 UTC — Send result
+  if (hour === 21 && minute < 10 && lastResultDate !== dateKey && pollOpenPrice) {
+    lastResultDate = dateKey;
+
+    const closePrice = await fetchGoldPrice();
+    if (!closePrice) return;
+
+    const change = closePrice - pollOpenPrice;
+    const changePct = (change / pollOpenPrice) * 100;
+    const direction = change > 5 ? "📈 BULLISH" : change < -5 ? "📉 BEARISH" : "➡️ SIDEWAYS";
+    const winner = change > 5 ? "Bullish" : change < -5 ? "Bearish" : "Sideways";
+
+    const lines = [
+      ``,
+      `🏆  <b>DAILY POLL RESULT</b>`,
+      ``,
+      `Gold moved from <b>$${pollOpenPrice.toFixed(2)}</b> to <b>$${closePrice.toFixed(2)}</b>`,
+      `${direction} — <b>${change >= 0 ? "+" : ""}${change.toFixed(2)}</b> (${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)`,
+      ``,
+      `✅ The correct answer was: <b>${winner}</b>`,
+      ``,
+      `Did you get it right? 👀`,
+    ];
+
+    await sendTelegram(lines.join("\n"));
+    console.log(`[NEWS] Poll result: $${pollOpenPrice.toFixed(2)} → $${closePrice.toFixed(2)} (${direction})`);
+    pollOpenPrice = null;
   }
 }
 
