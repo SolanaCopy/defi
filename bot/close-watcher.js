@@ -1357,7 +1357,7 @@ class CloseWatcher {
                 throw settleErr;
               }
             }
-            if (!settled) break; // exit, retry in 30s
+            if (!settled) { setTimeout(check, MONITOR_INTERVAL); return; } // retry in 30s
 
             // Read result for notification
             const vault = await this.copyTrader.signalVault(activeId);
