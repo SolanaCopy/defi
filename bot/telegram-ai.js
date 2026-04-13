@@ -11,6 +11,9 @@ const WEBSITE = "https://www.smarttradingclub.io";
 const CONTRACT = "0xbE1E770670a0186772594ED381F573B3161029a2";
 const TG_GROUP = "https://t.me/SmartTradingClubDapp";
 
+// Poll vote tracking: optionIndex -> [{ userId, firstName }]
+export const pollVotes = new Map();
+
 const SYSTEM_PROMPT = `You are the Smart Trading Club assistant bot in a Telegram group. You help users understand the platform and answer their questions.
 
 About the platform:
@@ -164,6 +167,26 @@ async function sendWelcomePhoto(chatId, img, caption) {
 }
 
 async function handleUpdate(update) {
+  // Handle poll_answer (user voted in a poll)
+  if (update.poll_answer) {
+    const pa = update.poll_answer;
+    const userId = pa.user?.id;
+    const firstName = pa.user?.first_name || "User";
+    const optionIds = pa.option_ids || [];
+    if (optionIds.length > 0) {
+      const option = optionIds[0]; // 0=Bullish, 1=Bearish, 2=Sideways
+      // Remove old vote if any
+      for (const [key, voters] of pollVotes) {
+        pollVotes.set(key, voters.filter(v => v.userId !== userId));
+      }
+      // Add new vote
+      if (!pollVotes.has(option)) pollVotes.set(option, []);
+      pollVotes.get(option).push({ userId, firstName });
+      console.log(`[AI] Poll vote: ${firstName} → option ${option}`);
+    }
+    return;
+  }
+
   // Handle chat_member update (new join via privacy-mode-aware event)
   if (update.chat_member) {
     const cm = update.chat_member;
@@ -243,7 +266,7 @@ async function pollUpdates() {
   if (!TELEGRAM_BOT_TOKEN) return;
 
   try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30&allowed_updates=["message","chat_member"]`;
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30&allowed_updates=["message","chat_member","poll_answer"]`;
     const res = await fetch(url, { signal: AbortSignal.timeout(35000) });
     const data = await res.json();
 

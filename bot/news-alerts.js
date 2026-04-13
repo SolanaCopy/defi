@@ -3,6 +3,8 @@
  * Fetches USD news events and warns the community 1 hour before and at event time.
  */
 
+import { pollVotes } from "./telegram-ai.js";
+
 const {
   TELEGRAM_BOT_TOKEN,
   TELEGRAM_CHAT_ID,
@@ -350,8 +352,13 @@ async function checkDailyPoll() {
 
     const change = closePrice - pollOpenPrice;
     const changePct = (change / pollOpenPrice) * 100;
-    const direction = change > 5 ? "📈 BULLISH" : change < -5 ? "📉 BEARISH" : "➡️ SIDEWAYS";
-    const winner = change > 5 ? "Bullish" : change < -5 ? "Bearish" : "Sideways";
+    const winnerOption = change > 5 ? 0 : change < -5 ? 1 : 2; // 0=Bullish, 1=Bearish, 2=Sideways
+    const direction = ["📈 BULLISH", "📉 BEARISH", "➡️ SIDEWAYS"][winnerOption];
+    const winnerLabel = ["Bullish", "Bearish", "Sideways"][winnerOption];
+
+    // Get winners from pollVotes
+    const winners = pollVotes.get(winnerOption) || [];
+    const totalVoters = [...pollVotes.values()].reduce((sum, v) => sum + v.length, 0);
 
     const lines = [
       ``,
@@ -360,13 +367,24 @@ async function checkDailyPoll() {
       `Gold moved from <b>$${pollOpenPrice.toFixed(2)}</b> to <b>$${closePrice.toFixed(2)}</b>`,
       `${direction} — <b>${change >= 0 ? "+" : ""}${change.toFixed(2)}</b> (${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%)`,
       ``,
-      `✅ The correct answer was: <b>${winner}</b>`,
-      ``,
-      `Did you get it right? 👀`,
+      `✅ Correct answer: <b>${winnerLabel}</b>`,
     ];
 
+    if (winners.length > 0) {
+      lines.push(``, `🎯 <b>${winners.length}/${totalVoters} got it right:</b>`);
+      winners.forEach(w => lines.push(`  • ${w.firstName}`));
+      lines.push(``, `Well played! 👏`);
+    } else if (totalVoters > 0) {
+      lines.push(``, `Nobody got it right this time! 😅`);
+    } else {
+      lines.push(``, `No votes today — vote tomorrow! 🗳`);
+    }
+
     await sendTelegram(lines.join("\n"));
-    console.log(`[NEWS] Poll result: $${pollOpenPrice.toFixed(2)} → $${closePrice.toFixed(2)} (${direction})`);
+    console.log(`[NEWS] Poll result: $${pollOpenPrice.toFixed(2)} → $${closePrice.toFixed(2)} (${direction}) — ${winners.length}/${totalVoters} correct`);
+
+    // Clear votes for next day
+    pollVotes.clear();
     pollOpenPrice = null;
   }
 }
