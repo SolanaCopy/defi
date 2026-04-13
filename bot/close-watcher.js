@@ -415,15 +415,6 @@ class CloseWatcher {
             const balNum = Number(userBal) / 1e6;
             if (balNum < amount) {
               log(`Auto-copy skip ${shortAddr(user)}: balance $${balNum.toFixed(2)} < auto-copy $${amount.toFixed(2)}`);
-              // Notify in Telegram that user needs to top up
-              try {
-                await sendTelegram([
-                  `⚠️ <b>Auto-Copy Failed</b>`,
-                  ``,
-                  `<code>${user.slice(0,6)}...${user.slice(-4)}</code> has $${balNum.toFixed(2)} USDC but auto-copy is set to $${amount.toFixed(0)}.`,
-                  `Top up your wallet or lower your auto-copy amount to join the next trade!`,
-                ].join("\n"));
-              } catch {}
               continue;
             }
 
