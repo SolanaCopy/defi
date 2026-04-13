@@ -309,7 +309,10 @@ class CloseWatcher {
 
     // Set up HTTP provider for transactions (always needed)
     const httpRpc = ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc";
-    this.httpProvider = new ethers.JsonRpcProvider(httpRpc);
+    this.httpProvider = new ethers.JsonRpcProvider(httpRpc, undefined, {
+      staticNetwork: true,
+      pollingInterval: 30_000, // 30s instead of default 4s — prevents Infura rate limits
+    });
     // Use same provider for logs — limit block range to 10 for Alchemy free tier
     this.wallet = new ethers.Wallet(key, this.httpProvider);
     this.copyTrader = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, this.wallet);
@@ -1188,6 +1191,15 @@ class CloseWatcher {
   // ===== WEBSOCKET (real-time) =====
   connectWebSocket() {
     try {
+      // Clean up previous WS listeners to prevent duplicates on reconnect
+      if (this.gTradeDiamond) {
+        this.gTradeDiamond.removeAllListeners();
+        log("Cleaned up previous gTrade listeners");
+      }
+      if (this.wsProvider) {
+        try { this.wsProvider.destroy(); } catch {}
+      }
+
       log("Connecting WebSocket...");
       this.wsProvider = new ethers.WebSocketProvider(ARBITRUM_RPC_WSS);
       this.gTradeDiamond = new ethers.Contract(GTRADE_DIAMOND, GTRADE_ABI, this.wsProvider);
