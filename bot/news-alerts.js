@@ -284,9 +284,47 @@ export async function startNewsAlerts() {
     await checkNews();
     await checkWeekendClose();
     await checkSundayOpen();
+    await checkDailyPoll();
     setTimeout(loop, CHECK_INTERVAL);
   };
   setTimeout(loop, CHECK_INTERVAL);
+}
+
+// ===== DAILY GOLD POLL (12:00 UTC) =====
+let lastPollDate = "";
+
+async function checkDailyPoll() {
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun, 6=Sat
+  if (day === 0 || day === 6) return; // Skip weekends
+
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
+  const dateKey = `poll-${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
+
+  // 12:00-12:10 UTC
+  if (hour === 12 && minute < 10 && lastPollDate !== dateKey) {
+    lastPollDate = dateKey;
+
+    if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+
+    try {
+      const body = {
+        chat_id: TELEGRAM_CHAT_ID,
+        question: "Where do you think gold is heading today? 🪙",
+        options: JSON.stringify(["📈 Bullish — Going up", "📉 Bearish — Going down", "➡️ Sideways — No big move"]),
+        is_anonymous: false,
+      };
+      await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPoll`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      console.log("[NEWS] Daily gold poll sent");
+    } catch (err) {
+      console.error("[NEWS] Poll error:", err.message);
+    }
+  }
 }
 
 export function stopNewsAlerts() {
