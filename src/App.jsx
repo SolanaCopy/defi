@@ -4662,6 +4662,31 @@ function App() {
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '8px' }}>USDC per trade</span>
                 </div>
               </div>
+              {/* Low balance warning */}
+              {arbUsdcBalance > 0 && arbUsdcBalance < autoCopyConfig.amount && (
+                <div style={{
+                  padding: '12px 16px', borderRadius: '12px', marginBottom: '10px',
+                  background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
+                  display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
+                }}>
+                  <AlertTriangle size={16} style={{ color: '#F59E0B', flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)', flex: 1 }}>
+                    Balance <b>${arbUsdcBalance.toFixed(2)}</b> is below your auto-copy amount. You may miss the next trade.
+                  </span>
+                  {activeSignal && Number(activeSignal.phase) === 0 && (
+                    <button
+                      onClick={() => { setCopyAmount(Math.floor(arbUsdcBalance).toString()); setShowCopyModal(true); }}
+                      style={{
+                        padding: '6px 14px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 600,
+                        background: 'rgba(245,158,11,0.15)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)',
+                        cursor: 'pointer', whiteSpace: 'nowrap',
+                      }}
+                    >
+                      Copy with ${Math.floor(arbUsdcBalance)}
+                    </button>
+                  )}
+                </div>
+              )}
               <div style={{ display: 'flex', gap: '8px' }}>
                 <div style={{
                   flex: 1, padding: '10px 14px', borderRadius: '10px',
