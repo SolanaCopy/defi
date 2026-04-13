@@ -582,7 +582,6 @@ class CloseWatcher {
             .from('referrals')
             .select('referrer')
             .eq('referred', user.toLowerCase())
-            .eq('signal_id', Number(signalId))
             .limit(1);
 
           if (data && data.length > 0) {
@@ -598,8 +597,7 @@ class CloseWatcher {
               await supabase
                 .from('referrals')
                 .update({ reward_paid: true, reward_amount: reward / 1e6 })
-                .eq('referred', user.toLowerCase())
-                .eq('signal_id', Number(signalId));
+                .eq('referred', user.toLowerCase());
             }
           }
         } catch (err) {
