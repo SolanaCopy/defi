@@ -408,7 +408,26 @@ class CloseWatcher {
           try {
             const config = await this.copyTrader.autoCopy(user);
             if (!config.enabled) continue;
-            log(`Auto-copy for ${shortAddr(user)} ($${Number(config.amount) / 1e6})...`);
+            const amount = Number(config.amount) / 1e6;
+
+            // Check if user has enough balance
+            const userBal = await this.usdc.balanceOf(user);
+            const balNum = Number(userBal) / 1e6;
+            if (balNum < amount) {
+              log(`Auto-copy skip ${shortAddr(user)}: balance $${balNum.toFixed(2)} < auto-copy $${amount.toFixed(2)}`);
+              // Notify in Telegram that user needs to top up
+              try {
+                await sendTelegram([
+                  `⚠️ <b>Auto-Copy Failed</b>`,
+                  ``,
+                  `<code>${user.slice(0,6)}...${user.slice(-4)}</code> has $${balNum.toFixed(2)} USDC but auto-copy is set to $${amount.toFixed(0)}.`,
+                  `Top up your wallet or lower your auto-copy amount to join the next trade!`,
+                ].join("\n"));
+              } catch {}
+              continue;
+            }
+
+            log(`Auto-copy for ${shortAddr(user)} ($${amount})...`);
             const tx = await this.copyTrader.executeCopyFor(user, signalId, { nonce });
             nonce++;
             await tx.wait();
