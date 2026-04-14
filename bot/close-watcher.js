@@ -567,12 +567,15 @@ class CloseWatcher {
         log(`  Could not read gTrade entry, using signal entry: ${err.message?.slice(0, 60)}`);
       }
 
-      const tpPct = long ? ((tp - realEntry) / realEntry) * levNum * 100 : ((realEntry - tp) / realEntry) * levNum * 100;
-      const slPct = long ? ((realEntry - sl) / realEntry) * levNum * 100 : ((sl - realEntry) / realEntry) * levNum * 100;
+      const tpPctGross = long ? ((tp - realEntry) / realEntry) * levNum * 100 : ((realEntry - tp) / realEntry) * levNum * 100;
+      const slPctGross = long ? ((realEntry - sl) / realEntry) * levNum * 100 : ((sl - realEntry) / realEntry) * levNum * 100;
       const posSize = pool * levNum;
       const estFees = posSize * 0.0012;
-      const tpUsd = Math.max(0, pool * tpPct / 100 - estFees);
-      const slUsd = pool * slPct / 100 + estFees;
+      const tpUsd = Math.max(0, pool * tpPctGross / 100 - estFees);
+      const slUsd = pool * slPctGross / 100 + estFees;
+      // Show net % (after fees) so it matches tpUsd/slUsd and the final Result % at close
+      const tpPct = pool > 0 ? (tpUsd / pool) * 100 : tpPctGross;
+      const slPct = pool > 0 ? (slUsd / pool) * 100 : slPctGross;
 
       const img = await signalImage({
         signalId: String(signalId), direction: dir, leverage: lev,
