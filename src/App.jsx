@@ -4662,8 +4662,8 @@ function App() {
                   <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginLeft: '8px' }}>USDC per trade</span>
                 </div>
               </div>
-              {/* Low balance warning */}
-              {arbUsdcBalance > 0 && arbUsdcBalance < autoCopyConfig.amount && (
+              {/* Low balance warning — hidden while user has funds locked in the active trade */}
+              {arbUsdcBalance > 0 && arbUsdcBalance < autoCopyConfig.amount && !(activeSignal && userPositions[Number(activeSignal.id)] && Number(userPositions[Number(activeSignal.id)].deposit) > 0) && (
                 <div style={{
                   padding: '12px 16px', borderRadius: '12px', marginBottom: '10px',
                   background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
