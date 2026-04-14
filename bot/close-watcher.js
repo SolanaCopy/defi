@@ -287,6 +287,7 @@ class CloseWatcher {
   constructor() {
     this.running = false;
     this.processing = false; // prevent double-close
+    this.autoCopyInProgress = false; // lock — Loop B must wait until SignalPosted auto-copy loop finishes
   }
 
   async start() {
@@ -399,6 +400,7 @@ class CloseWatcher {
     // ── New signal posted — auto-copy only, no Telegram notification yet ──
     contract.on("SignalPosted", async (signalId, long, entryPrice, tp, sl, leverage, event) => {
       log(`SignalPosted #${signalId} — running auto-copy deposits`);
+      this.autoCopyInProgress = true;
 
       // Auto-copy for enabled users (sequential with nonce management)
       try {
@@ -430,6 +432,8 @@ class CloseWatcher {
         }
       } catch (err) {
         logError("Auto-copy iteration", err);
+      } finally {
+        this.autoCopyInProgress = false;
       }
 
       // Auto-open trade on gTrade after deposits
@@ -1321,8 +1325,13 @@ class CloseWatcher {
 
         const signal = await this.copyTrader.signalCore(activeId);
 
-        // Phase 1 (PENDING): deposits came in but openTrade not yet called — retry if enough
+        // Phase 1 (COLLECTING): deposits came in but openTrade not yet called — retry if enough
         if (Number(signal.phase) === 1) {
+          // Don't race the SignalPosted auto-copy loop: wait until it finishes copying every user
+          if (this.autoCopyInProgress) {
+            setTimeout(check, MONITOR_INTERVAL);
+            return;
+          }
           const vault = await this.copyTrader.signalVault(activeId);
           const deposited = Number(vault.totalDeposited) / 1e6;
           const levNum = Number(signal.leverage) / 1000;
