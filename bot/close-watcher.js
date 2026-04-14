@@ -287,7 +287,50 @@ class CloseWatcher {
   constructor() {
     this.running = false;
     this.processing = false; // prevent double-close
-    this.autoCopyInProgress = false; // lock — Loop B must wait until SignalPosted auto-copy loop finishes
+    this.autoCopyInProgress = false; // lock — trade-monitor skips openTrade while this is true
+  }
+
+  // Runs a full auto-copy round for the given signalId. Idempotent: users already
+  // deposited are skipped. Safe to call from multiple paths (SignalPosted handler
+  // and trade-monitor retry) — guarantees every eligible user is in before openTrade.
+  async runAutoCopyRound(signalId) {
+    this.autoCopyInProgress = true;
+    try {
+      const users = await this.copyTrader.getAutoCopyUsers();
+      let nonce = await this.wallet.getNonce();
+      for (const user of users) {
+        try {
+          const config = await this.copyTrader.autoCopy(user);
+          if (!config.enabled) continue;
+          const amount = Number(config.amount) / 1e6;
+
+          // Skip if user already deposited for this signal (idempotency)
+          const pos = await this.copyTrader.positions(user, signalId);
+          if (Number(pos.deposit) > 0) continue;
+
+          // Skip if user wallet balance too low
+          const userBal = await this.usdc.balanceOf(user);
+          const balNum = Number(userBal) / 1e6;
+          if (balNum < amount) {
+            log(`Auto-copy skip ${shortAddr(user)}: balance $${balNum.toFixed(2)} < $${amount.toFixed(2)}`);
+            continue;
+          }
+
+          log(`Auto-copy for ${shortAddr(user)} ($${amount})...`);
+          const tx = await this.copyTrader.executeCopyFor(user, signalId, { nonce });
+          nonce++;
+          await tx.wait();
+          log(`Auto-copied for ${shortAddr(user)}`);
+        } catch (err) {
+          log(`Auto-copy skip ${shortAddr(user)}: ${err.reason || err.message?.substring(0, 60)}`);
+          try { nonce = await this.wallet.getNonce(); } catch {}
+        }
+      }
+    } catch (err) {
+      logError("Auto-copy iteration", err);
+    } finally {
+      this.autoCopyInProgress = false;
+    }
   }
 
   async start() {
@@ -400,41 +443,7 @@ class CloseWatcher {
     // ── New signal posted — auto-copy only, no Telegram notification yet ──
     contract.on("SignalPosted", async (signalId, long, entryPrice, tp, sl, leverage, event) => {
       log(`SignalPosted #${signalId} — running auto-copy deposits`);
-      this.autoCopyInProgress = true;
-
-      // Auto-copy for enabled users (sequential with nonce management)
-      try {
-        const users = await this.copyTrader.getAutoCopyUsers();
-        let nonce = await this.wallet.getNonce();
-        for (const user of users) {
-          try {
-            const config = await this.copyTrader.autoCopy(user);
-            if (!config.enabled) continue;
-            const amount = Number(config.amount) / 1e6;
-
-            // Check if user has enough balance
-            const userBal = await this.usdc.balanceOf(user);
-            const balNum = Number(userBal) / 1e6;
-            if (balNum < amount) {
-              log(`Auto-copy skip ${shortAddr(user)}: balance $${balNum.toFixed(2)} < auto-copy $${amount.toFixed(2)}`);
-              continue;
-            }
-
-            log(`Auto-copy for ${shortAddr(user)} ($${amount})...`);
-            const tx = await this.copyTrader.executeCopyFor(user, signalId, { nonce });
-            nonce++;
-            await tx.wait();
-            log(`Auto-copied for ${shortAddr(user)}`);
-          } catch (err) {
-            log(`Auto-copy skip ${shortAddr(user)}: ${err.reason || err.message?.substring(0, 60)}`);
-            try { nonce = await this.wallet.getNonce(); } catch {}
-          }
-        }
-      } catch (err) {
-        logError("Auto-copy iteration", err);
-      } finally {
-        this.autoCopyInProgress = false;
-      }
+      await this.runAutoCopyRound(signalId);
 
       // Auto-open trade on gTrade after deposits
       try {
@@ -1325,13 +1334,16 @@ class CloseWatcher {
 
         const signal = await this.copyTrader.signalCore(activeId);
 
-        // Phase 1 (COLLECTING): deposits came in but openTrade not yet called — retry if enough
+        // Phase 1 (COLLECTING): deposits came in but openTrade not yet called
         if (Number(signal.phase) === 1) {
-          // Don't race the SignalPosted auto-copy loop: wait until it finishes copying every user
+          // Don't race the SignalPosted handler
           if (this.autoCopyInProgress) {
             setTimeout(check, MONITOR_INTERVAL);
             return;
           }
+          // Catch any stragglers (bot restart, missed event, race, etc.) BEFORE openTrade
+          await this.runAutoCopyRound(activeId);
+
           const vault = await this.copyTrader.signalVault(activeId);
           const deposited = Number(vault.totalDeposited) / 1e6;
           const levNum = Number(signal.leverage) / 1000;
