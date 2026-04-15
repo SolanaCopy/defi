@@ -915,3 +915,92 @@ export async function botOnlineImage() {
 
   return sharp(Buffer.from(svg)).png().toBuffer();
 }
+
+// ===== DAILY POLL IMAGE =====
+export async function dailyPollImage() {
+  const h = 540;
+  const PURPLE = "#8B5CF6";
+
+  const svg = `
+  <svg width="${W}" height="${h}" xmlns="http://www.w3.org/2000/svg">
+    ${defs(`
+      <radialGradient id="pollGlow" cx="50%" cy="40%" r="55%">
+        <stop offset="0%" stop-color="${GOLD}" stop-opacity="0.14"/>
+        <stop offset="70%" stop-color="${GOLD}" stop-opacity="0.02"/>
+        <stop offset="100%" stop-color="${GOLD}" stop-opacity="0"/>
+      </radialGradient>
+      <linearGradient id="prizeGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+        <stop offset="0%" stop-color="${GOLD_DARK}" stop-opacity="0.35"/>
+        <stop offset="50%" stop-color="${GOLD}" stop-opacity="0.55"/>
+        <stop offset="100%" stop-color="${GOLD_DARK}" stop-opacity="0.35"/>
+      </linearGradient>
+    `)}
+    <rect width="${W}" height="${h}" fill="url(#bg)"/>
+    ${candlestickBg(h, 0.13)}
+    ${topBar()}
+    <rect width="${W}" height="${h}" fill="url(#pollGlow)"/>
+
+    <text x="400" y="65" font-family="${FONT}" font-size="13" fill="${GOLD}" font-weight="700" text-anchor="middle" letter-spacing="5">SMART TRADING CLUB</text>
+    <line x1="280" y1="80" x2="370" y2="80" stroke="${GOLD}" stroke-width="1" opacity="0.3"/>
+    <circle cx="400" cy="80" r="2.5" fill="${GOLD}" opacity="0.6"/>
+    <line x1="430" y1="80" x2="520" y2="80" stroke="${GOLD}" stroke-width="1" opacity="0.3"/>
+
+    <text x="400" y="135" font-family="${FONT}" font-size="42" fill="url(#gold)" font-weight="800" text-anchor="middle" letter-spacing="2">DAILY GOLD POLL</text>
+    <text x="400" y="170" font-family="${FONT}" font-size="16" fill="${LIGHT_GRAY}" text-anchor="middle">Where is XAU/USD heading today?</text>
+
+    <!-- Bullish card -->
+    <rect x="60" y="210" width="220" height="130" rx="14" fill="${GREEN}" opacity="0.08" stroke="${GREEN}" stroke-width="1.5" stroke-opacity="0.35"/>
+    <g transform="translate(145, 235) scale(0.78)">
+      <circle cx="30" cy="22" r="26" fill="${GREEN}" opacity="0.15"/>
+      <polyline points="12,34 22,24 30,30 48,12" fill="none" stroke="${GREEN}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="40,12 48,12 48,20" fill="none" stroke="${GREEN}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="170" y="295" font-family="${FONT}" font-size="18" fill="${GREEN}" font-weight="700" text-anchor="middle" letter-spacing="1">BULLISH</text>
+    <text x="170" y="318" font-family="${FONT}" font-size="12" fill="${LIGHT_GRAY}" text-anchor="middle">Going up</text>
+
+    <!-- Bearish card -->
+    <rect x="290" y="210" width="220" height="130" rx="14" fill="${RED}" opacity="0.08" stroke="${RED}" stroke-width="1.5" stroke-opacity="0.35"/>
+    <g transform="translate(375, 235) scale(0.78)">
+      <circle cx="30" cy="22" r="26" fill="${RED}" opacity="0.15"/>
+      <polyline points="12,12 22,22 30,16 48,34" fill="none" stroke="${RED}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="40,34 48,34 48,26" fill="none" stroke="${RED}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="400" y="295" font-family="${FONT}" font-size="18" fill="${RED}" font-weight="700" text-anchor="middle" letter-spacing="1">BEARISH</text>
+    <text x="400" y="318" font-family="${FONT}" font-size="12" fill="${LIGHT_GRAY}" text-anchor="middle">Going down</text>
+
+    <!-- Sideways card -->
+    <rect x="520" y="210" width="220" height="130" rx="14" fill="${PURPLE}" opacity="0.08" stroke="${PURPLE}" stroke-width="1.5" stroke-opacity="0.35"/>
+    <g transform="translate(605, 235) scale(0.78)">
+      <circle cx="30" cy="22" r="26" fill="${PURPLE}" opacity="0.15"/>
+      <line x1="10" y1="22" x2="44" y2="22" stroke="${PURPLE}" stroke-width="3.5" stroke-linecap="round"/>
+      <polyline points="38,16 46,22 38,28" fill="none" stroke="${PURPLE}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+    </g>
+    <text x="630" y="295" font-family="${FONT}" font-size="18" fill="${PURPLE}" font-weight="700" text-anchor="middle" letter-spacing="1">SIDEWAYS</text>
+    <text x="630" y="318" font-family="${FONT}" font-size="12" fill="${LIGHT_GRAY}" text-anchor="middle">No big move</text>
+
+    <!-- Prize banner -->
+    <rect x="100" y="375" width="600" height="70" rx="16" fill="url(#prizeGrad)" stroke="${GOLD}" stroke-width="1.5" stroke-opacity="0.6"/>
+    <text x="400" y="405" font-family="${FONT}" font-size="13" fill="${GOLD_LIGHT}" font-weight="700" text-anchor="middle" letter-spacing="4">WEEKLY CHAMPION PRIZE</text>
+    <g transform="translate(238, 420)">
+      <circle cx="0" cy="0" r="14" fill="${GOLD}" opacity="0.9"/>
+      <circle cx="0" cy="0" r="14" fill="none" stroke="${GOLD_LIGHT}" stroke-width="1.5"/>
+      <text x="0" y="5" font-family="${FONT}" font-size="16" fill="${GOLD_DARK}" font-weight="800" text-anchor="middle">$</text>
+    </g>
+    <text x="400" y="432" font-family="${FONT}" font-size="24" fill="${WHITE}" font-weight="800" text-anchor="middle" letter-spacing="1">$50 USDC</text>
+    <g transform="translate(562, 420)">
+      <circle cx="0" cy="0" r="14" fill="${GOLD}" opacity="0.9"/>
+      <circle cx="0" cy="0" r="14" fill="none" stroke="${GOLD_LIGHT}" stroke-width="1.5"/>
+      <text x="0" y="5" font-family="${FONT}" font-size="16" fill="${GOLD_DARK}" font-weight="800" text-anchor="middle">$</text>
+    </g>
+
+    <text x="400" y="475" font-family="${FONT}" font-size="13" fill="${LIGHT_GRAY}" text-anchor="middle">Most correct picks Mon–Fri wins · Invested wallet required</text>
+
+    <circle cx="240" cy="510" r="4" fill="${GOLD}"/>
+    <text x="400" y="515" font-family="${FONT}" font-size="13" fill="${WHITE}" font-weight="600" text-anchor="middle" letter-spacing="2">VOTE NOW  ·  RESULT AT 21:00 UTC</text>
+    <circle cx="560" cy="510" r="4" fill="${GOLD}"/>
+
+    ${footerText(h - 8)}
+  </svg>`;
+
+  return sharp(Buffer.from(svg)).png().toBuffer();
+}

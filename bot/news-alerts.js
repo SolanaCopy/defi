@@ -5,6 +5,7 @@
 
 import { pollVotes, savePollVotes } from "./telegram-ai.js";
 import { loadPollState, savePollState } from "./poll-state.js";
+import { dailyPollImage } from "./telegram-images.js";
 
 const {
   TELEGRAM_BOT_TOKEN,
@@ -417,6 +418,17 @@ async function checkDailyPoll() {
     persistPollState();
 
     try {
+      // Send branded image first, then the interactive poll.
+      try {
+        const buf = await dailyPollImage();
+        const fd = new FormData();
+        fd.append("chat_id", TELEGRAM_CHAT_ID);
+        fd.append("photo", new Blob([buf], { type: "image/png" }), "daily-poll.png");
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, { method: "POST", body: fd });
+      } catch (imgErr) {
+        console.error("[NEWS] Poll image error:", imgErr.message);
+      }
+
       const body = {
         chat_id: TELEGRAM_CHAT_ID,
         question: "Where do you think gold is heading today? 🪙",
