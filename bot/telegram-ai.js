@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { welcomeImage } from "./telegram-images.js";
+import { loadPollState, savePollState, mapFromObject } from "./poll-state.js";
 
 const {
   TELEGRAM_BOT_TOKEN,
@@ -12,7 +13,15 @@ const CONTRACT = "0xbE1E770670a0186772594ED381F573B3161029a2";
 const TG_GROUP = "https://t.me/SmartTradingClubDapp";
 
 // Poll vote tracking: optionIndex -> [{ userId, firstName }]
-export const pollVotes = new Map();
+// Hydrated from disk so votes survive a restart between 12:00 and 21:00 UTC.
+const _bootState = loadPollState();
+export const pollVotes = mapFromObject(_bootState.pollVotes);
+
+export function savePollVotes() {
+  // Re-read other fields so we don't clobber them; overwrite pollVotes.
+  const current = loadPollState();
+  savePollState({ ...current, pollVotes });
+}
 
 const SYSTEM_PROMPT = `You are the Smart Trading Club assistant bot in a Telegram group. You help users understand the platform and answer their questions.
 
@@ -182,6 +191,7 @@ async function handleUpdate(update) {
       // Add new vote
       if (!pollVotes.has(option)) pollVotes.set(option, []);
       pollVotes.get(option).push({ userId, firstName });
+      savePollVotes();
       console.log(`[AI] Poll vote: ${firstName} → option ${option}`);
     }
     return;

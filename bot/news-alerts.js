@@ -3,7 +3,8 @@
  * Fetches USD news events and warns the community 1 hour before and at event time.
  */
 
-import { pollVotes } from "./telegram-ai.js";
+import { pollVotes, savePollVotes } from "./telegram-ai.js";
+import { loadPollState, savePollState } from "./poll-state.js";
 
 const {
   TELEGRAM_BOT_TOKEN,
@@ -347,13 +348,19 @@ export async function startNewsAlerts() {
 }
 
 // ===== DAILY GOLD POLL (12:00 UTC) + RESULT (21:00 UTC) =====
-let lastPollDate = "";
-let lastResultDate = "";
+// Hydrate from disk so restarts between 12:00 and 21:00 UTC don't lose pollOpenPrice.
+const _persisted = loadPollState();
+let lastPollDate = _persisted.lastPollDate || "";
+let lastResultDate = _persisted.lastResultDate || "";
 let lastLeaderboardDate = "";
-let pollOpenPrice = null;
+let pollOpenPrice = _persisted.pollOpenPrice ?? null;
 
 // Poll streak tracking: userId -> { firstName, streak, totalCorrect }
-const pollScores = new Map();
+const pollScores = new Map(Object.entries(_persisted.pollScores || {}));
+
+function persistPollState() {
+  savePollState({ lastPollDate, lastResultDate, pollOpenPrice, pollScores, pollVotes });
+}
 
 const PYTH_GOLD_URL = "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
 
@@ -382,6 +389,7 @@ async function checkDailyPoll() {
   if (hour === 12 && minute < 10 && lastPollDate !== dateKey) {
     lastPollDate = dateKey;
     pollOpenPrice = await fetchGoldPrice();
+    persistPollState();
 
     try {
       const body = {
@@ -472,12 +480,17 @@ async function checkDailyPoll() {
       });
     }
 
+    // Persist updated streaks before we clear votes below.
+    persistPollState();
+
     await sendTelegram(lines.join("\n"));
     console.log(`[NEWS] Poll result: $${pollOpenPrice.toFixed(2)} → $${closePrice.toFixed(2)} (${direction}) — ${winners.length}/${totalVoters} correct`);
 
     // Clear votes for next day (keep scores)
     pollVotes.clear();
+    savePollVotes();
     pollOpenPrice = null;
+    persistPollState();
   }
 }
 
