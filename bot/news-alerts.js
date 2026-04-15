@@ -353,13 +353,28 @@ const _persisted = loadPollState();
 let lastPollDate = _persisted.lastPollDate || "";
 let lastResultDate = _persisted.lastResultDate || "";
 let lastLeaderboardDate = "";
+let lastWeeklyWinnerWeek = _persisted.lastWeeklyWinnerWeek || "";
+let weeklyWeekKey = _persisted.weeklyWeekKey || "";
 let pollOpenPrice = _persisted.pollOpenPrice ?? null;
 
-// Poll streak tracking: userId -> { firstName, streak, totalCorrect }
+// Poll streak tracking: userId -> { firstName, streak, totalCorrect, weeklyCorrect }
 const pollScores = new Map(Object.entries(_persisted.pollScores || {}));
 
+// ISO week key in the form "YYYY-Www" (weeks start Monday UTC).
+function getWeekKey(d) {
+  const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const dayNum = dt.getUTCDay() || 7;
+  dt.setUTCDate(dt.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(dt.getUTCFullYear(), 0, 1));
+  const weekNum = Math.ceil((((dt - yearStart) / 86400000) + 1) / 7);
+  return `${dt.getUTCFullYear()}-W${String(weekNum).padStart(2, "0")}`;
+}
+
 function persistPollState() {
-  savePollState({ lastPollDate, lastResultDate, pollOpenPrice, pollScores, pollVotes });
+  savePollState({
+    lastPollDate, lastResultDate, pollOpenPrice, pollScores, pollVotes,
+    weeklyWeekKey, lastWeeklyWinnerWeek,
+  });
 }
 
 const PYTH_GOLD_URL = "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
@@ -384,6 +399,16 @@ async function checkDailyPoll() {
   const dateKey = `${now.getUTCFullYear()}-${now.getUTCMonth()}-${now.getUTCDate()}`;
 
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+
+  // Reset weekly counters when we enter a new ISO week.
+  const currentWeek = getWeekKey(now);
+  if (weeklyWeekKey !== currentWeek) {
+    for (const [id, score] of pollScores) {
+      pollScores.set(id, { ...score, weeklyCorrect: 0 });
+    }
+    weeklyWeekKey = currentWeek;
+    persistPollState();
+  }
 
   // 12:00-12:10 UTC — Send poll + save price
   if (hour === 12 && minute < 10 && lastPollDate !== dateKey) {
@@ -440,14 +465,16 @@ async function checkDailyPoll() {
     const allVoters = [...pollVotes.values()].flat();
     for (const voter of allVoters) {
       if (!pollScores.has(voter.userId)) {
-        pollScores.set(voter.userId, { firstName: voter.firstName, streak: 0, totalCorrect: 0 });
+        pollScores.set(voter.userId, { firstName: voter.firstName, streak: 0, totalCorrect: 0, weeklyCorrect: 0 });
       }
       const score = pollScores.get(voter.userId);
       score.firstName = voter.firstName;
+      if (score.weeklyCorrect == null) score.weeklyCorrect = 0;
       const isWinner = winners.some(w => w.userId === voter.userId);
       if (isWinner) {
         score.streak++;
         score.totalCorrect++;
+        score.weeklyCorrect++;
       } else {
         score.streak = 0;
       }
@@ -491,7 +518,63 @@ async function checkDailyPoll() {
     savePollVotes();
     pollOpenPrice = null;
     persistPollState();
+
+    // Friday — crown the weekly winner ($50 USDC). Announce once per week.
+    if (day === 5 && lastWeeklyWinnerWeek !== currentWeek) {
+      await postWeeklyWinner(currentWeek);
+      lastWeeklyWinnerWeek = currentWeek;
+      persistPollState();
+    }
   }
+}
+
+async function postWeeklyWinner(weekKey) {
+  const ranked = [...pollScores.values()]
+    .filter(s => (s.weeklyCorrect || 0) > 0)
+    .sort((a, b) => (b.weeklyCorrect || 0) - (a.weeklyCorrect || 0) || (b.streak || 0) - (a.streak || 0));
+
+  const lines = [
+    ``,
+    `🏅  <b>WEEKLY POLL CHAMPION</b> — ${weekKey}`,
+    ``,
+  ];
+
+  if (ranked.length === 0) {
+    lines.push(`No correct predictions this week. New round starts Monday 12:00 UTC! 🗳`);
+  } else {
+    const top = ranked[0];
+    const tied = ranked.filter(r => (r.weeklyCorrect || 0) === (top.weeklyCorrect || 0));
+    if (tied.length === 1) {
+      lines.push(
+        `👑 <b>${top.firstName}</b> — ${top.weeklyCorrect}/5 correct`,
+        ``,
+        `Prize: <b>$50 USDC</b> 💰`,
+        ``,
+        `DM an admin with your <b>invested wallet address</b> on Arbitrum to claim. Wallet must have been active in a copy trade this week.`,
+      );
+    } else {
+      lines.push(
+        `It's a tie at <b>${top.weeklyCorrect}/5 correct</b>:`,
+        ...tied.map(t => `  • ${t.firstName}${t.streak >= 2 ? ` (🔥${t.streak})` : ''}`),
+        ``,
+        `Prize: <b>$50 USDC</b> split among tied winners 💰`,
+        ``,
+        `DM an admin with your <b>invested wallet address</b> to claim.`,
+      );
+    }
+    if (ranked.length > 1) {
+      lines.push(``, `<b>This week's leaderboard:</b>`);
+      const medals = ['🥇', '🥈', '🥉'];
+      ranked.slice(0, 5).forEach((s, i) => {
+        const medal = medals[i] || `  ${i + 1}.`;
+        lines.push(`${medal} ${s.firstName} — ${s.weeklyCorrect} correct`);
+      });
+    }
+  }
+
+  lines.push(``, `New week kicks off Monday 12:00 UTC. Good luck! 🍀`);
+  await sendTelegram(lines.join("\n"));
+  console.log(`[NEWS] Weekly winner posted for ${weekKey}`);
 }
 
 export function stopNewsAlerts() {
