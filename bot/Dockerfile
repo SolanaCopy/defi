@@ -7,4 +7,5 @@ COPY close-watcher.js .
 COPY telegram-images.js .
 COPY telegram-ai.js .
 COPY news-alerts.js .
+COPY poll-state.js .
 CMD ["node", "close-watcher.js"]
