@@ -1,4 +1,4 @@
-const CACHE_NAME = 'stc-v1';
+const CACHE_NAME = 'stc-v2';
 const PRECACHE = [
   '/',
   '/logo.png',
@@ -23,17 +23,27 @@ self.addEventListener('activate', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-  // Network first, fallback to cache
+  const req = e.request;
+
+  // Only handle same-origin GET requests. Let the browser handle everything
+  // else natively (RPC, CORS requests, chrome-extension, POST, etc.) —
+  // intercepting them breaks CORS and wallet providers.
+  if (req.method !== 'GET') return;
+
+  let url;
+  try { url = new URL(req.url); } catch { return; }
+  if (url.origin !== self.location.origin) return;
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return;
+
   e.respondWith(
-    fetch(e.request)
+    fetch(req)
       .then((res) => {
-        // Cache successful GET responses
-        if (e.request.method === 'GET' && res.status === 200) {
+        if (res && res.status === 200 && res.type === 'basic') {
           const clone = res.clone();
-          caches.open(CACHE_NAME).then((cache) => cache.put(e.request, clone));
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone)).catch(() => {});
         }
         return res;
       })
-      .catch(() => caches.match(e.request))
+      .catch(async () => (await caches.match(req)) || Response.error())
   );
 });
