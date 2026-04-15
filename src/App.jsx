@@ -525,7 +525,9 @@ function App() {
 
   // Update gold market status every 30s
   useEffect(() => {
-    const interval = setInterval(() => setMarketStatus(getGoldMarketStatus()), 30000);
+    const interval = setInterval(() => {
+      try { setMarketStatus(getGoldMarketStatus()); } catch (e) { console.error('marketStatus poll', e); }
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1368,7 +1370,9 @@ function App() {
   useEffect(() => {
     if (!account || !contractRef.current || !usdcRef.current) return;
     const interval = setInterval(() => {
-      loadData(contractRef.current, usdcRef.current, account);
+      if (!account || !contractRef.current || !usdcRef.current) return;
+      Promise.resolve(loadData(contractRef.current, usdcRef.current, account))
+        .catch(e => console.error('loadData poll', e));
     }, 15000);
     return () => clearInterval(interval);
   }, [account, loadData]);
