@@ -1424,10 +1424,11 @@ class CloseWatcher {
 
             // Settle with retry — USDC may not have arrived yet
             let settled = false;
+            let settleReceipt = null;
             for (let attempt = 1; attempt <= 3; attempt++) {
               try {
                 const stx = await this.copyTrader.settleSignal();
-                await stx.wait();
+                settleReceipt = await stx.wait();
                 log(`  Signal #${activeId} settled via safety net!`);
                 settled = true;
                 break;
@@ -1441,11 +1442,18 @@ class CloseWatcher {
             }
             if (!settled) { setTimeout(check, MONITOR_INTERVAL); return; } // retry in 30s
 
-            // Read result for notification
-            const vault = await this.copyTrader.signalVault(activeId);
+            // Authoritative values from the SignalSettled event — avoids stale RPC reads
+            // that previously made the bot post -100% when the chain had the correct PnL.
+            const settledEvt = settleReceipt?.logs
+              ?.map(l => { try { return this.copyTrader.interface.parseLog(l); } catch { return null; } })
+              ?.find(l => l?.name === "SignalSettled" && l.args.signalId.toString() === activeId.toString());
             const levNum = Number(signal.leverage) / 1000;
-            const poolIn = Number(vault.originalDeposited) / 1e6;
-            const poolOut = Number(vault.realizedReturned) / 1e6;
+            const poolIn = settledEvt ? Number(settledEvt.args.totalDeposited) / 1e6 : 0;
+            const poolOut = settledEvt ? Number(settledEvt.args.totalReturned) / 1e6 : 0;
+            if (!settledEvt) {
+              log(`  ⚠️ SignalSettled event missing from receipt — aborting notif to avoid wrong PnL`);
+              return;
+            }
             const pnlUsd = poolOut - poolIn;
             const pct = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 : 0;
             const win = pct >= 0;
@@ -1538,8 +1546,8 @@ class CloseWatcher {
         try {
           const tx = await this.copyTrader.settleSignal();
           log(`  settleSignal TX sent: ${tx.hash}`);
-          const receipt = await tx.wait();
-          log(`  TX confirmed in block ${receipt.blockNumber} — Signal #${activeId} settled!`);
+          var settleReceipt2 = await tx.wait();
+          log(`  TX confirmed in block ${settleReceipt2.blockNumber} — Signal #${activeId} settled!`);
           settled = true;
           break;
         } catch (settleErr) {
@@ -1557,10 +1565,17 @@ class CloseWatcher {
         return;
       }
 
-      // Read settled result for notification
-      const vault = await this.copyTrader.signalVault(activeId);
-      const poolIn = Number(vault.originalDeposited) / 1e6;
-      const poolOut = Number(vault.realizedReturned) / 1e6;
+      // Authoritative values from the SignalSettled event — avoids stale RPC reads
+      // that previously made the bot post -100% when the chain had the correct PnL.
+      const settledEvt = settleReceipt2?.logs
+        ?.map(l => { try { return this.copyTrader.interface.parseLog(l); } catch { return null; } })
+        ?.find(l => l?.name === "SignalSettled" && l.args.signalId.toString() === activeId.toString());
+      if (!settledEvt) {
+        log(`  ⚠️ SignalSettled event missing from receipt — aborting notif to avoid wrong PnL`);
+        return;
+      }
+      const poolIn = Number(settledEvt.args.totalDeposited) / 1e6;
+      const poolOut = Number(settledEvt.args.totalReturned) / 1e6;
       const pnlUsd = poolOut - poolIn;
       const resultPctRaw = poolIn > 0 ? ((poolOut - poolIn) / poolIn) * 100 : 0;
       const win = resultPctRaw >= 0;
