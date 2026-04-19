@@ -1031,15 +1031,15 @@ class CloseWatcher {
       const daysData = days.map(d => ({
         name: d.name,
         trades: d.trades,
-        volume: `$${d.volume.toFixed(0)}`,
         profit: d.trades > 0 ? `${d.resultPct >= 0 ? '+' : ''}${(d.resultPct / d.trades).toFixed(2)}%` : '—',
       }));
 
       const avgPct = (totalResultPct / totalTrades).toFixed(2);
+      const totalRetPct = Number(totalResultPct.toFixed(2));
 
       const img = await weeklyRecapImage({
         days: daysData,
-        totalVolume: `$${totalVolume.toFixed(0)}`,
+        totalTrades: String(totalTrades),
         totalProfit: `${totalResultPct >= 0 ? '+' : ''}${avgPct}%`,
         copiers: String(copierCount),
       });
@@ -1047,11 +1047,12 @@ class CloseWatcher {
       await sendTelegramPhoto(img, [
         `📊 <b>Weekly Recap — Mon to Fri</b>`,
         ``,
-        ...daysData.map(d => d.trades > 0 ? `${d.name}: <b>${d.profit}</b> (${d.trades} trades, ${d.volume})` : `${d.name}: No trades`),
+        ...daysData.map(d => d.trades > 0 ? `${d.name}: <b>${d.profit}</b> (${d.trades} trades)` : `${d.name}: No trades`),
         ``,
-        `📈 Avg result: <b>${totalResultPct >= 0 ? '+' : ''}${avgPct}%</b>`,
-        `💰 Volume: <b>$${totalVolume.toFixed(0)} USDC</b>`,
+        `📈 Avg result per trade: <b>${totalResultPct >= 0 ? '+' : ''}${avgPct}%</b>`,
+        `🎯 Total trades: <b>${totalTrades}</b>`,
         `👥 Copiers: <b>${copierCount}</b>`,
+        ...(totalRetPct > 0 ? [``, `💡 A copier making $100 trades gained ~<b>$${totalRetPct.toFixed(0)} USDC</b> this week.`] : []),
         ``,
         `See you next week! 🚀`,
       ].join("\n"), [BTN_APP, BTN_TG]);

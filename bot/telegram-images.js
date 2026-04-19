@@ -739,8 +739,8 @@ export async function dailySummaryImage({ trades, wins, losses, volume, profit, 
 }
 
 // ===== 9. WEEKLY RECAP IMAGE =====
-export async function weeklyRecapImage({ days, totalVolume, totalProfit, copiers }) {
-  // days = [{ name: 'MON', profit: '+5.20%', volume: '$320', trades: 3, win: true }, ...]
+export async function weeklyRecapImage({ days, totalTrades, totalProfit, copiers }) {
+  // days = [{ name: 'MON', profit: '+5.20%', trades: 3 }, ...]
   const h = 545;
 
   const svg = `
@@ -757,18 +757,17 @@ export async function weeklyRecapImage({ days, totalVolume, totalProfit, copiers
 
     <!-- Total stats bar -->
     ${card(60, 135, 680, 55, `${GOLD}33`)}
-    <text x="175" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">TOTAL VOLUME</text>
-    <text x="175" y="180" font-family="${FONT}" font-size="20" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(totalVolume)}</text>
-    <text x="400" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">PROFIT</text>
+    <text x="175" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">TRADES</text>
+    <text x="175" y="180" font-family="${FONT}" font-size="20" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(totalTrades)}</text>
+    <text x="400" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">AVG RESULT</text>
     <text x="400" y="180" font-family="${FONT}" font-size="20" fill="${String(totalProfit).includes('-') ? RED : GREEN}" font-weight="700" text-anchor="middle">${esc(totalProfit)}</text>
     <text x="625" y="158" font-family="${FONT}" font-size="10" fill="${WHITE}" opacity="0.7" font-weight="600" text-anchor="middle" letter-spacing="1">COPIERS</text>
     <text x="625" y="180" font-family="${FONT}" font-size="20" fill="url(#gold)" font-weight="700" text-anchor="middle">${esc(copiers)}</text>
 
     <!-- Column headers -->
-    <text x="90" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">DAY</text>
-    <text x="250" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">TRADES</text>
-    <text x="400" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">VOLUME</text>
-    <text x="560" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">RESULT</text>
+    <text x="110" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">DAY</text>
+    <text x="330" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">TRADES</text>
+    <text x="510" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">RESULT</text>
     <text x="680" y="218" font-family="${FONT}" font-size="10" fill="${WHITE}" letter-spacing="1.5" opacity="0.7" font-weight="600">STATUS</text>
     <line x1="60" y1="228" x2="740" y2="228" stroke="${WHITE}" stroke-width="0.5" opacity="0.1"/>
 
@@ -779,10 +778,9 @@ export async function weeklyRecapImage({ days, totalVolume, totalProfit, copiers
       const hasData = d.trades > 0;
       return `
         ${card(60, y - 20, 680, 48, hasData ? '#1C1C2C' : '#12121A')}
-        <text x="90" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${GOLD}" font-weight="700">${esc(d.name)}</text>
-        <text x="250" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${WHITE}" font-weight="600">${hasData ? d.trades : '—'}</text>
-        <text x="400" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${WHITE}" font-weight="600">${hasData ? esc(d.volume) : '—'}</text>
-        <text x="560" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${hasData ? profitColor : GRAY}" font-weight="700">${hasData ? esc(d.profit) : '—'}</text>
+        <text x="110" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${GOLD}" font-weight="700">${esc(d.name)}</text>
+        <text x="330" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${WHITE}" font-weight="600">${hasData ? d.trades : '—'}</text>
+        <text x="510" y="${y + 7}" font-family="${FONT}" font-size="15" fill="${hasData ? profitColor : GRAY}" font-weight="700">${hasData ? esc(d.profit) : '—'}</text>
         <text x="680" y="${y + 7}" font-family="${FONT}" font-size="13" fill="${hasData ? (String(d.profit).includes('-') ? RED : GREEN) : GRAY}" font-weight="600">${hasData ? (String(d.profit).includes('-') ? 'LOSS' : 'WIN') : '—'}</text>
       `;
     }).join('')}
