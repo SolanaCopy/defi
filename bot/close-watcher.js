@@ -777,10 +777,9 @@ class CloseWatcher {
       }
     });
 
-    // ── Fees withdrawn by admin ──
+    // ── Fees withdrawn by admin ── (silent — no Telegram notif)
     contract.on("FeesWithdrawn", async (amount) => {
       log(`FeesWithdrawn: $${formatUSDC(amount)}`);
-      await sendTelegram(`💎 <b>Platform Fees Collected</b>\n\nAmount: <b>$${formatUSDC(amount)} USDC</b>`);
     });
 
     // ── Track known copiers + amounts to avoid duplicate notifications ──
