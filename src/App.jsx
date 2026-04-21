@@ -867,18 +867,23 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history — ALL signals (parallel fetch to stay fast)
+      // Signal history — ALL signals, batched to avoid public-RPC rate limits
       try {
         const total = Number(count);
-        const ids = [];
-        for (let i = total; i >= 1; i--) ids.push(i);
-        const histArr = await Promise.all(ids.map(async (i) => {
-          const [core, vault] = await Promise.all([
-            publicContract.signalCore(i),
-            publicContract.signalVault(i),
-          ]);
-          return parseSignal(i, core, vault);
-        }));
+        const BATCH = 8;
+        const histArr = [];
+        for (let batchStart = total; batchStart >= 1; batchStart -= BATCH) {
+          const batch = [];
+          for (let i = batchStart; i > batchStart - BATCH && i >= 1; i--) batch.push(i);
+          const batchResults = await Promise.all(batch.map(async (i) => {
+            const [core, vault] = await Promise.all([
+              publicContract.signalCore(i),
+              publicContract.signalVault(i),
+            ]);
+            return parseSignal(i, core, vault);
+          }));
+          histArr.push(...batchResults);
+        }
         setSignalHistory(histArr);
       } catch {
         // keep existing
