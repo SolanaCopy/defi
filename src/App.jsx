@@ -1201,19 +1201,26 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history (last 20)
+      // Signal history — ALL signals, batched to survive mobile/flaky RPC
       try {
         const total = Number(count);
+        const BATCH = 8;
         const histArr = [];
-        const start = Math.max(1, total - 19);
-        for (let i = total; i >= start; i--) {
-          const core = await contract.signalCore(i);
-          const vault = await contract.signalVault(i);
-          histArr.push(parseSignal(i, core, vault));
+        for (let batchStart = total; batchStart >= 1; batchStart -= BATCH) {
+          const batch = [];
+          for (let i = batchStart; i > batchStart - BATCH && i >= 1; i--) batch.push(i);
+          const batchResults = await Promise.all(batch.map(async (i) => {
+            const [core, vault] = await Promise.all([
+              contract.signalCore(i),
+              contract.signalVault(i),
+            ]);
+            return parseSignal(i, core, vault);
+          }));
+          histArr.push(...batchResults);
         }
         setSignalHistory(histArr);
       } catch {
-        setSignalHistory([]);
+        // Keep previous history on failure — don't wipe to 0s
       }
 
       // Active volume = sum of all enabled auto-copy amounts (what goes into next trade)
