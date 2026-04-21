@@ -781,7 +781,23 @@ function App() {
   // Load public data (no wallet needed) — for Results page & homepage stats
   const loadPublicData = useCallback(async () => {
     try {
-      const publicProvider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+      // Try multiple public RPCs — arb1.arbitrum.io is heavily rate-limited on mobile
+      const RPC_ENDPOINTS = [
+        "https://arbitrum-one.publicnode.com",
+        "https://arb-mainnet.public.blastapi.io",
+        "https://arbitrum.llamarpc.com",
+        "https://arb1.arbitrum.io/rpc",
+      ];
+      let publicProvider = null;
+      for (const rpc of RPC_ENDPOINTS) {
+        try {
+          const prov = new ethers.JsonRpcProvider(rpc);
+          await prov.getBlockNumber(); // quick health check
+          publicProvider = prov;
+          break;
+        } catch { /* try next */ }
+      }
+      if (!publicProvider) publicProvider = new ethers.JsonRpcProvider(RPC_ENDPOINTS[RPC_ENDPOINTS.length - 1]);
       const publicContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, publicProvider);
 
       const count = await publicContract.signalCount();
@@ -867,7 +883,7 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history — ALL signals, batched to avoid public-RPC rate limits
+      // Signal history — ALL signals, batched + per-call fault-tolerant
       try {
         const total = Number(count);
         const BATCH = 8;
@@ -876,15 +892,19 @@ function App() {
           const batch = [];
           for (let i = batchStart; i > batchStart - BATCH && i >= 1; i--) batch.push(i);
           const batchResults = await Promise.all(batch.map(async (i) => {
-            const [core, vault] = await Promise.all([
-              publicContract.signalCore(i),
-              publicContract.signalVault(i),
-            ]);
-            return parseSignal(i, core, vault);
+            try {
+              const [core, vault] = await Promise.all([
+                publicContract.signalCore(i),
+                publicContract.signalVault(i),
+              ]);
+              return parseSignal(i, core, vault);
+            } catch {
+              return null; // skip this one — don't kill the batch
+            }
           }));
-          histArr.push(...batchResults);
+          for (const r of batchResults) if (r) histArr.push(r);
         }
-        setSignalHistory(histArr);
+        if (histArr.length > 0) setSignalHistory(histArr);
       } catch {
         // keep existing
       }
@@ -1201,7 +1221,7 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history — ALL signals, batched to survive mobile/flaky RPC
+      // Signal history — ALL signals, batched + per-call fault-tolerant
       try {
         const total = Number(count);
         const BATCH = 8;
@@ -1210,15 +1230,19 @@ function App() {
           const batch = [];
           for (let i = batchStart; i > batchStart - BATCH && i >= 1; i--) batch.push(i);
           const batchResults = await Promise.all(batch.map(async (i) => {
-            const [core, vault] = await Promise.all([
-              contract.signalCore(i),
-              contract.signalVault(i),
-            ]);
-            return parseSignal(i, core, vault);
+            try {
+              const [core, vault] = await Promise.all([
+                contract.signalCore(i),
+                contract.signalVault(i),
+              ]);
+              return parseSignal(i, core, vault);
+            } catch {
+              return null;
+            }
           }));
-          histArr.push(...batchResults);
+          for (const r of batchResults) if (r) histArr.push(r);
         }
-        setSignalHistory(histArr);
+        if (histArr.length > 0) setSignalHistory(histArr);
       } catch {
         // Keep previous history on failure — don't wipe to 0s
       }
