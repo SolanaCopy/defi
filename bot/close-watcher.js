@@ -291,39 +291,54 @@ class CloseWatcher {
   }
 
   // Runs a full auto-copy round for the given signalId. Idempotent: users already
-  // deposited are skipped. Safe to call from multiple paths (SignalPosted handler
-  // and trade-monitor retry) — guarantees every eligible user is in before openTrade.
+  // deposited are skipped. Retries failed-but-eligible users up to 2 extra times
+  // so transient RPC errors or nonce conflicts don't drop users from the pool.
   async runAutoCopyRound(signalId) {
     this.autoCopyInProgress = true;
     try {
       const users = await this.copyTrader.getAutoCopyUsers();
-      let nonce = await this.wallet.getNonce();
-      for (const user of users) {
-        try {
-          const config = await this.copyTrader.autoCopy(user);
-          if (!config.enabled) continue;
-          const amount = Number(config.amount) / 1e6;
+      const MAX_PASSES = 3;
 
-          // Skip if user already deposited for this signal (idempotency)
-          const pos = await this.copyTrader.positions(user, signalId);
-          if (Number(pos.deposit) > 0) continue;
+      for (let pass = 1; pass <= MAX_PASSES; pass++) {
+        let nonce = await this.wallet.getNonce();
+        const failures = [];
 
-          // Skip if user wallet balance too low
-          const userBal = await this.usdc.balanceOf(user);
-          const balNum = Number(userBal) / 1e6;
-          if (balNum < amount) {
-            log(`Auto-copy skip ${shortAddr(user)}: balance $${balNum.toFixed(2)} < $${amount.toFixed(2)}`);
-            continue;
+        for (const user of users) {
+          try {
+            const config = await this.copyTrader.autoCopy(user);
+            if (!config.enabled) continue;
+            const amount = Number(config.amount) / 1e6;
+
+            const pos = await this.copyTrader.positions(user, signalId);
+            if (Number(pos.deposit) > 0) continue; // already in
+
+            const userBal = await this.usdc.balanceOf(user);
+            const balNum = Number(userBal) / 1e6;
+            if (balNum < amount) {
+              if (pass === 1) log(`Auto-copy skip ${shortAddr(user)}: balance $${balNum.toFixed(2)} < $${amount.toFixed(2)}`);
+              continue; // genuinely can't copy — don't retry
+            }
+
+            if (pass > 1) log(`Auto-copy RETRY (pass ${pass}) for ${shortAddr(user)} ($${amount})...`);
+            else log(`Auto-copy for ${shortAddr(user)} ($${amount})...`);
+            const tx = await this.copyTrader.executeCopyFor(user, signalId, { nonce });
+            nonce++;
+            await tx.wait();
+            log(`Auto-copied for ${shortAddr(user)}`);
+          } catch (err) {
+            const reason = err.reason || err.message?.substring(0, 60) || 'unknown';
+            log(`Auto-copy skip ${shortAddr(user)} (pass ${pass}): ${reason}`);
+            failures.push(user);
+            try { nonce = await this.wallet.getNonce(); } catch {}
           }
+        }
 
-          log(`Auto-copy for ${shortAddr(user)} ($${amount})...`);
-          const tx = await this.copyTrader.executeCopyFor(user, signalId, { nonce });
-          nonce++;
-          await tx.wait();
-          log(`Auto-copied for ${shortAddr(user)}`);
-        } catch (err) {
-          log(`Auto-copy skip ${shortAddr(user)}: ${err.reason || err.message?.substring(0, 60)}`);
-          try { nonce = await this.wallet.getNonce(); } catch {}
+        if (failures.length === 0) break; // everyone eligible is in
+        if (pass < MAX_PASSES) {
+          log(`${failures.length} user(s) failed on pass ${pass} — retrying in 3s...`);
+          await new Promise(r => setTimeout(r, 3000));
+        } else {
+          log(`WARN: ${failures.length} eligible user(s) still missing after ${MAX_PASSES} passes: ${failures.map(shortAddr).join(', ')}`);
         }
       }
     } catch (err) {
