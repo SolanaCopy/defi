@@ -867,16 +867,18 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history (last 20)
+      // Signal history — ALL signals (parallel fetch to stay fast)
       try {
         const total = Number(count);
-        const histArr = [];
-        const start = Math.max(1, total - 19);
-        for (let i = total; i >= start; i--) {
-          const core = await publicContract.signalCore(i);
-          const vault = await publicContract.signalVault(i);
-          histArr.push(parseSignal(i, core, vault));
-        }
+        const ids = [];
+        for (let i = total; i >= 1; i--) ids.push(i);
+        const histArr = await Promise.all(ids.map(async (i) => {
+          const [core, vault] = await Promise.all([
+            publicContract.signalCore(i),
+            publicContract.signalVault(i),
+          ]);
+          return parseSignal(i, core, vault);
+        }));
         setSignalHistory(histArr);
       } catch {
         // keep existing
