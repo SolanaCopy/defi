@@ -45,7 +45,16 @@ async function fetchForexCalendar() {
   try {
     const res = await fetch("https://nfs.faireconomy.media/ff_calendar_thisweek.json", {
       signal: AbortSignal.timeout(10000),
+      headers: {
+        "User-Agent": "Mozilla/5.0 (compatible; SmartTradingClubBot/1.0)",
+        "Accept": "application/json",
+      },
     });
+    const contentType = res.headers.get("content-type") || "";
+    if (!contentType.includes("application/json")) {
+      console.error(`[NEWS] Non-JSON response (status ${res.status}, type ${contentType.slice(0,40)}) — likely Cloudflare challenge; skipping this cycle`);
+      return [];
+    }
     const data = await res.json();
 
     // Filter: USD only, High impact only
