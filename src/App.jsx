@@ -834,19 +834,9 @@ function App() {
             resultPct = BigInt(Math.round(-Number((effectiveDeposited - fixedReturned) * 10000n / effectiveDeposited)));
           }
         }
-        // tradePct: pure price movement × leverage (like live terminal, before gTrade fees)
-        let tradePct = 0;
-        if (closed && Number(core[2]) > 0n) {
-          const entry = Number(core[2]) / 1e10;
-          const lev = Number(core[5]) / 1000;
-          const isWin = Number(resultPct) > 0;
-          const closePrice = isWin ? Number(core[3]) / 1e10 : Number(core[4]) / 1e10;
-          const pctMove = ((closePrice - entry) / entry) * 100 * (core[0] ? 1 : -1);
-          tradePct = pctMove * lev;
-          // If trade didn't close at TP (e.g. manual close), tradePct is way off — fall back to on-chain
-          const onChainPct = Number(resultPct) / 100;
-          if (isWin && tradePct > onChainPct * 5) tradePct = onChainPct;
-        }
+        // tradePct = ACTUAL on-chain PnL % (realizedReturned vs originalDeposited)
+        // Reflects real gTrade fees + execution slippage, not idealized TP/SL hit prices
+        const tradePct = closed ? Number(resultPct) / 100 : 0;
         return {
           id: Number(id),
           long: core[0],
@@ -1172,19 +1162,9 @@ function App() {
             resultPct = BigInt(Math.round(-Number((effectiveDeposited - fixedReturned) * 10000n / effectiveDeposited)));
           }
         }
-        // tradePct: pure price movement × leverage (like live terminal, before gTrade fees)
-        let tradePct = 0;
-        if (closed && Number(core[2]) > 0n) {
-          const entry = Number(core[2]) / 1e10;
-          const lev = Number(core[5]) / 1000;
-          const isWin = Number(resultPct) > 0;
-          const closePrice = isWin ? Number(core[3]) / 1e10 : Number(core[4]) / 1e10;
-          const pctMove = ((closePrice - entry) / entry) * 100 * (core[0] ? 1 : -1);
-          tradePct = pctMove * lev;
-          // If trade didn't close at TP (e.g. manual close), tradePct is way off — fall back to on-chain
-          const onChainPct = Number(resultPct) / 100;
-          if (isWin && tradePct > onChainPct * 5) tradePct = onChainPct;
-        }
+        // tradePct = ACTUAL on-chain PnL % (realizedReturned vs originalDeposited)
+        // Reflects real gTrade fees + execution slippage, not idealized TP/SL hit prices
+        const tradePct = closed ? Number(resultPct) / 100 : 0;
         return {
           id: Number(id),
           long: core[0],
