@@ -763,23 +763,36 @@ class CloseWatcher {
         }
       }
 
-      // ── Auto-claim for all users with positions ──
+      // ── Auto-claim for all users with positions (3-pass retry) ──
       try {
         const users = await this.copyTrader.getAutoCopyUsers();
-        let nonce = await this.wallet.getNonce();
-        for (const user of users) {
-          try {
-            const pos = await this.copyTrader.positions(user, signalId);
-            if (pos.deposit > 0n && !pos.claimed) {
-              log(`  Auto-claiming for ${shortAddr(user)} on signal #${signalId}...`);
-              const tx = await this.copyTrader.claimFor(user, signalId, { nonce });
-              nonce++;
-              await tx.wait();
-              log(`  ✅ Claimed for ${shortAddr(user)}`);
+        const MAX_PASSES = 3;
+        for (let pass = 1; pass <= MAX_PASSES; pass++) {
+          let nonce = await this.wallet.getNonce();
+          const failures = [];
+          for (const user of users) {
+            try {
+              const pos = await this.copyTrader.positions(user, signalId);
+              if (pos.deposit > 0n && !pos.claimed) {
+                if (pass > 1) log(`  Auto-claim RETRY (pass ${pass}) for ${shortAddr(user)} on #${signalId}...`);
+                else log(`  Auto-claiming for ${shortAddr(user)} on signal #${signalId}...`);
+                const tx = await this.copyTrader.claimFor(user, signalId, { nonce });
+                nonce++;
+                await tx.wait();
+                log(`  ✅ Claimed for ${shortAddr(user)}`);
+              }
+            } catch (err) {
+              log(`  ⚠️ claimFor ${shortAddr(user)} (pass ${pass}) failed: ${err.message?.slice(0, 100)}`);
+              failures.push(user);
+              try { nonce = await this.wallet.getNonce(); } catch {}
             }
-          } catch (err) {
-            log(`  ⚠️ claimFor ${shortAddr(user)} failed: ${err.message?.slice(0, 100)}`);
-            try { nonce = await this.wallet.getNonce(); } catch {}
+          }
+          if (failures.length === 0) break;
+          if (pass < MAX_PASSES) {
+            log(`  ${failures.length} claim(s) failed pass ${pass} — retrying in 3s...`);
+            await new Promise(r => setTimeout(r, 3000));
+          } else {
+            log(`  WARN: ${failures.length} claim(s) still missing after ${MAX_PASSES} passes: ${failures.map(shortAddr).join(', ')}`);
           }
         }
         log(`  Auto-claim complete for signal #${signalId}`);
