@@ -471,8 +471,9 @@ class CloseWatcher {
 
         const lev = Number(leverage) / 1000;
         const posSize = (deposited / 1e6) * lev;
-        if (posSize < 3000) {
-          log(`Position size $${posSize.toFixed(0)} under $3000 minimum — cannot open`);
+        // gTrade's current XAU/USD min position is $800 — old $3000 check was stale
+        if (posSize < 800) {
+          log(`Position size $${posSize.toFixed(0)} under $800 minimum — cannot open`);
           return;
         }
 
