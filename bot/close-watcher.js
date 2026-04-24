@@ -119,19 +119,24 @@ function logError(msg, err) {
 }
 
 // ===== TELEGRAM =====
-async function sendTelegram(text) {
+async function sendTelegram(text, buttons = []) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
+    const body = {
+      chat_id: TELEGRAM_CHAT_ID,
+      text,
+      parse_mode: "HTML",
+      disable_web_page_preview: true,
+    };
+    if (buttons.length > 0) {
+      const rows = Array.isArray(buttons[0]) ? buttons : [buttons];
+      body.reply_markup = { inline_keyboard: rows };
+    }
     const res = await fetch(url, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: TELEGRAM_CHAT_ID,
-        text,
-        parse_mode: "HTML",
-        disable_web_page_preview: true,
-      }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const err = await res.text();
@@ -923,87 +928,95 @@ class CloseWatcher {
     try {
       const contract = this.copyTrader;
       const total = Number(await contract.signalCount());
-      const now = Math.floor(Date.now() / 1000);
       const utcNow = new Date();
       const utcMidnight = Math.floor(Date.UTC(utcNow.getUTCFullYear(), utcNow.getUTCMonth(), utcNow.getUTCDate()) / 1000);
 
-      let trades = 0, wins = 0, losses = 0, volume = 0;
-      let totalTradePct = 0;
-
+      // Collect today's settled signals
+      const todaySignals = [];
       for (let i = total; i >= 1; i--) {
         const meta = await contract.signalVault(i);
         const closedAt = Number(meta.closedAt);
-
-        // EARLY EXIT: signals are sequential, so if we go past midnight, all earlier are too
         if (closedAt > 0 && closedAt < utcMidnight) break;
-
         const core = await contract.signalCore(i);
         const dep = Number(meta.originalDeposited);
         const ret = Number(meta.realizedReturned);
-
-        // Skip if not settled (enum: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED)
         if (Number(core.phase) !== 3) continue;
         if (dep === 0 || ret === 0) continue;
-        if (dep === ret) continue; // cancelled / full refund
-
-        // Use closedAt if available, otherwise use timestamp as fallback
+        if (dep === ret) continue;
         const tradeTime = closedAt > 0 ? closedAt : Number(meta.timestamp);
         if (tradeTime < utcMidnight) continue;
-
-        trades++;
-        // Calculate tradePct (price × leverage) like the terminal
-        const entry = Number(core.entryPrice) / 1e10;
-        const tp = Number(core.tp) / 1e10;
-        const sl = Number(core.sl) / 1e10;
-        const lev = Number(core.leverage) / 1000;
-        const isWin = ret > dep;
-        const closePrice = isWin ? tp : sl;
-        const pctMove = ((closePrice - entry) / entry) * 100 * (core.long ? 1 : -1);
-        const tradePct = pctMove * lev;
-
-        totalTradePct += tradePct;
-        if (tradePct > 0) wins++;
-        else losses++;
-        volume += dep / 1e6;
+        const poolPct = ((ret - dep) / dep) * 100;
+        todaySignals.push({ id: i, long: core.long, isWin: ret > dep, pct: poolPct });
       }
 
-      const copierCount = Number(await contract.getAutoCopyUserCount());
-      const dayProfitPct = trades > 0 ? totalTradePct.toFixed(1) : "0.0";
-
-      // Calculate active auto-copy volume (USDC ready to copy next signal)
-      let activeCopyVolume = 0;
-      try {
-        const users = await contract.getAutoCopyUsers();
-        for (const u of users) {
-          const config = await contract.autoCopy(u);
-          if (config.enabled) activeCopyVolume += Number(config.amount) / 1e6;
-        }
-      } catch {}
-
-      if (trades === 0) {
+      if (todaySignals.length === 0) {
         log("Daily summary: no trades today, skipping");
         return;
       }
+      todaySignals.sort((a, b) => a.id - b.id);
 
-      const img = await dailySummaryImage({
-        trades: String(trades),
-        wins: String(wins),
-        losses: String(losses),
-        volume: Math.round(activeCopyVolume).toString(),
-        profit: `${totalTradePct >= 0 ? '+' : ''}${dayProfitPct}%`,
-        copiers: String(copierCount),
-      });
+      const wins = todaySignals.filter(s => s.isWin).length;
+      const losses = todaySignals.filter(s => !s.isWin).length;
+      const trades = todaySignals.length;
+      const winRate = Math.round((wins / trades) * 100);
 
-      await sendTelegramPhoto(img, [
-        `📊 <b>Daily Recap</b> (00:00 — 00:00 UTC)`,
+      // Per-copier totals across today's signals
+      const users = await contract.getAutoCopyUsers();
+      const perCopier = [];
+      let communityProfit = 0;
+      for (const u of users) {
+        let totalIn = 0n, totalOut = 0n, w = 0, l = 0;
+        for (const sig of todaySignals) {
+          const pos = await contract.positions(u, sig.id);
+          if (pos.deposit === 0n) continue;
+          totalIn += pos.deposit;
+          totalOut += pos.paidOut;
+          if (sig.isWin) w++; else l++;
+        }
+        if (totalIn === 0n) continue;
+        const inF = Number(totalIn) / 1e6;
+        const outF = Number(totalOut) / 1e6;
+        const profit = outF - inF;
+        const pctRoi = (profit / inF) * 100;
+        communityProfit += profit;
+        perCopier.push({ addr: u, inF, outF, profit, pctRoi, w, l });
+      }
+      perCopier.sort((a, b) => b.profit - a.profit);
+
+      const short = (a) => `${a.slice(0, 6)}...${a.slice(-4)}`;
+      const sign = (n) => n >= 0 ? "+" : "";
+      const dateStr = `${utcNow.getUTCDate()} ${["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][utcNow.getUTCMonth()]} ${utcNow.getUTCFullYear()}`;
+
+      const lines = [
+        `📊 <b>Daily Recap — ${dateStr}</b>`,
         ``,
-        `📈 Trades: <b>${trades}</b> (${wins}W / ${losses}L)`,
-        `🎯 Performance: <b>${totalTradePct >= 0 ? '+' : ''}${dayProfitPct}%</b>`,
-        `💰 Active copying: <b>$${Math.round(activeCopyVolume)} USDC</b>`,
-        `👥 Copiers: <b>${copierCount}</b>`,
-      ].join("\n"), [BTN_APP, BTN_TG]);
+        `━━━━━━━━━━━━━━━━━━━`,
+        `<b>Team performance:</b> ${wins}W / ${losses}L (${winRate}%)`,
+        `<b>Community net profit:</b> ${sign(communityProfit)}$${communityProfit.toFixed(2)}`,
+        `━━━━━━━━━━━━━━━━━━━`,
+        ``,
+        `🏆 <b>Copiers</b>`,
+        ``,
+      ];
+      for (const c of perCopier) {
+        const star = c.l === 0 && c.w > 0 ? " ⭐" : "";
+        lines.push(`<code>${short(c.addr)}</code> → <b>${sign(c.profit)}$${c.profit.toFixed(2)}</b> (${sign(c.pctRoi)}${c.pctRoi.toFixed(1)}%) · ${c.w}W ${c.l}L${star}`);
+      }
+      lines.push(``);
+      lines.push(`━━━━━━━━━━━━━━━━━━━`);
+      lines.push(`<b>${trades} signal${trades !== 1 ? "s" : ""} today</b> · XAU/USD @ 30x`);
+      for (const s of todaySignals) {
+        const dir = s.long ? "LONG" : "SHORT";
+        const emoji = s.isWin ? "🟢" : "🔴";
+        lines.push(`${emoji} #${s.id} ${dir} ${sign(s.pct)}${s.pct.toFixed(1)}%`);
+      }
+      if (losses === 0 && wins > 0) {
+        lines.push(``);
+        lines.push(`Everyone ended <b>green</b> today 🟩 Great risk management 💪`);
+      }
 
-      log(`Daily summary sent: ${trades} trades, $${Math.round(activeCopyVolume)} active copying`);
+      await sendTelegram(lines.join("\n"), [BTN_APP, BTN_TG]);
+      log(`Daily summary sent: ${trades} trades, ${wins}W/${losses}L, community ${sign(communityProfit)}$${communityProfit.toFixed(2)}`);
     } catch (err) {
       log(`Daily summary error: ${err.message}`);
     }
