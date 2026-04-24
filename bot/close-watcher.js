@@ -990,10 +990,10 @@ class CloseWatcher {
       const lines = [
         `📊 <b>Daily Recap — ${dateStr}</b>`,
         ``,
-        `━━━━━━━━━━━━━━━━━━━`,
+        `━━━━━━━━━━━━━━━`,
         `<b>Team performance:</b> ${wins}W / ${losses}L (${winRate}%)`,
         `<b>Community net profit:</b> ${sign(communityProfit)}$${communityProfit.toFixed(2)}`,
-        `━━━━━━━━━━━━━━━━━━━`,
+        `━━━━━━━━━━━━━━━`,
         ``,
         `🏆 <b>Copiers</b>`,
         ``,
@@ -1003,7 +1003,7 @@ class CloseWatcher {
         lines.push(`<code>${short(c.addr)}</code> → <b>${sign(c.profit)}$${c.profit.toFixed(2)}</b> (${sign(c.pctRoi)}${c.pctRoi.toFixed(1)}%) · ${c.w}W ${c.l}L${star}`);
       }
       lines.push(``);
-      lines.push(`━━━━━━━━━━━━━━━━━━━`);
+      lines.push(`━━━━━━━━━━━━━━━`);
       lines.push(`<b>${trades} signal${trades !== 1 ? "s" : ""} today</b> · XAU/USD @ 30x`);
       for (const s of todaySignals) {
         const dir = s.long ? "LONG" : "SHORT";
