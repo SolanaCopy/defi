@@ -261,6 +261,25 @@ function getRandomLossMessage() {
   return LOSS_MESSAGES[Math.floor(Math.random() * LOSS_MESSAGES.length)];
 }
 
+const MANUAL_CLOSE_WIN_MESSAGES = [
+  "We chose to close this one early — securing profit while it was there.",
+  "Closed early on our terms. Green is green.",
+  "Exited ahead of TP — taking the win and moving on.",
+  "Manual close — when the setup changes, we adapt.",
+  "We decided to lock in profit now rather than wait for TP.",
+];
+const MANUAL_CLOSE_LOSS_MESSAGES = [
+  "We chose to close this one early — protecting the pool before SL.",
+  "Closed early by choice. Discipline over hope.",
+  "Cut the position short. Capital preservation first.",
+  "Manual close — we adapt when the setup no longer fits.",
+  "Exited early to minimize downside. Next setup loading.",
+];
+function getRandomManualCloseMessage(win) {
+  const arr = win ? MANUAL_CLOSE_WIN_MESSAGES : MANUAL_CLOSE_LOSS_MESSAGES;
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
 const LINE = "";
 const WEBSITE = "https://www.smarttradingclub.io";
 const BTN_COPY = { text: "💰 Copy Now", url: `${WEBSITE}?tab=dashboard` };
@@ -725,6 +744,7 @@ class CloseWatcher {
     }).catch(() => {});
 
     this.autoClosedSignals = new Set(); // Track signals closed by auto-close to prevent duplicate notifications
+    this.manualClosedSignals = new Set(); // Track signals closed via admin closeTrade() — different message
 
     contract.on("SignalSettled", async (signalId, totalDeposited, totalReturned, resultPct) => {
       // Stop live PnL loop — event means trade is closed on-chain
@@ -773,14 +793,20 @@ class CloseWatcher {
           const poolIn = Number(totalDeposited) / 1e6;
           const poolOut = Number(totalReturned) / 1e6;
           const pnlUsd = poolOut - poolIn;
+          const wasManual = this.manualClosedSignals.has(Number(signalId));
+          this.manualClosedSignals.delete(Number(signalId));
+          const header = wasManual
+            ? `✋ <b>Signal #${signalId} Closed Early — ${win ? "Profit" : "Loss"}</b>`
+            : (win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`);
           const lines = [
-            win ? `✅ <b>Signal #${signalId} Closed — Profit</b>` : `❌ <b>Signal #${signalId} Closed — Loss</b>`,
+            header,
             ``,
             `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
             `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
             `💰 Copied: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
           ];
-          lines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
+          const settledMsg = wasManual ? getRandomManualCloseMessage(win) : (win ? getRandomWinMessage() : getRandomLossMessage());
+          lines.push(``, `💬 <i>${settledMsg}</i>`);
           await sendTelegramPhoto(img, lines.join("\n"), win ? [BTN_CLAIM, BTN_APP] : [BTN_APP, BTN_TG]);
         }
 
@@ -1484,9 +1510,10 @@ class CloseWatcher {
             try {
               const safetyVault = await this.copyTrader.signalVault(activeId);
               if (safetyVault.closePending) {
+                this.manualClosedSignals.add(Number(activeId));
                 const confirmTx = await this.copyTrader.confirmClose();
                 await confirmTx.wait();
-                log(`  confirmClose confirmed`);
+                log(`  confirmClose confirmed (manual close)`);
               } else {
                 log(`  closePending=false — skipping confirmClose`);
               }
@@ -1540,7 +1567,13 @@ class CloseWatcher {
               `📊 Result: <b>${win ? "+" : ""}${pct.toFixed(1)}%</b> on collateral`,
               `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
             ];
-            autoCloseLines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
+            const wasManual = this.manualClosedSignals.has(Number(activeId));
+            this.manualClosedSignals.delete(Number(activeId));
+            autoCloseLines[0] = wasManual
+              ? `✋ <b>Signal #${activeId} Closed Early</b>`
+              : `⚡ <b>Auto-Close Signal #${activeId}</b>`;
+            const msg = wasManual ? getRandomManualCloseMessage(win) : (win ? getRandomWinMessage() : getRandomLossMessage());
+            autoCloseLines.push(``, `💬 <i>${msg}</i>`);
             await sendTelegramPhoto(img, autoCloseLines.join("\n"), [
               win ? BTN_CLAIM : BTN_APP,
             ]);
@@ -1602,9 +1635,10 @@ class CloseWatcher {
       try {
         const vault = await this.copyTrader.signalVault(activeId);
         if (vault.closePending) {
+          this.manualClosedSignals.add(Number(activeId));
           const confirmTx = await this.copyTrader.confirmClose();
           await confirmTx.wait();
-          log(`  confirmClose confirmed`);
+          log(`  confirmClose confirmed (manual close)`);
         } else {
           log(`  closePending=false (gTrade auto-closed) — skipping confirmClose`);
         }
@@ -1657,14 +1691,17 @@ class CloseWatcher {
       const img = await autoCloseImage({
         signalId: String(activeId), direction: dir, leverage: lev, resultPct: resultPctRaw,
       });
+      const wasManual = this.manualClosedSignals.has(Number(activeId));
+      this.manualClosedSignals.delete(Number(activeId));
       const closeLines = [
-        `⚡ <b>Auto-Close Signal #${activeId}</b>`,
+        wasManual ? `✋ <b>Signal #${activeId} Closed Early</b>` : `⚡ <b>Auto-Close Signal #${activeId}</b>`,
         ``,
         `📊 Result: <b>${win ? "+" : ""}${resultPctRaw.toFixed(1)}%</b> on collateral`,
         `💵 PnL: <b>${pnlUsd >= 0 ? "+" : ""}$${pnlUsd.toFixed(2)} USDC</b>`,
         `💰 Copied: $${poolIn.toFixed(0)} → $${poolOut.toFixed(0)} USDC`,
       ];
-      closeLines.push(``, `💬 <i>${win ? getRandomWinMessage() : getRandomLossMessage()}</i>`);
+      const closeMsg = wasManual ? getRandomManualCloseMessage(win) : (win ? getRandomWinMessage() : getRandomLossMessage());
+      closeLines.push(``, `💬 <i>${closeMsg}</i>`);
       await sendTelegramPhoto(img, closeLines.join("\n"), [
         win ? { text: "🏆 Claim Profits", url: WEBSITE } : { text: "🚀 Open App", url: WEBSITE },
         { text: "🔗 View TX", url: `${ARBISCAN_TX}${tx.hash}` },
