@@ -13,6 +13,7 @@ import { createClient } from "@supabase/supabase-js";
 import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImage, botOnlineImage, newCopierImage, dailySummaryImage, weeklyRecapImage, milestoneImage, winStreakImage } from "./telegram-images.js";
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
+import { startLivePnl, stopLivePnl, resumeLivePnl } from "./live-pnl.js";
 
 // ===== CONFIG =====
 const {
@@ -142,30 +143,34 @@ async function sendTelegram(text) {
 }
 
 async function sendTelegramPhoto(pngBuffer, caption = "", buttons = []) {
-  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return null;
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
     const file = new File([pngBuffer], "notification.png", { type: "image/png" });
     const form = new FormData();
     form.append("chat_id", TELEGRAM_CHAT_ID);
     form.append("photo", file);
+    let replyMarkup = null;
     if (caption) {
       form.append("caption", caption);
       form.append("parse_mode", "HTML");
     }
     if (buttons.length > 0) {
       const rows = Array.isArray(buttons[0]) ? buttons : [buttons];
-      form.append("reply_markup", JSON.stringify({
-        inline_keyboard: rows,
-      }));
+      replyMarkup = { inline_keyboard: rows };
+      form.append("reply_markup", JSON.stringify(replyMarkup));
     }
     const res = await fetch(url, { method: "POST", body: form });
     if (!res.ok) {
       const err = await res.text();
       logError("Telegram photo failed", err);
+      return null;
     }
+    const data = await res.json();
+    return { messageId: data.result?.message_id, replyMarkup };
   } catch (err) {
     logError("Telegram photo error", err);
+    return null;
   }
 }
 
@@ -400,6 +405,13 @@ class CloseWatcher {
     // Listen for contract events (deposits, claims, signals)
     this.listenContractEvents();
 
+    // Resume any live-PnL loops that were running before a restart
+    resumeLivePnl({
+      botToken: TELEGRAM_BOT_TOKEN,
+      chatId: TELEGRAM_CHAT_ID,
+      copyTrader: this.copyTrader,
+    }).catch((e) => logError("resumeLivePnl", e));
+
     // Start AI assistant (answers questions in Telegram)
     startTelegramAI();
 
@@ -600,7 +612,7 @@ class CloseWatcher {
         entry: realEntry.toFixed(2), tp: formatPrice(core.tp), sl: formatPrice(core.sl),
       });
 
-      await sendTelegramPhoto(img, [
+      const sent = await sendTelegramPhoto(img, [
         `📡 <b>Trade Opened #${signalId}</b>`,
         ``,
         `${long ? "🟢" : "🔴"} <b>${dir}</b> · XAU/USD · <b>${lev}</b>`,
@@ -612,6 +624,23 @@ class CloseWatcher {
         ``,
         `💎 Copy now to join this trade`,
       ].join("\n"), [[BTN_LIVE_PNL], [BTN_COPY, BTN_CONTRACT]]);
+
+      // Start live PnL updater — edits caption every 45s with current price + PnL
+      if (sent?.messageId) {
+        startLivePnl({
+          signalId: String(signalId),
+          messageId: sent.messageId,
+          meta: {
+            long, leverage: levNum, entry: realEntry, pool,
+            tp, sl, tpUsd, slUsd, tpPct, slPct,
+            openedAt: Date.now(),
+          },
+          replyMarkup: sent.replyMarkup,
+          botToken: TELEGRAM_BOT_TOKEN,
+          chatId: TELEGRAM_CHAT_ID,
+          copyTrader: this.copyTrader,
+        });
+      }
     });
 
     // ── User deposited — log + whale alert for big deposits ──
@@ -693,6 +722,9 @@ class CloseWatcher {
     this.autoClosedSignals = new Set(); // Track signals closed by auto-close to prevent duplicate notifications
 
     contract.on("SignalSettled", async (signalId, totalDeposited, totalReturned, resultPct) => {
+      // Stop live PnL loop — event means trade is closed on-chain
+      stopLivePnl(String(signalId));
+
       // resultPct is the ACTUAL on-chain PnL (basis points) — reflects real fees + slippage,
       // not idealized TP/SL hit math. Matches what copiers see in their wallets.
       const pct = Number(resultPct) / 100;

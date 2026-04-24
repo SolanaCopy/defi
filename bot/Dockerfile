@@ -8,4 +8,5 @@ COPY telegram-images.js .
 COPY telegram-ai.js .
 COPY news-alerts.js .
 COPY poll-state.js .
+COPY live-pnl.js .
 CMD ["node", "close-watcher.js"]
