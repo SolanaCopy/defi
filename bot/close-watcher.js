@@ -154,8 +154,9 @@ async function sendTelegramPhoto(pngBuffer, caption = "", buttons = []) {
       form.append("parse_mode", "HTML");
     }
     if (buttons.length > 0) {
+      const rows = Array.isArray(buttons[0]) ? buttons : [buttons];
       form.append("reply_markup", JSON.stringify({
-        inline_keyboard: [buttons],
+        inline_keyboard: rows,
       }));
     }
     const res = await fetch(url, { method: "POST", body: form });
@@ -255,6 +256,7 @@ const WEBSITE = "https://www.smarttradingclub.io";
 const BTN_COPY = { text: "💰 Copy Now", url: `${WEBSITE}?tab=dashboard` };
 const BTN_APP = { text: "🚀 Open App", url: `${WEBSITE}?tab=dashboard` };
 const BTN_CLAIM = { text: "🏆 Claim Profits", url: `${WEBSITE}?tab=dashboard` };
+const BTN_LIVE_PNL = { text: "📊 Live PnL", web_app: { url: `${WEBSITE}?tab=dashboard` } };
 const BTN_CONTRACT = { text: "📄 Contract", url: `${ARBISCAN_ADDR}${GOLD_COPY_TRADER_ADDRESS}` };
 const BTN_TG = { text: "💬 Community", url: "https://t.me/SmartTradingClubDapp" };
 const txBtn = (hash) => ({ text: "🔗 View TX", url: `${ARBISCAN_TX}${hash}` });
@@ -609,7 +611,7 @@ class CloseWatcher {
         `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
         ``,
         `💎 Copy now to join this trade`,
-      ].join("\n"), [BTN_COPY, BTN_CONTRACT]);
+      ].join("\n"), [[BTN_LIVE_PNL], [BTN_COPY, BTN_CONTRACT]]);
     });
 
     // ── User deposited — log + whale alert for big deposits ──
