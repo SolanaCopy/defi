@@ -84,7 +84,7 @@ function buildCaption(meta, price, elapsed) {
     `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
     ``,
     `${pnlEmoji} <b>Est. Live PnL: ${pnlSign}${netPct.toFixed(2)}% (${pnlSign}$${netUsd.toFixed(2)})</b>`,
-    `📊 Now: $${price.toFixed(2)} · open ${openFor} · ${updatedAt}`,
+    `📊 Now: $${price.toFixed(2)} · trade open ${openFor} · updated ${updatedAt}`,
   ].join("\n");
 }
 
