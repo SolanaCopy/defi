@@ -14,6 +14,7 @@ const FEE_RATE = 0.0012;
 const TABLE = "live_pnl_state";
 
 const intervals = new Map(); // signalId → intervalId
+const prevPrices = new Map(); // signalId → last price (for momentum arrow)
 
 let _supabase = null;
 function supabase() {
@@ -56,8 +57,25 @@ async function fetchPythPrice() {
   return Number(d.parsed[0].price.price) * Math.pow(10, Number(d.parsed[0].price.expo));
 }
 
-function buildCaption(meta, price, elapsed) {
-  const { long, leverage, entry, pool, signalId, tpUsd, slUsd, tpPct, slPct } = meta;
+function progressBar({ price, tp, sl, long, prevPrice }) {
+  let pos = long ? (price - sl) / (tp - sl) : (sl - price) / (sl - tp);
+  pos = Math.max(0, Math.min(1, pos));
+  const width = 14;
+  const idx = Math.min(width - 1, Math.floor(pos * width));
+  const left = "━".repeat(idx);
+  const right = "━".repeat(width - idx - 1);
+  let marker = "🟡";
+  let arrow = "";
+  if (prevPrice != null && prevPrice !== price) {
+    const movingTowardTp = long ? price > prevPrice : price < prevPrice;
+    if (movingTowardTp) { marker = "🟢"; arrow = " ▶"; }
+    else { marker = "🔴"; arrow = " ◀"; }
+  }
+  return `🛑${left}${marker}${right}🎯 <b>${Math.round(pos * 100)}%</b>${arrow}`;
+}
+
+function buildCaption(meta, price, elapsed, prevPrice) {
+  const { long, leverage, entry, pool, tp, sl, signalId, tpUsd, slUsd, tpPct, slPct } = meta;
   const dir = long ? "LONG" : "SHORT";
   const emoji = long ? "🟢" : "🔴";
   const grossPct = long
@@ -73,6 +91,7 @@ function buildCaption(meta, price, elapsed) {
   const openFor = elapsed < 60 ? `${elapsed}s` : elapsed < 3600 ? `${Math.floor(elapsed / 60)}m` : `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`;
   const now = new Date();
   const updatedAt = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}:${String(now.getUTCSeconds()).padStart(2, "0")} UTC`;
+  const bar = (tp != null && sl != null) ? progressBar({ price, tp, sl, long, prevPrice }) : null;
   return [
     `📡 <b>Trade Opened #${signalId}</b>`,
     ``,
@@ -83,9 +102,10 @@ function buildCaption(meta, price, elapsed) {
     `🎯 Target: <b>+${tpPct.toFixed(1)}%</b> (+$${tpUsd.toFixed(2)})`,
     `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
     ``,
+    bar,
     `${pnlEmoji} <b>Est. Live PnL: ${pnlSign}${netPct.toFixed(2)}% (${pnlSign}$${netUsd.toFixed(2)})</b>`,
     `📊 Now: $${price.toFixed(2)} · trade open ${openFor} · updated ${updatedAt}`,
-  ].join("\n");
+  ].filter(l => l != null).join("\n");
 }
 
 async function editCaption(botToken, chatId, messageId, caption, replyMarkup) {
@@ -132,8 +152,10 @@ function startLoop({ signalId, messageId, meta, replyMarkup, botToken, chatId, c
       }
       const price = await fetchPythPrice();
       const elapsed = Math.floor((Date.now() - openedAt) / 1000);
-      const caption = buildCaption({ ...meta, signalId: sid }, price, elapsed);
+      const prevPrice = prevPrices.get(sid);
+      const caption = buildCaption({ ...meta, signalId: sid }, price, elapsed, prevPrice);
       await editCaption(botToken, chatId, messageId, caption, replyMarkup);
+      prevPrices.set(sid, price);
     } catch (e) {
       logError(`edit tick for #${sid}`, e);
     }
@@ -170,6 +192,7 @@ export async function stopLivePnl(signalId) {
     clearInterval(id);
     intervals.delete(sid);
   }
+  prevPrices.delete(sid);
   await deleteRow(sid);
   if (id) log(`Stopped live PnL for signal #${sid}`);
   return !!id;
