@@ -256,7 +256,7 @@ const WEBSITE = "https://www.smarttradingclub.io";
 const BTN_COPY = { text: "💰 Copy Now", url: `${WEBSITE}?tab=dashboard` };
 const BTN_APP = { text: "🚀 Open App", url: `${WEBSITE}?tab=dashboard` };
 const BTN_CLAIM = { text: "🏆 Claim Profits", url: `${WEBSITE}?tab=dashboard` };
-const BTN_LIVE_PNL = { text: "📊 Live PnL", url: `${WEBSITE}?tab=dashboard` };
+const BTN_LIVE_PNL = { text: "📊 Live PnL", url: "https://t.me/Onchaincopybot?startapp=dashboard" };
 const BTN_CONTRACT = { text: "📄 Contract", url: `${ARBISCAN_ADDR}${GOLD_COPY_TRADER_ADDRESS}` };
 const BTN_TG = { text: "💬 Community", url: "https://t.me/SmartTradingClubDapp" };
 const txBtn = (hash) => ({ text: "🔗 View TX", url: `${ARBISCAN_TX}${hash}` });
