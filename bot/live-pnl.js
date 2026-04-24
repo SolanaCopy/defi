@@ -1,43 +1,52 @@
 /**
  * Live PnL updater — edits the Telegram "Trade Opened" caption every 45s
- * with current Pyth price + net PnL. Persists state to disk so a bot restart
- * resumes the loop; polls on-chain signal status as safety so the loop stops
- * even if SignalSettled event is missed.
+ * with current Pyth price + net PnL. State is persisted to Supabase so a
+ * Railway redeploy/restart resumes the loop mid-trade. Every N ticks runs
+ * an on-chain phase check so the loop stops even if SignalSettled is missed.
  */
 
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const STATE_FILE = path.join(__dirname, "live-pnl-state.json");
+import { createClient } from "@supabase/supabase-js";
 
 const PYTH_XAU_FEED = "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
 const UPDATE_INTERVAL_MS = 45_000;
-const SAFETY_CHECK_EVERY = 5; // every 5 edits, verify on-chain signal is still open
-const FEE_RATE = 0.0012; // matches close-watcher.js fee estimate
+const SAFETY_CHECK_EVERY = 5;
+const FEE_RATE = 0.0012;
+const TABLE = "live_pnl_state";
 
 const intervals = new Map(); // signalId → intervalId
+
+let _supabase = null;
+function supabase() {
+  if (_supabase) return _supabase;
+  const { SUPABASE_URL, SUPABASE_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+  _supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  return _supabase;
+}
 
 function log(m) { console.log(`[${new Date().toISOString()}] [live-pnl] ${m}`); }
 function logError(m, e) { console.error(`[${new Date().toISOString()}] [live-pnl] ERROR: ${m}`, e?.message || e); }
 
-function loadState() {
-  try {
-    if (!fs.existsSync(STATE_FILE)) return {};
-    return JSON.parse(fs.readFileSync(STATE_FILE, "utf8"));
-  } catch (e) {
-    logError("Failed to load state", e);
-    return {};
-  }
+async function saveRow(row) {
+  const sb = supabase();
+  if (!sb) { logError("no supabase — cannot persist state"); return; }
+  const { error } = await sb.from(TABLE).upsert(row, { onConflict: "signal_id" });
+  if (error) logError("save state", error);
 }
 
-function saveState(state) {
-  try {
-    fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2));
-  } catch (e) {
-    logError("Failed to save state", e);
-  }
+async function deleteRow(signalId) {
+  const sb = supabase();
+  if (!sb) return;
+  const { error } = await sb.from(TABLE).delete().eq("signal_id", String(signalId));
+  if (error) logError("delete state", error);
+}
+
+async function loadAllRows() {
+  const sb = supabase();
+  if (!sb) return [];
+  const { data, error } = await sb.from(TABLE).select("*");
+  if (error) { logError("load state", error); return []; }
+  return data || [];
 }
 
 async function fetchPythPrice() {
@@ -48,7 +57,7 @@ async function fetchPythPrice() {
 }
 
 function buildCaption(meta, price, elapsed) {
-  const { long, leverage, entry, pool, tp, sl, signalId, tpUsd, slUsd, tpPct, slPct } = meta;
+  const { long, leverage, entry, pool, signalId, tpUsd, slUsd, tpPct, slPct } = meta;
   const dir = long ? "LONG" : "SHORT";
   const emoji = long ? "🟢" : "🔴";
   const grossPct = long
@@ -78,12 +87,7 @@ function buildCaption(meta, price, elapsed) {
 }
 
 async function editCaption(botToken, chatId, messageId, caption, replyMarkup) {
-  const body = {
-    chat_id: chatId,
-    message_id: messageId,
-    caption,
-    parse_mode: "HTML",
-  };
+  const body = { chat_id: chatId, message_id: messageId, caption, parse_mode: "HTML" };
   if (replyMarkup) body.reply_markup = replyMarkup;
   const res = await fetch(`https://api.telegram.org/bot${botToken}/editMessageCaption`, {
     method: "POST",
@@ -92,7 +96,6 @@ async function editCaption(botToken, chatId, messageId, caption, replyMarkup) {
   });
   const data = await res.json();
   if (!data.ok) {
-    // "message is not modified" is harmless — shouldn't happen since we include ago-timer but safe to ignore
     if (data.description && data.description.includes("not modified")) return;
     throw new Error(`Telegram edit failed: ${data.description}`);
   }
@@ -100,32 +103,18 @@ async function editCaption(botToken, chatId, messageId, caption, replyMarkup) {
 
 async function safetyCheckSignalOpen(copyTrader, signalId) {
   try {
-    // phase: 0=none, 1=posted, 2=open, 3=closed/settled
     const core = await copyTrader.signalCore(signalId);
-    const phase = Number(core.phase);
-    return phase === 2; // still open
+    return Number(core.phase) === 2;
   } catch (e) {
     logError(`safety check for #${signalId}`, e);
-    return true; // fail-open: don't stop the loop on a transient RPC error
+    return true; // fail-open on transient RPC error
   }
 }
 
-/**
- * Start the live PnL edit loop for a signal.
- * @param params.signalId - signal id
- * @param params.messageId - Telegram message id of the "Trade Opened" photo
- * @param params.meta - { long, leverage, entry, pool, tp, sl, tpUsd, slUsd, tpPct, slPct, openedAt }
- * @param params.replyMarkup - inline_keyboard markup to preserve on edits
- * @param params.botToken / chatId / copyTrader
- */
-export function startLivePnl({ signalId, messageId, meta, replyMarkup, botToken, chatId, copyTrader }) {
+function startLoop({ signalId, messageId, meta, replyMarkup, botToken, chatId, copyTrader, openedAt }) {
   const sid = String(signalId);
-  stopLivePnl(sid); // guard against duplicate intervals
-
-  // persist
-  const state = loadState();
-  state[sid] = { signalId: sid, messageId, meta, replyMarkup, openedAt: meta.openedAt || Date.now() };
-  saveState(state);
+  const existing = intervals.get(sid);
+  if (existing) clearInterval(existing);
 
   let tick = 0;
   const run = async () => {
@@ -140,7 +129,7 @@ export function startLivePnl({ signalId, messageId, meta, replyMarkup, botToken,
         }
       }
       const price = await fetchPythPrice();
-      const elapsed = Math.floor((Date.now() - (meta.openedAt || Date.now())) / 1000);
+      const elapsed = Math.floor((Date.now() - openedAt) / 1000);
       const caption = buildCaption({ ...meta, signalId: sid }, price, elapsed);
       await editCaption(botToken, chatId, messageId, caption, replyMarkup);
     } catch (e) {
@@ -148,47 +137,66 @@ export function startLivePnl({ signalId, messageId, meta, replyMarkup, botToken,
     }
   };
 
-  // fire first update quickly so users see live PnL within seconds, not 45s later
   setTimeout(run, 8_000);
   const id = setInterval(run, UPDATE_INTERVAL_MS);
   intervals.set(sid, id);
   log(`Started live PnL for signal #${sid} (message ${messageId})`);
 }
 
-export function stopLivePnl(signalId, finalEdit = null) {
+/**
+ * Start the live PnL edit loop for a signal and persist state to Supabase.
+ */
+export async function startLivePnl({ signalId, messageId, meta, replyMarkup, botToken, chatId, copyTrader }) {
+  const sid = String(signalId);
+  const openedAt = meta.openedAt || Date.now();
+
+  await saveRow({
+    signal_id: sid,
+    message_id: messageId,
+    meta,
+    reply_markup: replyMarkup || null,
+    opened_at: openedAt,
+  });
+
+  startLoop({ signalId: sid, messageId, meta, replyMarkup, botToken, chatId, copyTrader, openedAt });
+}
+
+export async function stopLivePnl(signalId) {
   const sid = String(signalId);
   const id = intervals.get(sid);
   if (id) {
     clearInterval(id);
     intervals.delete(sid);
   }
-  const state = loadState();
-  if (state[sid]) {
-    delete state[sid];
-    saveState(state);
-  }
+  await deleteRow(sid);
   if (id) log(`Stopped live PnL for signal #${sid}`);
   return !!id;
 }
 
 /**
- * On bot boot, re-hydrate any active live PnL loops from the state file.
- * Immediately runs a safety check so we don't resume a loop for a trade
- * that settled while the bot was down.
+ * On bot boot, re-hydrate any active live PnL loops from Supabase. Runs a
+ * safety check first so loops aren't started for trades that settled during
+ * the downtime.
  */
 export async function resumeLivePnl({ botToken, chatId, copyTrader }) {
-  const state = loadState();
-  const sids = Object.keys(state);
-  if (sids.length === 0) return;
-  log(`Resuming live PnL for ${sids.length} signal(s): ${sids.join(", ")}`);
-  for (const sid of sids) {
+  const rows = await loadAllRows();
+  if (rows.length === 0) return;
+  log(`Resuming live PnL for ${rows.length} signal(s): ${rows.map(r => r.signal_id).join(", ")}`);
+  for (const row of rows) {
+    const sid = row.signal_id;
     const stillOpen = await safetyCheckSignalOpen(copyTrader, sid);
     if (!stillOpen) {
       log(`Signal #${sid} already settled during downtime, clearing state`);
-      stopLivePnl(sid);
+      await deleteRow(sid);
       continue;
     }
-    const { messageId, meta, replyMarkup } = state[sid];
-    startLivePnl({ signalId: sid, messageId, meta, replyMarkup, botToken, chatId, copyTrader });
+    startLoop({
+      signalId: sid,
+      messageId: row.message_id,
+      meta: row.meta,
+      replyMarkup: row.reply_markup,
+      botToken, chatId, copyTrader,
+      openedAt: row.opened_at,
+    });
   }
 }
