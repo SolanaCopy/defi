@@ -70,7 +70,7 @@ function buildCaption(meta, price, elapsed) {
   const netPct = pool > 0 ? (netUsd / pool) * 100 : grossPct;
   const pnlSign = netUsd >= 0 ? "+" : "";
   const pnlEmoji = netUsd >= 0 ? "🟢" : "🔴";
-  const ago = elapsed < 60 ? `${elapsed}s ago` : `${Math.floor(elapsed / 60)}m ago`;
+  const openFor = elapsed < 60 ? `${elapsed}s` : elapsed < 3600 ? `${Math.floor(elapsed / 60)}m` : `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`;
   return [
     `📡 <b>Trade Opened #${signalId}</b>`,
     ``,
@@ -82,7 +82,7 @@ function buildCaption(meta, price, elapsed) {
     `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
     ``,
     `${pnlEmoji} <b>Est. Live PnL: ${pnlSign}${netPct.toFixed(2)}% (${pnlSign}$${netUsd.toFixed(2)})</b>`,
-    `📊 Now: $${price.toFixed(2)} · updated ${ago}`,
+    `📊 Now: $${price.toFixed(2)} · open ${openFor}`,
   ].join("\n");
 }
 
