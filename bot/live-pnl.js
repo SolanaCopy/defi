@@ -71,6 +71,8 @@ function buildCaption(meta, price, elapsed) {
   const pnlSign = netUsd >= 0 ? "+" : "";
   const pnlEmoji = netUsd >= 0 ? "🟢" : "🔴";
   const openFor = elapsed < 60 ? `${elapsed}s` : elapsed < 3600 ? `${Math.floor(elapsed / 60)}m` : `${Math.floor(elapsed / 3600)}h ${Math.floor((elapsed % 3600) / 60)}m`;
+  const now = new Date();
+  const updatedAt = `${String(now.getUTCHours()).padStart(2, "0")}:${String(now.getUTCMinutes()).padStart(2, "0")}:${String(now.getUTCSeconds()).padStart(2, "0")} UTC`;
   return [
     `📡 <b>Trade Opened #${signalId}</b>`,
     ``,
@@ -82,7 +84,7 @@ function buildCaption(meta, price, elapsed) {
     `🛑 Risk: <b>-${slPct.toFixed(1)}%</b> (-$${slUsd.toFixed(2)})`,
     ``,
     `${pnlEmoji} <b>Est. Live PnL: ${pnlSign}${netPct.toFixed(2)}% (${pnlSign}$${netUsd.toFixed(2)})</b>`,
-    `📊 Now: $${price.toFixed(2)} · open ${openFor}`,
+    `📊 Now: $${price.toFixed(2)} · open ${openFor} · ${updatedAt}`,
   ].join("\n");
 }
 
