@@ -1652,8 +1652,48 @@ function App() {
               wait for a signal, and click Copy Now. Your profit is paid directly to your wallet.
             </motion.p>
 
+            {/* Live stats — daysLive, trades, volume, copiers */}
+            {(() => {
+              const LAUNCH_DATE = new Date('2026-03-31T00:00:00Z');
+              const daysLive = Math.max(1, Math.floor((Date.now() - LAUNCH_DATE.getTime()) / 86400000));
+              const closedSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0);
+              const tradesCount = closedSignals.length;
+              const cumulativeVolume = closedSignals.reduce((sum, s) => sum + parseFloat(ethers.formatUnits(s.totalCopied || 0n, 6)), 0);
+              const formatVol = v => v >= 1000 ? `$${(v / 1000).toFixed(1)}K` : `$${Math.round(v)}`;
+              const formatLaunch = LAUNCH_DATE.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+              const stats = [
+                { value: daysLive, label: 'days live' },
+                { value: tradesCount, label: 'trades' },
+                { value: formatVol(cumulativeVolume), label: 'volume' },
+                { value: uniqueCopiers, label: 'copiers' },
+              ];
+              return (
+                <motion.div variants={fadeUp} custom={3} style={{
+                  display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+                  margin: '20px 0 18px', padding: '12px 16px',
+                  background: 'rgba(212,168,67,0.06)',
+                  border: '1px solid rgba(212,168,67,0.2)',
+                  borderRadius: 12,
+                  backdropFilter: 'blur(10px)',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 14, borderRight: '1px solid rgba(212,168,67,0.2)' }}>
+                    <span className="pulse-dot" style={{ width: 8, height: 8, background: '#22c55e' }} />
+                    <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', fontWeight: 500 }}>
+                      Live since {formatLaunch}
+                    </span>
+                  </div>
+                  {stats.map((s, i) => (
+                    <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                      <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#D4A843' }}>{s.value}</span>
+                      <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</span>
+                    </div>
+                  ))}
+                </motion.div>
+              );
+            })()}
+
             {/* Trust indicators */}
-            <motion.div className="hero-trust-row" variants={fadeUp} custom={3}>
+            <motion.div className="hero-trust-row" variants={fadeUp} custom={4}>
               <div className="trust-item">
                 <ShieldCheck size={14} />
                 <span>Verified Contract</span>
