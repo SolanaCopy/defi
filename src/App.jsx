@@ -312,6 +312,8 @@ function App() {
   const [analysisData, setAnalysisData] = useState(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [analysisError, setAnalysisError] = useState('');
+  const [liveGoldPrice, setLiveGoldPrice] = useState(null);
+  const [priceFlash, setPriceFlash] = useState(null); // 'up' | 'down' | null
 
   // Blockchain State
   const [walletUSDC, setWalletUSDC] = useState(0);
@@ -520,6 +522,43 @@ function App() {
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, activeTab]);
+
+  // Live Pyth price ticker — polls every 4s while on the analysis tab so the
+  // chart and the verdict card always show what the market is doing now,
+  // not what the analysis cached 5 minutes ago.
+  useEffect(() => {
+    if (activeTab !== 'analysis') {
+      setLiveGoldPrice(null);
+      setPriceFlash(null);
+      return;
+    }
+    let cancelled = false;
+    let prev = null;
+    let flashTimeout;
+    const tick = async () => {
+      try {
+        const r = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2', { signal: AbortSignal.timeout(5000) });
+        if (!r.ok) return;
+        const d = await r.json();
+        const p = d.parsed?.[0]?.price;
+        if (!p) return;
+        const next = Number(p.price) * Math.pow(10, Number(p.expo));
+        if (cancelled) return;
+        if (prev != null) {
+          const diff = next - prev;
+          if (diff > 0.01) setPriceFlash('up');
+          else if (diff < -0.01) setPriceFlash('down');
+          if (flashTimeout) clearTimeout(flashTimeout);
+          flashTimeout = setTimeout(() => !cancelled && setPriceFlash(null), 600);
+        }
+        prev = next;
+        setLiveGoldPrice(next);
+      } catch {}
+    };
+    tick();
+    const id = setInterval(tick, 4000);
+    return () => { cancelled = true; clearInterval(id); if (flashTimeout) clearTimeout(flashTimeout); };
+  }, [activeTab]);
 
   // Generate referral link + load stats when wallet connects
   useEffect(() => {
@@ -3335,10 +3374,18 @@ function App() {
                 </div>
               </div>
               <div style={{ flex: 1, minWidth: 200 }}>
-                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6, marginBottom: 4 }}>Live price</div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 600 }}>
-                  ${a.price?.toFixed(2)}
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  Live price
+                  {liveGoldPrice != null && <span className="pulse-dot" style={{ width: 6, height: 6, background: '#22c55e' }} />}
                 </div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 600, color: priceFlash === 'up' ? '#22c55e' : priceFlash === 'down' ? '#ef4444' : 'inherit', transition: 'color 0.4s ease' }}>
+                  ${(liveGoldPrice ?? a.price)?.toFixed(2)}
+                </div>
+                {liveGoldPrice != null && a.price != null && (
+                  <div style={{ fontSize: '0.7rem', opacity: 0.55, marginTop: 2 }}>
+                    {(liveGoldPrice - a.price >= 0 ? '+' : '')}{(liveGoldPrice - a.price).toFixed(2)} since analysis
+                  </div>
+                )}
               </div>
               <div style={{ flex: 1, minWidth: 280, fontSize: '0.95rem', lineHeight: 1.55, opacity: 0.92 }}>
                 {a.summary}
@@ -3506,13 +3553,20 @@ function App() {
                     {horizLine(a.levels?.support, '#22c55e', 'S')}
                     {horizLine(a.levels?.resistance, '#ef4444', 'R')}
                     {horizLine(a.levels?.target, '#D4A843', 'T')}
-                    {a.price != null && (
-                      <g>
-                        <line x1={padL} x2={padL + innerW} y1={yScale(a.price)} y2={yScale(a.price)} stroke="#fff" strokeWidth={1} opacity={0.4} />
-                        <rect x={padL + innerW + 2} y={yScale(a.price) - 9} width={66} height={18} rx={3} fill="#fff" />
-                        <text x={padL + innerW + 35} y={yScale(a.price) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">NOW ${Number(a.price).toFixed(0)}</text>
-                      </g>
-                    )}
+                    {(() => {
+                      const nowP = liveGoldPrice ?? a.price;
+                      if (nowP == null) return null;
+                      const flashColor = priceFlash === 'up' ? '#22c55e' : priceFlash === 'down' ? '#ef4444' : '#fff';
+                      return (
+                        <g>
+                          <line x1={padL} x2={padL + innerW} y1={yScale(nowP)} y2={yScale(nowP)} stroke={flashColor} strokeWidth={priceFlash ? 1.5 : 1} opacity={priceFlash ? 0.85 : 0.4} style={{ transition: 'all 0.3s' }} />
+                          <rect x={padL + innerW + 2} y={yScale(nowP) - 9} width={70} height={18} rx={3} fill={flashColor} style={{ transition: 'fill 0.3s' }} />
+                          <text x={padL + innerW + 37} y={yScale(nowP) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">
+                            {priceFlash === 'up' ? '▲' : priceFlash === 'down' ? '▼' : ''} ${Number(nowP).toFixed(2)}
+                          </text>
+                        </g>
+                      );
+                    })()}
                   </svg>
                 </div>
               );

@@ -248,15 +248,44 @@ function summarizeBars(bars, label) {
   const closes = bars.map((b) => b.close);
   const highs = bars.map((b) => b.high);
   const lows = bars.map((b) => b.low);
+  const macdData = macd(closes);
   return {
     bars: bars.length,
     label,
     last_close: closes[closes.length - 1],
     trend: trendLabel(closes),
     rsi_14: rsi(closes, 14),
+    macd: macdData
+      ? {
+          line: Number(macdData.macd.toFixed(3)),
+          signal: Number(macdData.signal.toFixed(3)),
+          histogram: Number(macdData.histogram.toFixed(3)),
+          state:
+            macdData.histogram > 0 && macdData.macd > macdData.signal
+              ? "bullish"
+              : macdData.histogram < 0 && macdData.macd < macdData.signal
+                ? "bearish"
+                : "neutral",
+        }
+      : null,
     atr_14: atr(highs, lows, closes, 14),
     last_5: bars.slice(-5).map((b) => ({ t: b.date, o: b.open, h: b.high, l: b.low, c: b.close })),
   };
+}
+
+// Shift every OHLC value in a bar series by a constant. Used when Yahoo
+// intraday is stale vs Pyth — we anchor everything to the live price so
+// RSI/MACD shape is preserved (translation-invariant) but levels and
+// support/resistance values land in the trader's actual price world.
+function shiftBars(bars, delta) {
+  if (!bars || !delta) return bars;
+  return bars.map((b) => ({
+    ...b,
+    open: b.open + delta,
+    high: b.high + delta,
+    low: b.low + delta,
+    close: b.close + delta,
+  }));
 }
 
 // Determine session: Asia (00-07 UTC), London (07-13 UTC), NY (13-20 UTC), off-hours (20-24 UTC)
@@ -619,22 +648,36 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: "Unable to fetch intraday data" });
   }
 
-  // Pyth vs Yahoo sanity check — Pyth is real-time, Yahoo can lag or stale.
-  // If they disagree by more than $3 we flag the analysis as low-quality so
-  // the UI can warn users without us blocking the response entirely.
+  // Pyth vs Yahoo sanity check. Pyth is real-time; Yahoo intraday can lag
+  // by minutes during fast markets. When the gap is meaningful we shift
+  // every Yahoo bar by `signedDelta` so the last close aligns with Pyth.
+  // RSI/MACD/trend are translation-invariant under this shift, so the
+  // technical structure is preserved — but support/resistance and level
+  // values now sit in Pyth's price world rather than Yahoo's stale one.
   const yahooLast = h1[h1.length - 1].close;
-  const dataDelta = Math.abs(price - yahooLast);
-  const dataQuality = dataDelta > 3
-    ? { ok: false, note: `Yahoo intraday lags Pyth by $${dataDelta.toFixed(2)} — TA may be slightly stale`, pyth: price, yahoo: yahooLast, delta_usd: Number(dataDelta.toFixed(2)) }
+  const signedDelta = price - yahooLast;
+  const dataDelta = Math.abs(signedDelta);
+  const shouldShift = dataDelta > 3;
+  const dataQuality = shouldShift
+    ? { ok: false, note: `Yahoo intraday lagged Pyth by $${dataDelta.toFixed(2)} — bars shifted to align with live price`, pyth: price, yahoo: yahooLast, delta_usd: Number(dataDelta.toFixed(2)) }
     : { ok: true, pyth: price, yahoo: yahooLast, delta_usd: Number(dataDelta.toFixed(2)) };
 
-  // 4H bars aggregated from 1H
-  const h4 = aggregateTo4H(h1);
+  // Apply shift to every Yahoo-derived series so the AI sees Pyth-anchored levels.
+  let dailyAdj = daily, h1Adj = h1, m15Adj = m15, m5Adj = m5;
+  if (shouldShift) {
+    dailyAdj = shiftBars(daily, signedDelta);
+    h1Adj = shiftBars(h1, signedDelta);
+    m15Adj = shiftBars(m15, signedDelta);
+    m5Adj = shiftBars(m5, signedDelta);
+  }
+
+  // 4H bars aggregated from (possibly shifted) 1H
+  const h4Adj = aggregateTo4H(h1Adj);
 
   // Process older rows in parallel — non-blocking outcome scoring.
   processPendingOutcomes(supabase, price).catch(() => {});
 
-  const payload = buildAnalysisPayload({ price, daily, h1, h4, m15, m5, dxy, yield10y, events, news });
+  const payload = buildAnalysisPayload({ price, daily: dailyAdj, h1: h1Adj, h4: h4Adj, m15: m15Adj, m5: m5Adj, dxy, yield10y, events, news });
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -670,8 +713,9 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: "Model returned non-JSON", raw: text });
   }
 
-  // Chart data: last 48 hours of 1H bars for the frontend SVG.
-  const chartBars = h1.slice(-48).map((b) => ({
+  // Chart data: last 48 hours of 1H bars for the frontend SVG. Use the
+  // Pyth-aligned series so the chart matches the live price marker.
+  const chartBars = h1Adj.slice(-48).map((b) => ({
     t: b.time,
     o: b.open,
     h: b.high,
