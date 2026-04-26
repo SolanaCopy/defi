@@ -766,6 +766,7 @@ export default async function handler(req, res) {
     accuracy,
     recent_signals: recentSignals,
     data_quality: dataQuality,
+    session_vwap: payload.session_vwap,
     cached: false,
     cache_read_tokens: message.usage?.cache_read_input_tokens ?? 0,
     cache_creation_tokens: message.usage?.cache_creation_input_tokens ?? 0,

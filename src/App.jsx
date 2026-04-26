@@ -314,6 +314,7 @@ function App() {
   const [analysisError, setAnalysisError] = useState('');
   const [liveGoldPrice, setLiveGoldPrice] = useState(null);
   const [priceFlash, setPriceFlash] = useState(null); // 'up' | 'down' | null
+  const [tickHistory, setTickHistory] = useState([]); // last 30 min of Pyth ticks
 
   // Blockchain State
   const [walletUSDC, setWalletUSDC] = useState(0);
@@ -530,6 +531,7 @@ function App() {
     if (activeTab !== 'analysis') {
       setLiveGoldPrice(null);
       setPriceFlash(null);
+      setTickHistory([]);
       return;
     }
     let cancelled = false;
@@ -553,6 +555,13 @@ function App() {
         }
         prev = next;
         setLiveGoldPrice(next);
+        setTickHistory(history => {
+          const now = Date.now();
+          const cutoff = now - 30 * 60 * 1000; // keep last 30 min
+          const trimmed = history.filter(h => h.t >= cutoff);
+          trimmed.push({ t: now, p: next });
+          return trimmed;
+        });
       } catch {}
     };
     tick();
@@ -3497,24 +3506,44 @@ function App() {
               </div>
             )}
 
-            {/* Candlestick chart with S/R/target overlay */}
+            {/* Candlestick chart with S/R/target overlay + entry/SL/TP + 24h H/L + VWAP + live ticks */}
             {Array.isArray(a.ohlc_30d) && a.ohlc_30d.length > 0 && (() => {
               const data = a.ohlc_30d;
-              const W = 900, H = 280, padL = 50, padR = 70, padT = 16, padB = 24;
+              const W = 900, H = 280, padL = 50, padR = 90, padT = 16, padB = 24;
               const innerW = W - padL - padR;
               const innerH = H - padT - padB;
-              const allValues = data.flatMap(c => [c.h, c.l]).concat([a.levels?.support, a.levels?.resistance, a.levels?.target].filter(v => v != null));
+              // 24h high/low from last 24 hourly bars
+              const last24 = data.slice(-24);
+              const high24 = last24.length > 0 ? Math.max(...last24.map(c => c.h)) : null;
+              const low24  = last24.length > 0 ? Math.min(...last24.map(c => c.l)) : null;
+              const allValues = data.flatMap(c => [c.h, c.l]).concat([
+                a.levels?.support, a.levels?.resistance, a.levels?.target,
+                a.entry, a.stop_loss, a.take_profit,
+                a.session_vwap, high24, low24,
+                liveGoldPrice,
+                ...tickHistory.map(t => t.p),
+              ].filter(v => v != null));
               const minP = Math.min(...allValues) * 0.998;
               const maxP = Math.max(...allValues) * 1.002;
               const yScale = v => padT + innerH - ((v - minP) / (maxP - minP)) * innerH;
               const candleW = Math.max(2, (innerW / data.length) * 0.7);
               const xCenter = i => padL + (i + 0.5) * (innerW / data.length);
+              // Time-mapped X for live ticks: place them in a small window to the right of the last bar
+              const lastBarTime = data[data.length - 1]?.t ?? Date.now();
+              const tickWindow = 30 * 60 * 1000; // 30 min window
+              const tickXScale = t => {
+                // place tick at: lastBarX + ((t - lastBarTime) / tickWindow) * (small width)
+                const lastBarX = xCenter(data.length - 1);
+                const remaining = padL + innerW - lastBarX;
+                const ratio = Math.min(1, Math.max(0, (t - lastBarTime) / tickWindow));
+                return lastBarX + ratio * remaining;
+              };
 
-              const horizLine = (price, color, label) => price == null ? null : (
+              const horizLine = (price, color, label, opts = {}) => price == null ? null : (
                 <g key={label}>
-                  <line x1={padL} x2={padL + innerW} y1={yScale(price)} y2={yScale(price)} stroke={color} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
-                  <rect x={padL + innerW + 2} y={yScale(price) - 9} width={66} height={18} rx={3} fill={color} opacity={0.85} />
-                  <text x={padL + innerW + 35} y={yScale(price) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">{label} ${Number(price).toFixed(0)}</text>
+                  <line x1={padL} x2={padL + innerW} y1={yScale(price)} y2={yScale(price)} stroke={color} strokeWidth={opts.width ?? 1} strokeDasharray={opts.dash ?? "4 4"} opacity={opts.opacity ?? 0.7} />
+                  <rect x={padL + innerW + 2} y={yScale(price) - 9} width={84} height={18} rx={3} fill={color} opacity={opts.labelOpacity ?? 0.85} />
+                  <text x={padL + innerW + 44} y={yScale(price) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">{label} ${Number(price).toFixed(2)}</text>
                 </g>
               );
 
@@ -3524,7 +3553,7 @@ function App() {
               return (
                 <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 14, marginBottom: 20, overflowX: 'auto' }}>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 4, paddingLeft: 4 }}>
-                    Last 48 hours (1H) · Levels overlaid
+                    Last 48h (1H) · S/R/Target · Entry/SL/TP · 24h H/L · VWAP · Live ticks (30m)
                   </div>
                   <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
                     {yTicks.map((v, i) => (
@@ -3550,9 +3579,58 @@ function App() {
                         </g>
                       );
                     })}
+                    {/* 24h high/low — subtle context lines */}
+                    {high24 != null && (
+                      <g>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(high24)} y2={yScale(high24)} stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="2 6" />
+                        <text x={padL + 4} y={yScale(high24) - 3} fontSize="9" fill="rgba(255,255,255,0.45)">24h H ${high24.toFixed(2)}</text>
+                      </g>
+                    )}
+                    {low24 != null && (
+                      <g>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(low24)} y2={yScale(low24)} stroke="rgba(255,255,255,0.25)" strokeWidth={1} strokeDasharray="2 6" />
+                        <text x={padL + 4} y={yScale(low24) + 11} fontSize="9" fill="rgba(255,255,255,0.45)">24h L ${low24.toFixed(2)}</text>
+                      </g>
+                    )}
+                    {/* Session VWAP — dotted purple */}
+                    {a.session_vwap != null && (
+                      <g>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(a.session_vwap)} y2={yScale(a.session_vwap)} stroke="#a78bfa" strokeWidth={1} strokeDasharray="1 4" opacity={0.7} />
+                        <text x={padL + innerW - 4} y={yScale(a.session_vwap) - 3} fontSize="9" fill="#a78bfa" textAnchor="end" fontWeight="600">VWAP ${Number(a.session_vwap).toFixed(2)}</text>
+                      </g>
+                    )}
                     {horizLine(a.levels?.support, '#22c55e', 'S')}
                     {horizLine(a.levels?.resistance, '#ef4444', 'R')}
                     {horizLine(a.levels?.target, '#D4A843', 'T')}
+                    {/* Trade idea levels — only when a real setup exists */}
+                    {a.setup_type && a.setup_type !== 'none' && a.entry != null && (
+                      <g>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(a.entry)} y2={yScale(a.entry)} stroke="#06b6d4" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.95} />
+                        <rect x={padL + innerW + 2} y={yScale(a.entry) - 9} width={84} height={18} rx={3} fill="#06b6d4" />
+                        <text x={padL + innerW + 44} y={yScale(a.entry) + 4} fontSize="10" fill="#0a0a0a" fontWeight="800" textAnchor="middle">ENTRY ${Number(a.entry).toFixed(2)}</text>
+                      </g>
+                    )}
+                    {a.setup_type && a.setup_type !== 'none' && a.stop_loss != null && (
+                      <g>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(a.stop_loss)} y2={yScale(a.stop_loss)} stroke="#ef4444" strokeWidth={1.5} opacity={0.9} />
+                        <rect x={padL + innerW + 2} y={yScale(a.stop_loss) - 9} width={84} height={18} rx={3} fill="#ef4444" />
+                        <text x={padL + innerW + 44} y={yScale(a.stop_loss) + 4} fontSize="10" fill="#0a0a0a" fontWeight="800" textAnchor="middle">SL ${Number(a.stop_loss).toFixed(2)}</text>
+                      </g>
+                    )}
+                    {a.setup_type && a.setup_type !== 'none' && a.take_profit != null && (
+                      <g>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(a.take_profit)} y2={yScale(a.take_profit)} stroke="#22c55e" strokeWidth={1.5} opacity={0.9} />
+                        <rect x={padL + innerW + 2} y={yScale(a.take_profit) - 9} width={84} height={18} rx={3} fill="#22c55e" />
+                        <text x={padL + innerW + 44} y={yScale(a.take_profit) + 4} fontSize="10" fill="#0a0a0a" fontWeight="800" textAnchor="middle">TP ${Number(a.take_profit).toFixed(2)}</text>
+                      </g>
+                    )}
+                    {/* Live tick line — last 30 min of Pyth ticks */}
+                    {tickHistory.length >= 2 && (() => {
+                      const points = tickHistory.map(t => `${tickXScale(t.t).toFixed(2)},${yScale(t.p).toFixed(2)}`).join(' ');
+                      return (
+                        <polyline points={points} fill="none" stroke="#D4A843" strokeWidth={1.2} opacity={0.85} />
+                      );
+                    })()}
                     {(() => {
                       const nowP = liveGoldPrice ?? a.price;
                       if (nowP == null) return null;
