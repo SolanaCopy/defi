@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { welcomeImage } from "./telegram-images.js";
 import { loadPollState, savePollState, mapFromObject } from "./poll-state.js";
+import { approveAndOpenSignal, dismissSignal } from "./signal-actions.js";
 
 const {
   TELEGRAM_BOT_TOKEN,
@@ -176,6 +177,35 @@ async function sendWelcomePhoto(chatId, img, caption) {
 }
 
 async function handleUpdate(update) {
+  // Handle inline-keyboard callback queries (approve/dismiss signal DMs).
+  // Admin-only — verified by chat_id matching ADMIN_TELEGRAM_CHAT_ID.
+  if (update.callback_query) {
+    const cq = update.callback_query;
+    const chatId = String(cq.message?.chat?.id ?? "");
+    const adminId = String(process.env.ADMIN_TELEGRAM_CHAT_ID ?? "");
+    if (!adminId || chatId !== adminId) {
+      try {
+        await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/answerCallbackQuery`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ callback_query_id: cq.id, text: "Not authorized", show_alert: true }),
+        });
+      } catch {}
+      return;
+    }
+    const data = cq.data || "";
+    const [action, idStr] = data.split(":");
+    const signalRowId = parseInt(idStr, 10);
+    if (!Number.isFinite(signalRowId)) {
+      console.warn("[AI] Bad callback data:", data);
+      return;
+    }
+    const args = { signalRowId, chatId: cq.message.chat.id, messageId: cq.message.message_id, callbackQueryId: cq.id };
+    if (action === "approve") await approveAndOpenSignal(args);
+    else if (action === "dismiss") await dismissSignal(args);
+    return;
+  }
+
   // Handle poll_answer (user voted in a poll)
   if (update.poll_answer) {
     const pa = update.poll_answer;
@@ -282,7 +312,7 @@ async function pollUpdates() {
   if (!TELEGRAM_BOT_TOKEN) return;
 
   try {
-    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30&allowed_updates=["message","chat_member","poll_answer"]`;
+    const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getUpdates?offset=${lastUpdateId + 1}&timeout=30&allowed_updates=["message","chat_member","poll_answer","callback_query"]`;
     const res = await fetch(url, { signal: AbortSignal.timeout(35000) });
     const data = await res.json();
 

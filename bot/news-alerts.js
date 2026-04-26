@@ -712,6 +712,18 @@ async function checkActiveSignal() {
       `<i>Admin preview only — not posted publicly. Reply or open the dashboard to act.</i>`,
     ].join("\n");
 
+    const allowApprove = s.verdict === "bullish" || s.verdict === "bearish";
+    const reply_markup = {
+      inline_keyboard: [
+        allowApprove
+          ? [
+              { text: `✅ Approve & Open (${isLong ? "LONG" : "SHORT"})`, callback_data: `approve:${s.id}` },
+              { text: "❌ Dismiss", callback_data: `dismiss:${s.id}` },
+            ]
+          : [{ text: "❌ Dismiss", callback_data: `dismiss:${s.id}` }],
+      ],
+    };
+
     const resp = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -720,6 +732,7 @@ async function checkActiveSignal() {
         text,
         parse_mode: "HTML",
         disable_web_page_preview: true,
+        reply_markup,
       }),
     });
     const j = await resp.json();
