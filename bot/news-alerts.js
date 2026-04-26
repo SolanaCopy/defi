@@ -330,6 +330,16 @@ export async function startNewsAlerts() {
   polling = true;
   console.log("[NEWS] Forex news alerts started — checking every 30 minutes");
 
+  // Diagnostic: print poll-state summary so we can see weeklyCorrect counts
+  // immediately on every redeploy without needing to dump the JSON file.
+  const scoresArr = [...pollScores.values()];
+  const weeklyTotals = scoresArr
+    .filter(s => (s.weeklyCorrect || 0) > 0)
+    .map(s => `${s.firstName}=${s.weeklyCorrect}`)
+    .join(", ");
+  console.log(`[NEWS] poll-state: week=${weeklyWeekKey} lastPollDate=${lastPollDate} lastResultDate=${lastResultDate} lastWeeklyWinnerWeek=${lastWeeklyWinnerWeek} pollOpenPrice=${pollOpenPrice} pollScores=${scoresArr.length}`);
+  console.log(`[NEWS] weeklyCorrect: ${weeklyTotals || "(none)"}`);
+
   // On startup: only mark "now" and "clear" events as already alerted
   // Do NOT mark pre-alerts — better to send a duplicate than miss an alert
   const bootEvents = await fetchForexCalendar();
@@ -421,8 +431,10 @@ async function checkDailyPoll() {
     persistPollState();
   }
 
-  // 12:00-12:10 UTC — Send poll + save price
-  if (hour === 12 && minute < 10 && lastPollDate !== dateKey) {
+  // 12:00–20:59 UTC — Send poll if not yet sent today. Wide window so a brief
+  // Railway redeploy at noon doesn't kill the day's poll. People still get
+  // hours to vote before the 21:00 result.
+  if (hour >= 12 && hour < 21 && lastPollDate !== dateKey) {
     lastPollDate = dateKey;
     pollOpenPrice = await fetchGoldPrice();
     persistPollState();
@@ -456,8 +468,9 @@ async function checkDailyPoll() {
     }
   }
 
-  // 21:00-21:10 UTC — Send result
-  if (hour === 21 && minute < 10 && lastResultDate !== dateKey && pollOpenPrice) {
+  // 21:00–23:59 UTC — Send result if not yet sent today and we have an open
+  // price recorded from this morning. Wide window for the same reason as above.
+  if (hour >= 21 && lastResultDate !== dateKey && pollOpenPrice) {
     lastResultDate = dateKey;
 
     const closePrice = await fetchGoldPrice();
