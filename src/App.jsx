@@ -516,7 +516,7 @@ function App() {
   useEffect(() => {
     if (!account || activeTab !== 'analysis') return;
     if (!analysisData) loadAnalysis(false);
-    const id = setInterval(() => loadAnalysis(false), 15 * 60 * 1000);
+    const id = setInterval(() => loadAnalysis(false), 5 * 60 * 1000);
     return () => clearInterval(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account, activeTab]);
@@ -3255,7 +3255,7 @@ function App() {
             <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
             <h2 style={{ margin: '0 0 12px', fontSize: '1.5rem', fontWeight: 600 }}>Members Only</h2>
             <p style={{ color: 'rgba(255,255,255,0.6)', margin: '0 0 24px', lineHeight: 1.6 }}>
-              Connect your wallet to access the Gold AI analysis. Updated every 15 minutes with technical indicators, news impact, and AI-powered verdict.
+              Connect your wallet to access the Scalp AI engine. Intraday gold setups (5m–1H), refreshed every 5 minutes, with entry / stop / target and a hard validity window.
             </p>
             <button className="btn btn-gold btn-lg" onClick={() => connectWallet?.()}>
               Connect Wallet
@@ -3274,7 +3274,7 @@ function App() {
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
           <div>
             <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 700 }}>
-              <span className="text-gold-gradient">Gold AI</span> — XAU/USD
+              <span className="text-gold-gradient">Scalp AI</span> — XAU/USD intraday
             </h1>
             <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem' }}>
               {a?.created_at ? `Last updated ${new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Loading…'}
@@ -3338,24 +3338,32 @@ function App() {
               <div style={{ flex: 1, minWidth: 280, fontSize: '0.95rem', lineHeight: 1.55, opacity: 0.92 }}>
                 {a.summary}
               </div>
-              {a.setup_type && a.setup_type !== 'none' && a.confidence >= 75 && a.rr_ratio >= 2 && (
+              {a.setup_type && a.setup_type !== 'none' && a.confidence >= 75 && a.rr_ratio >= 1.5 && (
                 <div style={{ flex: '0 0 auto', padding: '6px 12px', borderRadius: 999, background: '#D4A843', color: '#0a0a0a', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
                   ⚡ Tradeable Signal
                 </div>
               )}
             </div>
 
-            {/* Multi-timeframe alignment strip */}
-            {(a.trend_1w || a.trend_1h || a.technical?.trend) && (() => {
+            {/* Multi-timeframe alignment strip + session + valid-until */}
+            {(a.trend_4h || a.trend_1h || a.trend_15m || a.session) && (() => {
               const tfTrend = (t) => t === 'uptrend' ? { label: 'UP', color: '#22c55e' } : t === 'downtrend' ? { label: 'DOWN', color: '#ef4444' } : { label: 'FLAT', color: '#eab308' };
               const tfs = [
-                { tf: '1W', t: a.trend_1w },
-                { tf: '1D', t: a.technical?.trend },
+                { tf: '4H', t: a.trend_4h },
                 { tf: '1H', t: a.trend_1h },
+                { tf: '15m', t: a.trend_15m },
               ].filter(x => x.t);
+              const sessionLabel = { asia: '🌏 Asia', london: '🇬🇧 London', ny: '🇺🇸 NY', 'off-hours': '🌙 Off-hours' }[a.session] || a.session;
+              const minsLeft = a.valid_until ? Math.max(0, Math.floor((new Date(a.valid_until).getTime() - Date.now()) / 60000)) : null;
               return (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 18px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginBottom: 20, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>Trend by timeframe</span>
+                  {a.session && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingRight: 14, borderRight: '1px solid rgba(255,255,255,0.08)' }}>
+                      <span style={{ fontSize: '0.7rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: 1 }}>Session</span>
+                      <span style={{ fontSize: '0.78rem', fontWeight: 600 }}>{sessionLabel}</span>
+                    </div>
+                  )}
+                  <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>Trend</span>
                   {tfs.map(({ tf, t }, i) => {
                     const v = tfTrend(t);
                     return (
@@ -3365,6 +3373,11 @@ function App() {
                       </div>
                     );
                   })}
+                  {minsLeft != null && a.setup_type !== 'none' && (
+                    <div style={{ marginLeft: 'auto', fontSize: '0.74rem', opacity: 0.7 }}>
+                      Setup valid for <b>{minsLeft >= 60 ? `${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m` : `${minsLeft}m`}</b>
+                    </div>
+                  )}
                 </div>
               );
             })()}
@@ -3373,7 +3386,7 @@ function App() {
             {a.setup_type && a.setup_type !== 'none' && a.entry != null && a.stop_loss != null && a.take_profit != null && (() => {
               const isLong = a.verdict === 'bullish';
               const sideColor = isLong ? '#22c55e' : '#ef4444';
-              const qualifies = a.confidence >= 75 && a.rr_ratio >= 2;
+              const qualifies = a.confidence >= 75 && a.rr_ratio >= 1.5;
               return (
                 <div style={{ marginBottom: 20, background: qualifies ? 'rgba(212,168,67,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${qualifies ? 'rgba(212,168,67,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 14, padding: 20 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
@@ -3405,7 +3418,7 @@ function App() {
                   </div>
                   {!qualifies && (
                     <div style={{ marginTop: 12, fontSize: '0.78rem', opacity: 0.6, lineHeight: 1.5 }}>
-                      Not auto-publishable as signal — requires confidence ≥ 75 ({a.confidence}%) and R:R ≥ 2 ({Number(a.rr_ratio).toFixed(2)}).
+                      Not auto-publishable as signal — requires confidence ≥ 75 ({a.confidence}%) and R:R ≥ 1.5 ({Number(a.rr_ratio).toFixed(2)}).
                     </div>
                   )}
                 </div>
@@ -3459,7 +3472,7 @@ function App() {
               return (
                 <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 14, marginBottom: 20, overflowX: 'auto' }}>
                   <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 4, paddingLeft: 4 }}>
-                    Last 30 days · Levels overlaid
+                    Last 48 hours (1H) · Levels overlaid
                   </div>
                   <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
                     {yTicks.map((v, i) => (
@@ -6863,7 +6876,7 @@ function App() {
             {[
               { key: 'invest', label: 'Copy Trading' },
               { key: 'dashboard', label: 'Dashboard' },
-              { key: 'analysis', label: 'Gold AI' },
+              { key: 'analysis', label: 'Scalp AI' },
               { key: 'results', label: 'Results' },
               { key: 'referral', label: 'Referral' },
               { key: 'docs', label: 'Docs' },

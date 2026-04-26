@@ -1,17 +1,19 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
-const CACHE_MINUTES = 15;
+const CACHE_MINUTES = 5;
 const PYTH_GOLD_URL =
   "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
-const YAHOO_OHLC_URL =
-  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=3mo";
-const YAHOO_WEEKLY_URL =
-  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1wk&range=2y";
-const YAHOO_INTRADAY_URL =
-  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1h&range=5d";
-const COT_URL =
-  "https://publicreporting.cftc.gov/resource/6dca-aqww.json?$where=market_and_exchange_names%20like%20%27%25GOLD%20-%20COMMODITY%20EXCHANGE%20INC%25%27&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=2";
+const YAHOO_DAILY_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1mo";
+const YAHOO_4H_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=60m&range=30d";
+const YAHOO_1H_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=60m&range=10d";
+const YAHOO_15M_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=15m&range=5d";
+const YAHOO_5M_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=5m&range=2d";
 const YAHOO_DXY_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1d&range=5d";
 const YAHOO_TNX_URL =
@@ -21,33 +23,35 @@ const NEWS_RSS_URL =
 const FOREX_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 const YAHOO_HEADERS = { "User-Agent": "Mozilla/5.0" };
 
-const SYSTEM_PROMPT = `You are a senior gold market analyst writing for retail copy-traders on the Smart Trading Club platform. Audience is non-professional but engaged.
+const SYSTEM_PROMPT = `You are a scalp/intraday trader for XAU/USD (gold) signaling for the Smart Trading Club copy-trading platform. You produce setups intended to be held for MINUTES TO HOURS, not days.
 
-Your job: read the supplied multi-timeframe price data, macro context (DXY, 10Y yield), CFTC speculator positioning, recent headlines, and upcoming events — then output a single JSON verdict for XAU/USD that is either a tradeable setup or an explicit "no trade" signal.
+You read 5m / 15m / 1H / 4H price data, the current trading session (Asia/London/NY/off-hours), session VWAP and ATR, recent headlines, and imminent macro events — then output one JSON verdict that is either an immediately-tradeable scalp setup with a hard time-window, or an explicit "no trade".
 
-This output may be auto-published as a copy-trade signal when confidence is high enough. Be honest, be specific, and never invent a setup if there isn't one.
+This output may be auto-published as a copy-trade signal. Be honest. Never invent a setup.
 
-Rules:
+Rules — scalp specifics:
 - verdict: bullish, bearish, or neutral.
-- confidence: integer 0-100. Reserve >=75 for high-conviction setups where the multi-timeframe (1W, 1D, 1H) trends align with the verdict. Use 40-65 when signals conflict. Below 40 when contradictions are heavy or news risk is dominant.
-- setup_type: pick exactly ONE of:
-    "breakout"   — close decisively beyond a recent swing high/low with momentum;
-    "retest"     — price returning to a freshly broken level (typical after a breakout);
-    "pullback"   — counter-trend dip in an established trend, stalling at a moving-average or prior level;
-    "range-fade" — sell at established range top, buy at established range bottom (only when 1D trend is sideways);
-    "none"       — no clean setup; do not propose entry/SL/TP.
-- entry, stop_loss, take_profit: numeric USD prices. Required when setup_type != "none".
-- rr_ratio: numeric reward-to-risk = |TP - entry| / |entry - SL|. Must be >= 2.0 when setup_type != "none". If a clean setup yields R:R < 2, set setup_type = "none" — do not propose the trade.
-- Targets must be at least 1.0x ATR(14) away from entry. Never propose entry/SL/TP within fractions of ATR — that is noise, not a setup.
-- Setup must be aligned with at least 2 of 3 timeframe trends (1W, 1D, 1H). If only 1 of 3 aligns, setup_type = "none".
-- summary: 2-3 sentences, plain English, no fluff, no disclaimers, no emoji.
-- technical: short strings. trend = "uptrend"|"downtrend"|"sideways". rsi value as number with one-line note. macd as one-line note.
-- multi_timeframe: explicit trend label per timeframe (1W, 1D, 1H).
-- fundamental.note: explicitly weave in DXY direction, yields, and any major news. The cot block — speculator net position and weekly change — is a contrarian signal: extreme speculator net longs often precede tops, extreme net shorts often precede bottoms. Mention COT positioning in your reasoning when it adds signal.
-- levels: support, resistance, target — all in USD.
-- Never recommend specific position sizes or leverage.
-- Never claim certainty. Use "likely", "expected", "biased toward".
-- Gold is inversely correlated with USD strength and real yields. Reflect this.`;
+- confidence: 0-100. Reserve >=75 for high-conviction setups where 4H, 1H, and 15m alignment is clean. Use 40-65 when signals conflict.
+- setup_type: pick ONE of:
+    "session_breakout" — break of session high/low (London or NY open ranges) with momentum, expecting follow-through.
+    "trend_pullback"   — 1H/4H trend is clear, price has pulled back to an intraday MA or recent S/R, looking to rejoin trend.
+    "level_reject"     — clean rejection at a key intraday level (round number, prev session high/low) with wick/divergence.
+    "range_fade"       — tight intraday range, fade the edges (only when 4H trend is sideways).
+    "none"             — no clean setup. DEFAULT TO THIS when signals are mixed.
+- entry, stop_loss, take_profit: USD prices. Required when setup_type != "none".
+- rr_ratio: |TP - entry| / |entry - SL|. Must be >= 1.5 for scalp (lower than swing because hold-times are shorter and slippage is smaller). Below that: setup_type = "none".
+- Stop distance must be 0.4x to 1.5x atr_1h. Targets must be 0.6x to 2.5x atr_1h. NEVER propose targets > 3x atr_1h on a scalp — that is a swing trade, not a scalp.
+- valid_for_hours: integer 1 to 4. How long this setup remains valid before re-evaluation. Default 2.
+- Setup must align with at least 2 of 3 timeframes (4H, 1H, 15m). If only 1 of 3 aligns, setup_type = "none". Use 1D as a context veto only — do not require alignment with it (intraday traders often fade daily moves).
+- During off-hours / Asia session with thin volume: be very cautious; default to "none" unless the setup is exceptional.
+- During the 30 minutes before/after a high-impact macro event listed in upcoming_events: setup_type = "none". Don't trade the news — wait for it to settle.
+- summary: 1-2 sentences, plain English, no fluff, no disclaimers.
+- technical: trend = "uptrend"|"downtrend"|"sideways" (this is the 1H trend), rsi (1H) with one-line note, macd_note (1H) one line.
+- multi_timeframe: explicit trend label per timeframe (1H, 15m, 4H).
+- fundamental.note: weave in DXY/yields direction and any market-moving news. Skip macroeconomic philosophy — focus on what matters in the next few hours.
+- levels: support, resistance, target — intraday levels.
+- Never recommend leverage or position size.
+- Never claim certainty.`;
 
 const ANALYSIS_INSTRUCTIONS = `Output ONLY the JSON object matching the schema. No prose before or after.
 
@@ -55,16 +59,17 @@ Schema:
 {
   "verdict": "bullish" | "bearish" | "neutral",
   "confidence": integer 0-100,
-  "setup_type": "breakout" | "retest" | "pullback" | "range-fade" | "none",
+  "setup_type": "session_breakout" | "trend_pullback" | "level_reject" | "range_fade" | "none",
   "entry": number | null,
   "stop_loss": number | null,
   "take_profit": number | null,
   "rr_ratio": number | null,
+  "valid_for_hours": integer 1-4,
   "summary": string,
   "multi_timeframe": {
-    "trend_1w": "uptrend" | "downtrend" | "sideways",
-    "trend_1d": "uptrend" | "downtrend" | "sideways",
+    "trend_4h": "uptrend" | "downtrend" | "sideways",
     "trend_1h": "uptrend" | "downtrend" | "sideways",
+    "trend_15m": "uptrend" | "downtrend" | "sideways",
     "alignment_note": string
   },
   "technical": {
@@ -191,26 +196,92 @@ async function fetchYahooClose(url) {
   }
 }
 
-async function fetchYahooOHLC() {
-  const r = await fetch(YAHOO_OHLC_URL, {
-    headers: YAHOO_HEADERS,
-    signal: AbortSignal.timeout(10000),
-  });
-  const d = await r.json();
-  const result = d.chart?.result?.[0];
-  if (!result) return null;
-  const ts = result.timestamp;
-  const q = result.indicators?.quote?.[0];
-  if (!q) return null;
-  return ts
-    .map((t, i) => ({
-      date: new Date(t * 1000).toISOString().slice(0, 10),
-      open: q.open[i],
-      high: q.high[i],
-      low: q.low[i],
-      close: q.close[i],
-    }))
-    .filter((row) => row.close != null);
+async function fetchYahooBars(url) {
+  try {
+    const r = await fetch(url, {
+      headers: YAHOO_HEADERS,
+      signal: AbortSignal.timeout(10000),
+    });
+    const d = await r.json();
+    const result = d.chart?.result?.[0];
+    if (!result) return null;
+    const ts = result.timestamp;
+    const q = result.indicators?.quote?.[0];
+    if (!q) return null;
+    return ts
+      .map((t, i) => ({
+        time: t * 1000,
+        date: new Date(t * 1000).toISOString(),
+        open: q.open[i],
+        high: q.high[i],
+        low: q.low[i],
+        close: q.close[i],
+      }))
+      .filter((row) => row.close != null);
+  } catch {
+    return null;
+  }
+}
+
+// Aggregate hourly bars into 4H bars (UTC-aligned at 0/4/8/12/16/20).
+function aggregateTo4H(hourlyBars) {
+  if (!hourlyBars || hourlyBars.length === 0) return [];
+  const buckets = new Map();
+  for (const bar of hourlyBars) {
+    const d = new Date(bar.time);
+    const bucketHour = Math.floor(d.getUTCHours() / 4) * 4;
+    const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}-${d.getUTCDate()}-${bucketHour}`;
+    if (!buckets.has(key)) {
+      buckets.set(key, { time: Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), bucketHour), open: bar.open, high: bar.high, low: bar.low, close: bar.close });
+    } else {
+      const b = buckets.get(key);
+      b.high = Math.max(b.high, bar.high);
+      b.low = Math.min(b.low, bar.low);
+      b.close = bar.close;
+    }
+  }
+  return [...buckets.values()].sort((a, b) => a.time - b.time);
+}
+
+function summarizeBars(bars, label) {
+  if (!bars || bars.length < 20) return null;
+  const closes = bars.map((b) => b.close);
+  const highs = bars.map((b) => b.high);
+  const lows = bars.map((b) => b.low);
+  return {
+    bars: bars.length,
+    label,
+    last_close: closes[closes.length - 1],
+    trend: trendLabel(closes),
+    rsi_14: rsi(closes, 14),
+    atr_14: atr(highs, lows, closes, 14),
+    last_5: bars.slice(-5).map((b) => ({ t: b.date, o: b.open, h: b.high, l: b.low, c: b.close })),
+  };
+}
+
+// Determine session: Asia (00-07 UTC), London (07-13 UTC), NY (13-20 UTC), off-hours (20-24 UTC)
+function currentSession() {
+  const h = new Date().getUTCHours();
+  if (h >= 0 && h < 7) return "asia";
+  if (h >= 7 && h < 13) return "london";
+  if (h >= 13 && h < 20) return "ny";
+  return "off-hours";
+}
+
+// Session VWAP from hourly bars over the last N hours (rough approximation)
+function sessionVWAP(hourlyBars, sessionStartHourUTC) {
+  if (!hourlyBars || hourlyBars.length === 0) return null;
+  const now = new Date();
+  const sessionStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), sessionStartHourUTC));
+  const inSession = hourlyBars.filter((b) => b.time >= sessionStart.getTime() && b.time <= now.getTime());
+  if (inSession.length === 0) return null;
+  let pv = 0, vol = 0;
+  for (const b of inSession) {
+    const typical = (b.high + b.low + b.close) / 3;
+    pv += typical;
+    vol += 1; // we don't have real volume — approximation, equal weight
+  }
+  return pv / vol;
 }
 
 async function fetchForexEvents() {
@@ -289,123 +360,6 @@ async function fetchNews() {
   }
 }
 
-async function fetchYahooWeekly() {
-  try {
-    const r = await fetch(YAHOO_WEEKLY_URL, {
-      headers: YAHOO_HEADERS,
-      signal: AbortSignal.timeout(10000),
-    });
-    const d = await r.json();
-    const result = d.chart?.result?.[0];
-    if (!result) return null;
-    const ts = result.timestamp;
-    const q = result.indicators?.quote?.[0];
-    if (!q) return null;
-    const bars = ts
-      .map((t, i) => ({
-        date: new Date(t * 1000).toISOString().slice(0, 10),
-        open: q.open[i],
-        high: q.high[i],
-        low: q.low[i],
-        close: q.close[i],
-      }))
-      .filter((row) => row.close != null);
-    if (bars.length < 50) return null;
-    const closes = bars.map((b) => b.close);
-    return {
-      bars_count: bars.length,
-      trend: trendLabel(closes),
-      rsi_14_w: rsi(closes, 14),
-      last_close: closes[closes.length - 1],
-      change_4w_pct: ((closes[closes.length - 1] - closes[Math.max(0, closes.length - 5)]) /
-        closes[Math.max(0, closes.length - 5)]) * 100,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function fetchCOT() {
-  try {
-    const r = await fetch(COT_URL, { signal: AbortSignal.timeout(10000) });
-    if (!r.ok) return null;
-    const data = await r.json();
-    if (!Array.isArray(data) || data.length < 1) return null;
-    // CFTC sometimes returns multiple gold contracts (futures, options-and-futures combined).
-    // Pick the first row whose market name starts with "GOLD - COMMODITY".
-    const goldRow = data.find((r) => /^GOLD - COMMODITY EXCHANGE/i.test(r.market_and_exchange_names));
-    if (!goldRow) return null;
-    const long = parseInt(goldRow.noncomm_positions_long_all, 10) || 0;
-    const short = parseInt(goldRow.noncomm_positions_short_all, 10) || 0;
-    const net = long - short;
-    // Try to find the previous week for the same contract
-    const prev = data.find(
-      (r) =>
-        /^GOLD - COMMODITY EXCHANGE/i.test(r.market_and_exchange_names) &&
-        r.report_date_as_yyyy_mm_dd !== goldRow.report_date_as_yyyy_mm_dd,
-    );
-    let change = null;
-    if (prev) {
-      const prevNet =
-        (parseInt(prev.noncomm_positions_long_all, 10) || 0) -
-        (parseInt(prev.noncomm_positions_short_all, 10) || 0);
-      change = net - prevNet;
-    }
-    return {
-      report_date: goldRow.report_date_as_yyyy_mm_dd?.slice(0, 10),
-      specs_long: long,
-      specs_short: short,
-      specs_net: net,
-      specs_net_change_wow: change,
-      commercials_long: parseInt(goldRow.comm_positions_long_all, 10) || 0,
-      commercials_short: parseInt(goldRow.comm_positions_short_all, 10) || 0,
-    };
-  } catch {
-    return null;
-  }
-}
-
-async function fetchYahooIntraday() {
-  try {
-    const r = await fetch(YAHOO_INTRADAY_URL, {
-      headers: YAHOO_HEADERS,
-      signal: AbortSignal.timeout(10000),
-    });
-    const d = await r.json();
-    const result = d.chart?.result?.[0];
-    if (!result) return null;
-    const ts = result.timestamp;
-    const q = result.indicators?.quote?.[0];
-    if (!q) return null;
-    const bars = ts
-      .map((t, i) => ({
-        time: new Date(t * 1000).toISOString(),
-        open: q.open[i],
-        high: q.high[i],
-        low: q.low[i],
-        close: q.close[i],
-      }))
-      .filter((row) => row.close != null);
-    if (bars.length < 24) return null;
-    const closes = bars.map((b) => b.close);
-    const highs = bars.map((b) => b.high);
-    const lows = bars.map((b) => b.low);
-    const last24h = bars.slice(-24);
-    const last24Closes = last24h.map((b) => b.close);
-    return {
-      bars_count: bars.length,
-      trend: trendLabel(closes),
-      last_close: closes[closes.length - 1],
-      change_24h_pct: ((closes[closes.length - 1] - closes[Math.max(0, closes.length - 24)]) /
-        closes[Math.max(0, closes.length - 24)]) * 100,
-      high_24h: Math.max(...last24h.map((b) => b.high)),
-      low_24h: Math.min(...last24h.map((b) => b.low)),
-      rsi_14_1h: rsi(closes, 14),
-    };
-  } catch {
-    return null;
-  }
-}
 
 // Mark outcome on rows older than 24h that don't have one yet.
 // Outcome = correct if price moved >= 0.3% in the predicted direction within 24h.
@@ -452,41 +406,64 @@ async function fetchAccuracyStats(supabase) {
   return { total: data.length, correct, pct: Math.round((correct / data.length) * 100) };
 }
 
-function buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday, weekly, cot) {
-  const closes = ohlc.map((r) => r.close);
-  const highs = ohlc.map((r) => r.high);
-  const lows = ohlc.map((r) => r.low);
-  const last30 = ohlc.slice(-30);
-  const atr14 = atr(highs, lows, closes, 14);
+function buildAnalysisPayload({ price, daily, h1, h4, m15, m5, dxy, yield10y, events, news }) {
+  const session = currentSession();
+  const sessionStart = session === "asia" ? 0 : session === "london" ? 7 : session === "ny" ? 13 : 20;
+  const vwap = sessionVWAP(h1, sessionStart);
+
+  // Imminent macro events (next 4 hours)
+  const now = Date.now();
+  const cutoff = now + 4 * 60 * 60 * 1000;
+  const imminentEvents = (events || []).filter((e) => {
+    const t = new Date(e.date).getTime();
+    return t >= now - 30 * 60 * 1000 && t <= cutoff && e.impact === "High";
+  });
+
+  const m5Closes = m5?.map((b) => b.close) ?? [];
+  const m15Closes = m15?.map((b) => b.close) ?? [];
+  const dailyCloses = daily?.map((b) => b.close) ?? [];
+  const dailyHighs = daily?.map((b) => b.high) ?? [];
+  const dailyLows = daily?.map((b) => b.low) ?? [];
 
   return {
     live_price_usd: price,
-    atr_14: atr14 != null ? Number(atr14.toFixed(2)) : null,
+    session,
+    session_vwap: vwap != null ? Number(vwap.toFixed(2)) : null,
+    daily_context: daily && daily.length > 0
+      ? {
+          trend: trendLabel(dailyCloses),
+          rsi_14: rsi(dailyCloses),
+          atr_14: atr(dailyHighs, dailyLows, dailyCloses, 14),
+          last_close: dailyCloses[dailyCloses.length - 1],
+        }
+      : null,
     multi_timeframe: {
-      weekly: weekly,
-      daily: { trend: trendLabel(closes), rsi_14: rsi(closes), bars: closes.length },
-      hourly: intraday,
+      h4: summarizeBars(h4, "4H"),
+      h1: summarizeBars(h1, "1H"),
+      m15: summarizeBars(m15, "15m"),
+      m5: m5
+        ? {
+            bars: m5.length,
+            last_close: m5Closes[m5Closes.length - 1],
+            change_15m: m5.length >= 4 ? m5Closes[m5Closes.length - 1] - m5Closes[m5Closes.length - 4] : null,
+            rsi_14: rsi(m5Closes, 14),
+          }
+        : null,
     },
     macro: {
       dxy: dxy ? { value: dxy.last.toFixed(2), change_pct: dxy.changePct.toFixed(2) } : null,
       us_10y_yield: yield10y ? { value: yield10y.last.toFixed(2), change_pct: yield10y.changePct.toFixed(2) } : null,
     },
-    cot,
-    technical: {
-      rsi_14: rsi(closes),
-      macd: macd(closes),
-      trend_50d: trendLabel(closes),
-      levels_30d: levelsFromOHLC(highs, lows),
-    },
-    ohlc_last_30d: last30.map((r) => ({
-      d: r.date,
-      o: r.open,
-      h: r.high,
-      l: r.low,
-      c: r.close,
-    })),
+    intraday_levels: h1 && h1.length > 0
+      ? {
+          last_24h_high: Math.max(...h1.slice(-24).map((b) => b.high)),
+          last_24h_low: Math.min(...h1.slice(-24).map((b) => b.low)),
+          atr_1h: atr(h1.map((b) => b.high), h1.map((b) => b.low), h1.map((b) => b.close), 14),
+        }
+      : null,
+    imminent_high_impact_events: imminentEvents,
     upcoming_events: events,
-    recent_headlines: news.map((n) => ({ title: n.title, publisher: n.publisher, when: n.published_at })),
+    recent_headlines: (news || []).map((n) => ({ title: n.title, publisher: n.publisher, when: n.published_at })),
     generated_at: new Date().toISOString(),
   };
 }
@@ -513,30 +490,33 @@ export default async function handler(req, res) {
     }
   }
 
-  const [price, ohlc, events, dxy, yield10y, news, intraday, weekly, cot] = await Promise.all([
+  const [price, daily, h1, m15, m5, events, dxy, yield10y, news] = await Promise.all([
     fetchPythPrice(),
-    fetchYahooOHLC(),
+    fetchYahooBars(YAHOO_DAILY_URL),
+    fetchYahooBars(YAHOO_1H_URL),
+    fetchYahooBars(YAHOO_15M_URL),
+    fetchYahooBars(YAHOO_5M_URL),
     fetchForexEvents(),
     fetchYahooClose(YAHOO_DXY_URL),
     fetchYahooClose(YAHOO_TNX_URL),
     fetchNews(),
-    fetchYahooIntraday(),
-    fetchYahooWeekly(),
-    fetchCOT(),
   ]);
 
-  if (!price || !ohlc || ohlc.length < 35) {
+  if (!price || !h1 || h1.length < 24 || !m15 || m15.length < 50) {
     if (latest) {
       const accuracy = await fetchAccuracyStats(supabase);
       return res.status(200).json({ ...latest, accuracy, cached: true, stale: true });
     }
-    return res.status(503).json({ error: "Unable to fetch market data" });
+    return res.status(503).json({ error: "Unable to fetch intraday data" });
   }
 
-  // Process older rows in parallel — they don't block the response if it's slow.
+  // 4H bars aggregated from 1H
+  const h4 = aggregateTo4H(h1);
+
+  // Process older rows in parallel — non-blocking outcome scoring.
   processPendingOutcomes(supabase, price).catch(() => {});
 
-  const payload = buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday, weekly, cot);
+  const payload = buildAnalysisPayload({ price, daily, h1, h4, m15, m5, dxy, yield10y, events, news });
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -572,7 +552,17 @@ export default async function handler(req, res) {
     return res.status(502).json({ error: "Model returned non-JSON", raw: text });
   }
 
-  const ohlc30 = ohlc.slice(-30).map((r) => ({ d: r.date, o: r.open, h: r.high, l: r.low, c: r.close }));
+  // Chart data: last 48 hours of 1H bars for the frontend SVG.
+  const chartBars = h1.slice(-48).map((b) => ({
+    t: b.time,
+    o: b.open,
+    h: b.high,
+    l: b.low,
+    c: b.close,
+  }));
+
+  const validForHours = Math.max(1, Math.min(4, parseInt(parsed.valid_for_hours, 10) || 2));
+  const validUntil = new Date(Date.now() + validForHours * 60 * 60 * 1000).toISOString();
 
   const row = {
     verdict: parsed.verdict,
@@ -585,17 +575,17 @@ export default async function handler(req, res) {
     dxy: dxy?.last ?? null,
     yield_10y: yield10y?.last ?? null,
     headlines: news,
-    ohlc_30d: ohlc30,
+    ohlc_30d: chartBars,
     setup_type: parsed.setup_type ?? "none",
     entry: parsed.entry ?? null,
     stop_loss: parsed.stop_loss ?? null,
     take_profit: parsed.take_profit ?? null,
     rr_ratio: parsed.rr_ratio ?? null,
-    cot_specs_net: cot?.specs_net ?? null,
-    cot_specs_change: cot?.specs_net_change_wow ?? null,
-    cot_report_date: cot?.report_date ?? null,
-    trend_1w: parsed.multi_timeframe?.trend_1w ?? null,
+    valid_until: validUntil,
+    session: payload.session,
+    trend_4h: parsed.multi_timeframe?.trend_4h ?? null,
     trend_1h: parsed.multi_timeframe?.trend_1h ?? null,
+    trend_15m: parsed.multi_timeframe?.trend_15m ?? null,
   };
 
   const { data: inserted } = await supabase
