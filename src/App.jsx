@@ -3281,7 +3281,12 @@ function App() {
               {a?.cached ? ' • cached' : ''}
               {a?.accuracy?.pct != null && (
                 <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.3)', color: '#D4A843', fontSize: '0.75rem' }}>
-                  {a.accuracy.pct}% accurate · last {a.accuracy.total}
+                  {a.accuracy.pct}% hit rate · last {a.accuracy.total} trades
+                </span>
+              )}
+              {a?.data_quality && a.data_quality.ok === false && (
+                <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(234,179,8,0.12)', border: '1px solid rgba(234,179,8,0.35)', color: '#eab308', fontSize: '0.75rem' }}>
+                  ⚠ Data quality low (Δ ${a.data_quality.delta_usd})
                 </span>
               )}
             </p>
@@ -3565,6 +3570,68 @@ function App() {
                 )}
               </div>
             </div>
+
+            {/* Per-setup hit rate + Recent Signals */}
+            {(a.accuracy?.by_setup && Object.keys(a.accuracy.by_setup).length > 0) || (Array.isArray(a.recent_signals) && a.recent_signals.length > 0) ? (
+              <div style={{ marginTop: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 8 }}>
+                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>
+                    Track Record
+                  </div>
+                  {a.accuracy?.total > 0 && (
+                    <div style={{ fontSize: '0.78rem', opacity: 0.7 }}>
+                      Overall: <b style={{ color: a.accuracy.pct >= 55 ? '#22c55e' : a.accuracy.pct >= 45 ? '#eab308' : '#ef4444' }}>{a.accuracy.pct}%</b> over {a.accuracy.total} closed trades
+                    </div>
+                  )}
+                </div>
+
+                {a.accuracy?.by_setup && Object.keys(a.accuracy.by_setup).length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
+                    {Object.entries(a.accuracy.by_setup).map(([setup, s]) => {
+                      const color = s.pct >= 55 ? '#22c55e' : s.pct >= 45 ? '#eab308' : '#ef4444';
+                      return (
+                        <div key={setup} style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 8, border: `1px solid ${color}30` }}>
+                          <div style={{ fontSize: '0.72rem', opacity: 0.7, textTransform: 'capitalize' }}>{setup.replace(/_/g, ' ')}</div>
+                          <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginTop: 3 }}>
+                            <span style={{ fontSize: '1.05rem', fontWeight: 700, color }}>{s.pct}%</span>
+                            <span style={{ fontSize: '0.7rem', opacity: 0.55 }}>{s.correct}/{s.total}</span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {Array.isArray(a.recent_signals) && a.recent_signals.length > 0 && (
+                  <>
+                    <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 8 }}>Recent signals</div>
+                    <div style={{ display: 'grid', gap: 6 }}>
+                      {a.recent_signals.map(s => {
+                        const isLong = s.verdict === 'bullish';
+                        const sideColor = isLong ? '#22c55e' : '#ef4444';
+                        const outcomeIcon = s.outcome_type === 'tp' ? { icon: '✅', color: '#22c55e', label: 'TP' }
+                          : s.outcome_type === 'sl' ? { icon: '❌', color: '#ef4444', label: 'SL' }
+                          : s.outcome_type === 'timeout' ? { icon: '⏱', color: 'rgba(255,255,255,0.5)', label: 'Timeout' }
+                          : s.outcome_type === 'no-trade' ? { icon: '—', color: 'rgba(255,255,255,0.4)', label: 'No-trade' }
+                          : s.valid_until && new Date(s.valid_until).getTime() > Date.now()
+                            ? { icon: '🟡', color: '#eab308', label: 'Active' }
+                            : { icon: '⏳', color: 'rgba(255,255,255,0.4)', label: 'Pending' };
+                        return (
+                          <div key={s.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto auto', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: '0.78rem' }}>
+                            <span style={{ color: sideColor, fontWeight: 700, minWidth: 42 }}>{isLong ? 'LONG' : 'SHORT'}</span>
+                            <span style={{ opacity: 0.85, textTransform: 'capitalize' }}>{(s.setup_type || '').replace(/_/g, ' ')}</span>
+                            <span style={{ opacity: 0.6, fontVariantNumeric: 'tabular-nums' }}>{s.entry != null ? `$${Number(s.entry).toFixed(0)}` : '—'}</span>
+                            <span style={{ opacity: 0.5, fontSize: '0.72rem' }}>R:R {s.rr_ratio != null ? Number(s.rr_ratio).toFixed(1) : '—'}</span>
+                            <span style={{ color: outcomeIcon.color, fontSize: '0.72rem', fontWeight: 600 }}>{outcomeIcon.icon} {outcomeIcon.label}</span>
+                            <span style={{ opacity: 0.4, fontSize: '0.7rem' }}>{new Date(s.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            ) : null}
 
             {/* CFTC speculator positioning */}
             {a.cot_specs_net != null && (() => {

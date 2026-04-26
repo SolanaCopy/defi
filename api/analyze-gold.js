@@ -466,6 +466,20 @@ async function processPendingOutcomes(supabase, currentPrice) {
   }
 }
 
+async function fetchRecentSignals(supabase) {
+  // Last 10 rows that proposed an actual trade (setup_type != "none").
+  const { data } = await supabase
+    .from("gold_analysis")
+    .select(
+      "id, created_at, valid_until, verdict, setup_type, entry, stop_loss, take_profit, rr_ratio, confidence, outcome_type, outcome_correct, outcome_price",
+    )
+    .neq("setup_type", "none")
+    .not("setup_type", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(10);
+  return data || [];
+}
+
 // Hit rate = TP hits / (TP hits + SL hits). Timeouts and "none" rows excluded.
 // Also breaks down by setup_type so we can see which patterns work.
 async function fetchAccuracyStats(supabase) {
@@ -574,8 +588,11 @@ export default async function handler(req, res) {
   if (latest && !force) {
     const ageMs = Date.now() - new Date(latest.created_at).getTime();
     if (ageMs < CACHE_MINUTES * 60 * 1000) {
-      const accuracy = await fetchAccuracyStats(supabase);
-      return res.status(200).json({ ...latest, accuracy, cached: true });
+      const [accuracy, recentSignals] = await Promise.all([
+        fetchAccuracyStats(supabase),
+        fetchRecentSignals(supabase),
+      ]);
+      return res.status(200).json({ ...latest, accuracy, recent_signals: recentSignals, cached: true });
     }
   }
 
@@ -593,11 +610,23 @@ export default async function handler(req, res) {
 
   if (!price || !h1 || h1.length < 24 || !m15 || m15.length < 50) {
     if (latest) {
-      const accuracy = await fetchAccuracyStats(supabase);
-      return res.status(200).json({ ...latest, accuracy, cached: true, stale: true });
+      const [accuracy, recentSignals] = await Promise.all([
+        fetchAccuracyStats(supabase),
+        fetchRecentSignals(supabase),
+      ]);
+      return res.status(200).json({ ...latest, accuracy, recent_signals: recentSignals, cached: true, stale: true });
     }
     return res.status(503).json({ error: "Unable to fetch intraday data" });
   }
+
+  // Pyth vs Yahoo sanity check — Pyth is real-time, Yahoo can lag or stale.
+  // If they disagree by more than $3 we flag the analysis as low-quality so
+  // the UI can warn users without us blocking the response entirely.
+  const yahooLast = h1[h1.length - 1].close;
+  const dataDelta = Math.abs(price - yahooLast);
+  const dataQuality = dataDelta > 3
+    ? { ok: false, note: `Yahoo intraday lags Pyth by $${dataDelta.toFixed(2)} — TA may be slightly stale`, pyth: price, yahoo: yahooLast, delta_usd: Number(dataDelta.toFixed(2)) }
+    : { ok: true, pyth: price, yahoo: yahooLast, delta_usd: Number(dataDelta.toFixed(2)) };
 
   // 4H bars aggregated from 1H
   const h4 = aggregateTo4H(h1);
@@ -683,11 +712,16 @@ export default async function handler(req, res) {
     .select()
     .single();
 
-  const accuracy = await fetchAccuracyStats(supabase);
+  const [accuracy, recentSignals] = await Promise.all([
+    fetchAccuracyStats(supabase),
+    fetchRecentSignals(supabase),
+  ]);
 
   return res.status(200).json({
     ...(inserted ?? row),
     accuracy,
+    recent_signals: recentSignals,
+    data_quality: dataQuality,
     cached: false,
     cache_read_tokens: message.usage?.cache_read_input_tokens ?? 0,
     cache_creation_tokens: message.usage?.cache_creation_input_tokens ?? 0,
