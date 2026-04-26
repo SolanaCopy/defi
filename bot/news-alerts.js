@@ -453,8 +453,14 @@ async function checkDailyPoll() {
 
       const body = {
         chat_id: TELEGRAM_CHAT_ID,
-        question: "Where do you think gold is heading today? 🪙",
-        options: JSON.stringify(["📈 Bullish — Going up", "📉 Bearish — Going down", "➡️ Sideways — No big move"]),
+        question: "Where will gold close today vs now? 🪙",
+        options: JSON.stringify([
+          "🚀 Up $30 or more",
+          "📈 Up $10 to $30",
+          "➡️ Within ±$10",
+          "📉 Down $10 to $30",
+          "🩸 Down $30 or more",
+        ]),
         is_anonymous: false,
       };
       await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPoll`, {
@@ -478,9 +484,29 @@ async function checkDailyPoll() {
 
     const change = closePrice - pollOpenPrice;
     const changePct = (change / pollOpenPrice) * 100;
-    const winnerOption = change > 5 ? 0 : change < -5 ? 1 : 2; // 0=Bullish, 1=Bearish, 2=Sideways
-    const direction = ["📈 BULLISH", "📉 BEARISH", "➡️ SIDEWAYS"][winnerOption];
-    const winnerLabel = ["Bullish", "Bearish", "Sideways"][winnerOption];
+    // 5-bucket classification by USD move:
+    // 0 = +$30 or more, 1 = +$10 to +$30, 2 = within ±$10,
+    // 3 = -$10 to -$30, 4 = -$30 or worse
+    let winnerOption;
+    if (change >= 30) winnerOption = 0;
+    else if (change >= 10) winnerOption = 1;
+    else if (change <= -30) winnerOption = 4;
+    else if (change <= -10) winnerOption = 3;
+    else winnerOption = 2;
+    const direction = [
+      "🚀 BIG RALLY",
+      "📈 UP",
+      "➡️ FLAT",
+      "📉 DOWN",
+      "🩸 BIG DROP",
+    ][winnerOption];
+    const winnerLabel = [
+      "Up $30 or more",
+      "Up $10 to $30",
+      "Within ±$10",
+      "Down $10 to $30",
+      "Down $30 or more",
+    ][winnerOption];
 
     // Get winners from pollVotes
     const winners = pollVotes.get(winnerOption) || [];
