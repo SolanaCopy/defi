@@ -351,6 +351,7 @@ export async function startNewsAlerts() {
     await checkWeekendClose();
     await checkSundayOpen();
     await checkDailyPoll();
+    await checkWeeklyPollWinner();
     await checkReferralLeaderboard();
     setTimeout(loop, CHECK_INTERVAL);
   };
@@ -539,14 +540,32 @@ async function checkDailyPoll() {
     savePollVotes();
     pollOpenPrice = null;
     persistPollState();
-
-    // Friday — crown the weekly winner ($50 USDC). Announce once per week.
-    if (day === 5 && lastWeeklyWinnerWeek !== currentWeek) {
-      await postWeeklyWinner(currentWeek);
-      lastWeeklyWinnerWeek = currentWeek;
-      persistPollState();
-    }
   }
+}
+
+// Independent weekly winner trigger. Fires Friday from 21:10 UTC onwards and
+// catches up on Sat/Sun if Friday was missed (e.g. bot was offline at 12:00 UTC
+// so the daily-poll block never ran).
+async function checkWeeklyPollWinner() {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+
+  const now = new Date();
+  const day = now.getUTCDay(); // 0=Sun, 5=Fri, 6=Sat
+  const hour = now.getUTCHours();
+  const minute = now.getUTCMinutes();
+
+  // Friday after 21:10 UTC, or any time Saturday/Sunday (still inside the same
+  // ISO week, so getWeekKey(now) targets the just-finished poll week).
+  const fridayLate = day === 5 && (hour > 21 || (hour === 21 && minute >= 10));
+  const weekend = day === 6 || day === 0;
+  if (!fridayLate && !weekend) return;
+
+  const weekKey = getWeekKey(now);
+  if (lastWeeklyWinnerWeek === weekKey) return;
+
+  await postWeeklyWinner(weekKey);
+  lastWeeklyWinnerWeek = weekKey;
+  persistPollState();
 }
 
 async function postWeeklyWinner(weekKey) {
