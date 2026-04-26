@@ -576,6 +576,17 @@ async function checkWeeklyPollWinner() {
   const weekKey = getWeekKey(now);
   if (lastWeeklyWinnerWeek === weekKey) return;
 
+  // Silent-skip when there's nothing to crown. Avoids spamming "No correct
+  // predictions" on a fresh volume / first-deploy-of-week, where the
+  // weeklyCorrect counters were never populated. The bot will retry next week.
+  const hasScores = [...pollScores.values()].some(s => (s.weeklyCorrect || 0) > 0);
+  if (!hasScores) {
+    lastWeeklyWinnerWeek = weekKey; // mark as "handled" so we don't loop on it
+    persistPollState();
+    console.log(`[NEWS] Weekly winner skipped for ${weekKey}: no scored daily polls`);
+    return;
+  }
+
   await postWeeklyWinner(weekKey);
   lastWeeklyWinnerWeek = weekKey;
   persistPollState();
