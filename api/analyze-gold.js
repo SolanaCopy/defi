@@ -6,12 +6,14 @@ const PYTH_GOLD_URL =
   "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
 const YAHOO_OHLC_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=3mo";
+const YAHOO_INTRADAY_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1h&range=5d";
 const YAHOO_DXY_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1d&range=5d";
 const YAHOO_TNX_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/%5ETNX?interval=1d&range=5d";
-const YAHOO_NEWS_URL =
-  "https://query1.finance.yahoo.com/v1/finance/search?q=gold%20price&newsCount=8&quotesCount=0";
+const NEWS_RSS_URL =
+  "https://news.google.com/rss/search?q=gold+price+OR+XAU+OR+%22precious+metals%22&hl=en-US&gl=US&ceid=US:en";
 const FOREX_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 const YAHOO_HEADERS = { "User-Agent": "Mozilla/5.0" };
 
@@ -28,7 +30,8 @@ Rules:
 - levels: numeric support, resistance, target — all in USD. Target should align with the verdict.
 - Never recommend specific position sizes or leverage.
 - Never claim certainty. Use "likely", "expected", "biased toward" rather than "will".
-- Gold is inversely correlated with USD strength and real yields. A rising DXY or rising 10Y yield is bearish for gold; falling DXY/yields is bullish. Reflect this in your reasoning.`;
+- Gold is inversely correlated with USD strength and real yields. A rising DXY or rising 10Y yield is bearish for gold; falling DXY/yields is bullish. Reflect this in your reasoning.
+- Targets must be MEANINGFUL, not next-tick. Use the supplied atr_14 (14-day Average True Range, in USD): for a neutral verdict the target should sit at least 1.0× ATR from current price; for bullish/bearish at least 2.0× ATR. If atr_14 is unavailable, fall back to roughly 1% of price for neutral and 2-3% for directional verdicts. Never set a target less than 0.5× ATR away — it's not a target, it's noise.`;
 
 const ANALYSIS_INSTRUCTIONS = `Output ONLY the JSON object matching the schema. No prose before or after.
 
@@ -77,20 +80,42 @@ function rsi(closes, period = 14) {
   return 100 - 100 / (1 + rs);
 }
 
-function ema(values, period) {
+function emaSeries(values, period) {
   const k = 2 / (period + 1);
-  let e = values[0];
-  for (let i = 1; i < values.length; i++) e = values[i] * k + e * (1 - k);
-  return e;
+  const out = new Array(values.length);
+  out[0] = values[0];
+  for (let i = 1; i < values.length; i++) out[i] = values[i] * k + out[i - 1] * (1 - k);
+  return out;
 }
 
 function macd(closes) {
   if (closes.length < 35) return null;
-  const slice = closes.slice(-26);
-  const ema12 = ema(slice, 12);
-  const ema26 = ema(slice, 26);
-  const macdLine = ema12 - ema26;
-  return { macd: macdLine, signal: null, histogram: null };
+  const ema12 = emaSeries(closes, 12);
+  const ema26 = emaSeries(closes, 26);
+  const macdLine = ema12.map((v, i) => v - ema26[i]);
+  const signalLine = emaSeries(macdLine, 9);
+  const last = macdLine.length - 1;
+  return {
+    macd: macdLine[last],
+    signal: signalLine[last],
+    histogram: macdLine[last] - signalLine[last],
+  };
+}
+
+function atr(highs, lows, closes, period = 14) {
+  if (closes.length < period + 1) return null;
+  const trs = [];
+  for (let i = 1; i < closes.length; i++) {
+    trs.push(
+      Math.max(
+        highs[i] - lows[i],
+        Math.abs(highs[i] - closes[i - 1]),
+        Math.abs(lows[i] - closes[i - 1]),
+      ),
+    );
+  }
+  const recent = trs.slice(-period);
+  return recent.reduce((a, b) => a + b, 0) / recent.length;
 }
 
 function trendLabel(closes) {
@@ -188,23 +213,93 @@ async function fetchForexEvents() {
   }
 }
 
+function decodeHtml(s) {
+  return s
+    .replace(/<!\[CDATA\[/g, "")
+    .replace(/\]\]>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .trim();
+}
+
 async function fetchNews() {
   try {
-    const r = await fetch(YAHOO_NEWS_URL, {
+    const r = await fetch(NEWS_RSS_URL, {
       headers: YAHOO_HEADERS,
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(10000),
     });
-    const d = await r.json();
-    return (d.news || [])
-      .slice(0, 5)
-      .map((n) => ({
-        title: n.title,
-        publisher: n.publisher,
-        published_at: n.providerPublishTime ? new Date(n.providerPublishTime * 1000).toISOString() : null,
-        link: n.link,
-      }));
+    if (!r.ok) return [];
+    const xml = await r.text();
+    const items = [];
+    const itemRe = /<item>([\s\S]*?)<\/item>/g;
+    let m;
+    while ((m = itemRe.exec(xml)) !== null) {
+      const block = m[1];
+      const titleRaw = (block.match(/<title>([\s\S]*?)<\/title>/) || [])[1];
+      const link = (block.match(/<link>([\s\S]*?)<\/link>/) || [])[1];
+      const pub = (block.match(/<pubDate>([\s\S]*?)<\/pubDate>/) || [])[1];
+      const sourceRaw = (block.match(/<source[^>]*>([\s\S]*?)<\/source>/) || [])[1];
+      if (!titleRaw) continue;
+      const title = decodeHtml(titleRaw);
+      // Google News titles are formatted "Article Title - Publisher Name"
+      const dash = title.lastIndexOf(" - ");
+      const cleanTitle = dash > 0 ? title.slice(0, dash) : title;
+      const publisher = sourceRaw ? decodeHtml(sourceRaw) : (dash > 0 ? title.slice(dash + 3) : "");
+      items.push({
+        title: cleanTitle,
+        publisher,
+        published_at: pub ? new Date(pub).toISOString() : null,
+        link: link?.trim(),
+      });
+      if (items.length >= 8) break;
+    }
+    return items;
   } catch {
     return [];
+  }
+}
+
+async function fetchYahooIntraday() {
+  try {
+    const r = await fetch(YAHOO_INTRADAY_URL, {
+      headers: YAHOO_HEADERS,
+      signal: AbortSignal.timeout(10000),
+    });
+    const d = await r.json();
+    const result = d.chart?.result?.[0];
+    if (!result) return null;
+    const ts = result.timestamp;
+    const q = result.indicators?.quote?.[0];
+    if (!q) return null;
+    const bars = ts
+      .map((t, i) => ({
+        time: new Date(t * 1000).toISOString(),
+        open: q.open[i],
+        high: q.high[i],
+        low: q.low[i],
+        close: q.close[i],
+      }))
+      .filter((row) => row.close != null);
+    if (bars.length < 24) return null;
+    const closes = bars.map((b) => b.close);
+    const highs = bars.map((b) => b.high);
+    const lows = bars.map((b) => b.low);
+    const last24h = bars.slice(-24);
+    const last24Closes = last24h.map((b) => b.close);
+    return {
+      bars_count: bars.length,
+      last_close: closes[closes.length - 1],
+      change_24h_pct: ((closes[closes.length - 1] - closes[Math.max(0, closes.length - 24)]) /
+        closes[Math.max(0, closes.length - 24)]) * 100,
+      high_24h: Math.max(...last24h.map((b) => b.high)),
+      low_24h: Math.min(...last24h.map((b) => b.low)),
+      rsi_14_1h: rsi(closes, 14),
+    };
+  } catch {
+    return null;
   }
 }
 
@@ -253,14 +348,16 @@ async function fetchAccuracyStats(supabase) {
   return { total: data.length, correct, pct: Math.round((correct / data.length) * 100) };
 }
 
-function buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news) {
+function buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday) {
   const closes = ohlc.map((r) => r.close);
   const highs = ohlc.map((r) => r.high);
   const lows = ohlc.map((r) => r.low);
   const last30 = ohlc.slice(-30);
+  const atr14 = atr(highs, lows, closes, 14);
 
   return {
     live_price_usd: price,
+    atr_14: atr14 != null ? Number(atr14.toFixed(2)) : null,
     macro: {
       dxy: dxy ? { value: dxy.last.toFixed(2), change_pct: dxy.changePct.toFixed(2) } : null,
       us_10y_yield: yield10y ? { value: yield10y.last.toFixed(2), change_pct: yield10y.changePct.toFixed(2) } : null,
@@ -271,6 +368,7 @@ function buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news) {
       trend_50d: trendLabel(closes),
       levels_30d: levelsFromOHLC(highs, lows),
     },
+    intraday_1h: intraday,
     ohlc_last_30d: last30.map((r) => ({
       d: r.date,
       o: r.open,
@@ -306,13 +404,14 @@ export default async function handler(req, res) {
     }
   }
 
-  const [price, ohlc, events, dxy, yield10y, news] = await Promise.all([
+  const [price, ohlc, events, dxy, yield10y, news, intraday] = await Promise.all([
     fetchPythPrice(),
     fetchYahooOHLC(),
     fetchForexEvents(),
     fetchYahooClose(YAHOO_DXY_URL),
     fetchYahooClose(YAHOO_TNX_URL),
     fetchNews(),
+    fetchYahooIntraday(),
   ]);
 
   if (!price || !ohlc || ohlc.length < 35) {
@@ -326,7 +425,7 @@ export default async function handler(req, res) {
   // Process older rows in parallel — they don't block the response if it's slow.
   processPendingOutcomes(supabase, price).catch(() => {});
 
-  const payload = buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news);
+  const payload = buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday);
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
