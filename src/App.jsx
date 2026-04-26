@@ -3239,6 +3239,11 @@ function App() {
             <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem' }}>
               {a?.created_at ? `Last updated ${new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Loading…'}
               {a?.cached ? ' • cached' : ''}
+              {a?.accuracy?.pct != null && (
+                <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.3)', color: '#D4A843', fontSize: '0.75rem' }}>
+                  {a.accuracy.pct}% accurate · last {a.accuracy.total}
+                </span>
+              )}
             </p>
           </div>
           <button
@@ -3295,6 +3300,94 @@ function App() {
               </div>
             </div>
 
+            {/* Macro row: DXY + 10Y yield */}
+            {(a.dxy != null || a.yield_10y != null) && (
+              <div style={{ display: 'flex', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                {a.dxy != null && (
+                  <div style={{ flex: 1, minWidth: 160, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '12px 16px' }}>
+                    <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>DXY (Dollar Index)</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 600, marginTop: 2 }}>{Number(a.dxy).toFixed(2)}</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.55, marginTop: 1 }}>inverse to gold</div>
+                  </div>
+                )}
+                {a.yield_10y != null && (
+                  <div style={{ flex: 1, minWidth: 160, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, padding: '12px 16px' }}>
+                    <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>US 10Y Yield</div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: 600, marginTop: 2 }}>{Number(a.yield_10y).toFixed(2)}%</div>
+                    <div style={{ fontSize: '0.7rem', opacity: 0.55, marginTop: 1 }}>inverse to gold</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Candlestick chart with S/R/target overlay */}
+            {Array.isArray(a.ohlc_30d) && a.ohlc_30d.length > 0 && (() => {
+              const data = a.ohlc_30d;
+              const W = 900, H = 280, padL = 50, padR = 70, padT = 16, padB = 24;
+              const innerW = W - padL - padR;
+              const innerH = H - padT - padB;
+              const allValues = data.flatMap(c => [c.h, c.l]).concat([a.levels?.support, a.levels?.resistance, a.levels?.target].filter(v => v != null));
+              const minP = Math.min(...allValues) * 0.998;
+              const maxP = Math.max(...allValues) * 1.002;
+              const yScale = v => padT + innerH - ((v - minP) / (maxP - minP)) * innerH;
+              const candleW = Math.max(2, (innerW / data.length) * 0.7);
+              const xCenter = i => padL + (i + 0.5) * (innerW / data.length);
+
+              const horizLine = (price, color, label) => price == null ? null : (
+                <g key={label}>
+                  <line x1={padL} x2={padL + innerW} y1={yScale(price)} y2={yScale(price)} stroke={color} strokeWidth={1} strokeDasharray="4 4" opacity={0.7} />
+                  <rect x={padL + innerW + 2} y={yScale(price) - 9} width={66} height={18} rx={3} fill={color} opacity={0.85} />
+                  <text x={padL + innerW + 35} y={yScale(price) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">{label} ${Number(price).toFixed(0)}</text>
+                </g>
+              );
+
+              const ticks = 5;
+              const yTicks = Array.from({ length: ticks }, (_, i) => minP + (maxP - minP) * (i / (ticks - 1)));
+
+              return (
+                <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 14, marginBottom: 20, overflowX: 'auto' }}>
+                  <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 4, paddingLeft: 4 }}>
+                    Last 30 days · Levels overlaid
+                  </div>
+                  <svg viewBox={`0 0 ${W} ${H}`} style={{ width: '100%', height: 'auto', display: 'block' }}>
+                    {yTicks.map((v, i) => (
+                      <g key={i}>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(v)} y2={yScale(v)} stroke="rgba(255,255,255,0.05)" strokeWidth={1} />
+                        <text x={padL - 6} y={yScale(v) + 3} fontSize="10" fill="rgba(255,255,255,0.4)" textAnchor="end">{v.toFixed(0)}</text>
+                      </g>
+                    ))}
+                    {data.map((c, i) => {
+                      const up = c.c >= c.o;
+                      const color = up ? '#22c55e' : '#ef4444';
+                      const x = xCenter(i);
+                      return (
+                        <g key={i}>
+                          <line x1={x} x2={x} y1={yScale(c.h)} y2={yScale(c.l)} stroke={color} strokeWidth={1} />
+                          <rect
+                            x={x - candleW / 2}
+                            y={yScale(Math.max(c.o, c.c))}
+                            width={candleW}
+                            height={Math.max(1, Math.abs(yScale(c.o) - yScale(c.c)))}
+                            fill={color}
+                          />
+                        </g>
+                      );
+                    })}
+                    {horizLine(a.levels?.support, '#22c55e', 'S')}
+                    {horizLine(a.levels?.resistance, '#ef4444', 'R')}
+                    {horizLine(a.levels?.target, '#D4A843', 'T')}
+                    {a.price != null && (
+                      <g>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(a.price)} y2={yScale(a.price)} stroke="#fff" strokeWidth={1} opacity={0.4} />
+                        <rect x={padL + innerW + 2} y={yScale(a.price) - 9} width={66} height={18} rx={3} fill="#fff" />
+                        <text x={padL + innerW + 35} y={yScale(a.price) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">NOW ${Number(a.price).toFixed(0)}</text>
+                      </g>
+                    )}
+                  </svg>
+                </div>
+              );
+            })()}
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
               <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
                 <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 12 }}>
@@ -3348,8 +3441,27 @@ function App() {
               </div>
             </div>
 
+            {/* Recent gold-related headlines */}
+            {Array.isArray(a.headlines) && a.headlines.length > 0 && (
+              <div style={{ marginTop: 20, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
+                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 12 }}>
+                  Recent Headlines
+                </div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  {a.headlines.slice(0, 5).map((h, i) => (
+                    <a key={i} href={h.link} target="_blank" rel="noopener noreferrer" style={{ display: 'block', padding: '8px 12px', borderRadius: 8, background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)', textDecoration: 'none', color: 'inherit', transition: 'background 0.15s' }} onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'} onMouseLeave={e => e.currentTarget.style.background = 'rgba(255,255,255,0.02)'}>
+                      <div style={{ fontSize: '0.88rem', lineHeight: 1.4 }}>{h.title}</div>
+                      <div style={{ fontSize: '0.72rem', opacity: 0.55, marginTop: 3 }}>
+                        {h.publisher}{h.published_at ? ` · ${new Date(h.published_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}` : ''}
+                      </div>
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div style={{ marginTop: 24, padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10, fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
-              Not financial advice. AI-generated analysis based on price data and economic events. Updated every 15 minutes. Always do your own research.
+              Not financial advice. AI-generated analysis based on price data, macro indicators, news headlines and economic events. Accuracy track-record reflects past directional moves &gt;0.3% within 24h of each verdict. Always do your own research.
             </div>
           </>
         )}
