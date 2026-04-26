@@ -363,6 +363,7 @@ export async function startNewsAlerts() {
     await checkDailyPoll();
     await checkWeeklyPollWinner();
     await checkReferralLeaderboard();
+    await checkActiveSignal();
     setTimeout(loop, CHECK_INTERVAL);
   };
   setTimeout(loop, CHECK_INTERVAL);
@@ -395,6 +396,7 @@ function persistPollState() {
   savePollState({
     lastPollDate, lastResultDate, pollOpenPrice, pollScores, pollVotes,
     weeklyWeekKey, lastWeeklyWinnerWeek,
+    lastSentSignalId,
   });
 }
 
@@ -665,6 +667,72 @@ async function postWeeklyWinner(weekKey) {
   lines.push(``, `New week kicks off Monday 12:00 UTC. Good luck! 🍀`);
   await sendTelegram(lines.join("\n"));
   console.log(`[NEWS] Weekly winner posted for ${weekKey}`);
+}
+
+// ===== ADMIN-ONLY ACTIVE-SIGNAL ALERTS =====
+// Polls /api/signals-active every 5 min. When a tradeable signal appears
+// (setup ≠ none, conf ≥75, R:R ≥1.5, not expired) and we haven't already
+// sent it, DM the admin privately. Public group is NOT touched.
+let lastSentSignalId = _persisted.lastSentSignalId || null;
+
+async function checkActiveSignal() {
+  const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID;
+  if (!adminChatId || !TELEGRAM_BOT_TOKEN) return;
+
+  try {
+    const r = await fetch("https://www.smarttradingclub.io/api/signals-active", {
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) return;
+    const data = await r.json();
+    if (!data.active || !data.signal) return;
+    if (data.signal.id === lastSentSignalId) return; // already alerted
+
+    const s = data.signal;
+    const isLong = s.verdict === "bullish";
+    const validMin = s.valid_until
+      ? Math.max(0, Math.floor((new Date(s.valid_until).getTime() - Date.now()) / 60000))
+      : null;
+    const sessionLabel = { asia: "🌏 Asia", london: "🇬🇧 London", ny: "🇺🇸 NY", "off-hours": "🌙 Off-hours" }[s.session] || s.session || "";
+
+    const text = [
+      ``,
+      `⚡  <b>SCALP SIGNAL — ${isLong ? "LONG" : "SHORT"} XAU/USD</b>`,
+      ``,
+      `<b>Setup:</b> ${(s.setup_type || "").replace(/_/g, " ")}`,
+      `<b>Confidence:</b> ${s.confidence}%   <b>R:R</b> ${Number(s.rr_ratio).toFixed(2)}:1`,
+      `<b>Session:</b> ${sessionLabel}${validMin != null ? `   <b>Valid:</b> ${validMin}m` : ""}`,
+      ``,
+      `<b>Entry:</b> $${Number(s.entry).toFixed(2)}`,
+      `<b>Stop:</b>  $${Number(s.stop_loss).toFixed(2)}`,
+      `<b>Target:</b> $${Number(s.take_profit).toFixed(2)}`,
+      ``,
+      s.summary,
+      ``,
+      `<i>Admin preview only — not posted publicly. Reply or open the dashboard to act.</i>`,
+    ].join("\n");
+
+    const resp = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: adminChatId,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true,
+      }),
+    });
+    const j = await resp.json();
+    if (!j.ok) {
+      console.error("[NEWS] Admin signal DM failed:", j);
+      return;
+    }
+    lastSentSignalId = s.id;
+    persistPollState();
+    console.log(`[NEWS] Admin DM sent for signal id=${s.id} (${s.setup_type} ${s.confidence}% R:R ${s.rr_ratio})`);
+  } catch (err) {
+    console.error("[NEWS] checkActiveSignal error:", err.message);
+  }
 }
 
 export function stopNewsAlerts() {

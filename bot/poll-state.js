@@ -45,6 +45,9 @@ export function savePollState(state) {
       pollVotes: state.pollVotes instanceof Map
         ? Object.fromEntries(state.pollVotes)
         : (state.pollVotes || {}),
+      weeklyWeekKey: state.weeklyWeekKey || "",
+      lastWeeklyWinnerWeek: state.lastWeeklyWinnerWeek || "",
+      lastSentSignalId: state.lastSentSignalId ?? null,
     };
     fs.writeFileSync(FILE, JSON.stringify(serializable, null, 2));
   } catch (err) {

@@ -225,6 +225,12 @@ async function handleUpdate(update) {
 
   const msg = update.message;
 
+  // Log private chats so admin can find their chat_id for ADMIN_TELEGRAM_CHAT_ID env var.
+  if (msg && msg.chat?.type === "private") {
+    const u = msg.from || {};
+    console.log(`[AI] Private chat from ${u.first_name || ""} ${u.last_name || ""} (@${u.username || "no-username"}, user_id=${u.id}): chat_id=${msg.chat.id}`);
+  }
+
   // New member joined (legacy message event)
   if (msg?.new_chat_members?.length > 0) {
     for (const member of msg.new_chat_members) {
