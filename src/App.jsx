@@ -3338,7 +3338,79 @@ function App() {
               <div style={{ flex: 1, minWidth: 280, fontSize: '0.95rem', lineHeight: 1.55, opacity: 0.92 }}>
                 {a.summary}
               </div>
+              {a.setup_type && a.setup_type !== 'none' && a.confidence >= 75 && a.rr_ratio >= 2 && (
+                <div style={{ flex: '0 0 auto', padding: '6px 12px', borderRadius: 999, background: '#D4A843', color: '#0a0a0a', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                  ⚡ Tradeable Signal
+                </div>
+              )}
             </div>
+
+            {/* Multi-timeframe alignment strip */}
+            {(a.trend_1w || a.trend_1h || a.technical?.trend) && (() => {
+              const tfTrend = (t) => t === 'uptrend' ? { label: 'UP', color: '#22c55e' } : t === 'downtrend' ? { label: 'DOWN', color: '#ef4444' } : { label: 'FLAT', color: '#eab308' };
+              const tfs = [
+                { tf: '1W', t: a.trend_1w },
+                { tf: '1D', t: a.technical?.trend },
+                { tf: '1H', t: a.trend_1h },
+              ].filter(x => x.t);
+              return (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '12px 18px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>Trend by timeframe</span>
+                  {tfs.map(({ tf, t }, i) => {
+                    const v = tfTrend(t);
+                    return (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{ fontSize: '0.8rem', opacity: 0.7, fontWeight: 600 }}>{tf}</span>
+                        <span style={{ padding: '2px 8px', borderRadius: 4, background: `${v.color}20`, border: `1px solid ${v.color}40`, color: v.color, fontSize: '0.72rem', fontWeight: 700 }}>{v.label}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* Trade idea card — only when setup is real */}
+            {a.setup_type && a.setup_type !== 'none' && a.entry != null && a.stop_loss != null && a.take_profit != null && (() => {
+              const isLong = a.verdict === 'bullish';
+              const sideColor = isLong ? '#22c55e' : '#ef4444';
+              const qualifies = a.confidence >= 75 && a.rr_ratio >= 2;
+              return (
+                <div style={{ marginBottom: 20, background: qualifies ? 'rgba(212,168,67,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${qualifies ? 'rgba(212,168,67,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 14, padding: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>Trade Idea</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: 2 }}>
+                        <span style={{ color: sideColor }}>{isLong ? 'LONG' : 'SHORT'}</span>
+                        <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 6, background: 'rgba(255,255,255,0.08)', fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1 }}>{a.setup_type}</span>
+                      </div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.55 }}>R:R</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700, color: a.rr_ratio >= 2 ? '#22c55e' : '#eab308' }}>{Number(a.rr_ratio).toFixed(2)} : 1</div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
+                    <div style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 8 }}>
+                      <div style={{ fontSize: '0.65rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>Entry</div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>${Number(a.entry).toFixed(2)}</div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.06)', borderRadius: 8 }}>
+                      <div style={{ fontSize: '0.65rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>Stop loss</div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 600, color: '#ef4444' }}>${Number(a.stop_loss).toFixed(2)}</div>
+                    </div>
+                    <div style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.06)', borderRadius: 8 }}>
+                      <div style={{ fontSize: '0.65rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>Take profit</div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 600, color: '#22c55e' }}>${Number(a.take_profit).toFixed(2)}</div>
+                    </div>
+                  </div>
+                  {!qualifies && (
+                    <div style={{ marginTop: 12, fontSize: '0.78rem', opacity: 0.6, lineHeight: 1.5 }}>
+                      Not auto-publishable as signal — requires confidence ≥ 75 ({a.confidence}%) and R:R ≥ 2 ({Number(a.rr_ratio).toFixed(2)}).
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
 
             {/* Macro row: DXY + 10Y yield */}
             {(a.dxy != null || a.yield_10y != null) && (
@@ -3480,6 +3552,50 @@ function App() {
                 )}
               </div>
             </div>
+
+            {/* CFTC speculator positioning */}
+            {a.cot_specs_net != null && (() => {
+              const net = Number(a.cot_specs_net);
+              const change = a.cot_specs_change != null ? Number(a.cot_specs_change) : null;
+              // Heuristic: > 200K net long is historically extreme for gold; < 50K modest
+              const extreme = net > 200000 ? 'extreme long' : net > 100000 ? 'heavy long' : net < -50000 ? 'extreme short' : net < 0 ? 'net short' : 'moderate long';
+              const extremeColor = (net > 200000 || net < -50000) ? '#ef4444' : net > 100000 ? '#eab308' : '#22c55e';
+              return (
+                <div style={{ marginTop: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+                    <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>
+                      CFTC Speculator Positioning
+                    </div>
+                    {a.cot_report_date && (
+                      <div style={{ fontSize: '0.7rem', opacity: 0.5 }}>Report: {a.cot_report_date}</div>
+                    )}
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: '0.7rem', opacity: 0.55, textTransform: 'uppercase' }}>Specs Net</div>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: 2 }}>
+                        {net >= 0 ? '+' : ''}{net.toLocaleString()}
+                      </div>
+                      <div style={{ fontSize: '0.72rem', color: extremeColor, fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 1 }}>
+                        {extreme}
+                      </div>
+                    </div>
+                    {change != null && (
+                      <div>
+                        <div style={{ fontSize: '0.7rem', opacity: 0.55, textTransform: 'uppercase' }}>Week-over-Week Δ</div>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: 2, color: change >= 0 ? '#22c55e' : '#ef4444' }}>
+                          {change >= 0 ? '+' : ''}{change.toLocaleString()}
+                        </div>
+                        <div style={{ fontSize: '0.72rem', opacity: 0.55, marginTop: 1 }}>contracts</div>
+                      </div>
+                    )}
+                  </div>
+                  <div style={{ marginTop: 10, fontSize: '0.78rem', opacity: 0.65, lineHeight: 1.5 }}>
+                    Contrarian indicator: extreme net long often precedes tops, extreme net short often precedes bottoms.
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Recent gold-related headlines */}
             {Array.isArray(a.headlines) && a.headlines.length > 0 && (

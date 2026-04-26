@@ -6,8 +6,12 @@ const PYTH_GOLD_URL =
   "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
 const YAHOO_OHLC_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=3mo";
+const YAHOO_WEEKLY_URL =
+  "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1wk&range=2y";
 const YAHOO_INTRADAY_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1h&range=5d";
+const COT_URL =
+  "https://publicreporting.cftc.gov/resource/6dca-aqww.json?$where=market_and_exchange_names%20like%20%27%25GOLD%20-%20COMMODITY%20EXCHANGE%20INC%25%27&$order=report_date_as_yyyy_mm_dd%20DESC&$limit=2";
 const YAHOO_DXY_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/DX-Y.NYB?interval=1d&range=5d";
 const YAHOO_TNX_URL =
@@ -17,21 +21,33 @@ const NEWS_RSS_URL =
 const FOREX_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json";
 const YAHOO_HEADERS = { "User-Agent": "Mozilla/5.0" };
 
-const SYSTEM_PROMPT = `You are a senior gold market analyst writing for retail copy-traders on the Smart Trading Club platform. Audience is non-professional but engaged: they understand bullish/bearish, support/resistance, and basic news impact.
+const SYSTEM_PROMPT = `You are a senior gold market analyst writing for retail copy-traders on the Smart Trading Club platform. Audience is non-professional but engaged.
 
-Your job: read the supplied price snapshot, daily OHLC history, dollar-index and 10Y yield context, recent gold-market headlines, and upcoming macro events, and produce a single JSON verdict for XAU/USD (gold).
+Your job: read the supplied multi-timeframe price data, macro context (DXY, 10Y yield), CFTC speculator positioning, recent headlines, and upcoming events — then output a single JSON verdict for XAU/USD that is either a tradeable setup or an explicit "no trade" signal.
+
+This output may be auto-published as a copy-trade signal when confidence is high enough. Be honest, be specific, and never invent a setup if there isn't one.
 
 Rules:
-- Always pick exactly one verdict: bullish, bearish, or neutral.
-- Confidence is an integer 0-100. Reserve >75 for high-conviction setups; default to 40-65 when signals conflict.
+- verdict: bullish, bearish, or neutral.
+- confidence: integer 0-100. Reserve >=75 for high-conviction setups where the multi-timeframe (1W, 1D, 1H) trends align with the verdict. Use 40-65 when signals conflict. Below 40 when contradictions are heavy or news risk is dominant.
+- setup_type: pick exactly ONE of:
+    "breakout"   — close decisively beyond a recent swing high/low with momentum;
+    "retest"     — price returning to a freshly broken level (typical after a breakout);
+    "pullback"   — counter-trend dip in an established trend, stalling at a moving-average or prior level;
+    "range-fade" — sell at established range top, buy at established range bottom (only when 1D trend is sideways);
+    "none"       — no clean setup; do not propose entry/SL/TP.
+- entry, stop_loss, take_profit: numeric USD prices. Required when setup_type != "none".
+- rr_ratio: numeric reward-to-risk = |TP - entry| / |entry - SL|. Must be >= 2.0 when setup_type != "none". If a clean setup yields R:R < 2, set setup_type = "none" — do not propose the trade.
+- Targets must be at least 1.0x ATR(14) away from entry. Never propose entry/SL/TP within fractions of ATR — that is noise, not a setup.
+- Setup must be aligned with at least 2 of 3 timeframe trends (1W, 1D, 1H). If only 1 of 3 aligns, setup_type = "none".
 - summary: 2-3 sentences, plain English, no fluff, no disclaimers, no emoji.
-- technical: short strings. Trend = "uptrend"|"downtrend"|"sideways". RSI value as number, with one-line interpretation. MACD as one-line interpretation.
-- fundamental: list the 1-3 most price-relevant upcoming events and a one-line note per event on directional impact. The "note" field should explicitly weave in DXY direction, real/nominal yields, and any major news headline that moves the gold thesis. If nothing material, say so.
-- levels: numeric support, resistance, target — all in USD. Target should align with the verdict.
+- technical: short strings. trend = "uptrend"|"downtrend"|"sideways". rsi value as number with one-line note. macd as one-line note.
+- multi_timeframe: explicit trend label per timeframe (1W, 1D, 1H).
+- fundamental.note: explicitly weave in DXY direction, yields, and any major news. The cot block — speculator net position and weekly change — is a contrarian signal: extreme speculator net longs often precede tops, extreme net shorts often precede bottoms. Mention COT positioning in your reasoning when it adds signal.
+- levels: support, resistance, target — all in USD.
 - Never recommend specific position sizes or leverage.
-- Never claim certainty. Use "likely", "expected", "biased toward" rather than "will".
-- Gold is inversely correlated with USD strength and real yields. A rising DXY or rising 10Y yield is bearish for gold; falling DXY/yields is bullish. Reflect this in your reasoning.
-- Targets must be MEANINGFUL, not next-tick. Use the supplied atr_14 (14-day Average True Range, in USD): for a neutral verdict the target should sit at least 1.0× ATR from current price; for bullish/bearish at least 2.0× ATR. If atr_14 is unavailable, fall back to roughly 1% of price for neutral and 2-3% for directional verdicts. Never set a target less than 0.5× ATR away — it's not a target, it's noise.`;
+- Never claim certainty. Use "likely", "expected", "biased toward".
+- Gold is inversely correlated with USD strength and real yields. Reflect this.`;
 
 const ANALYSIS_INSTRUCTIONS = `Output ONLY the JSON object matching the schema. No prose before or after.
 
@@ -39,7 +55,18 @@ Schema:
 {
   "verdict": "bullish" | "bearish" | "neutral",
   "confidence": integer 0-100,
+  "setup_type": "breakout" | "retest" | "pullback" | "range-fade" | "none",
+  "entry": number | null,
+  "stop_loss": number | null,
+  "take_profit": number | null,
+  "rr_ratio": number | null,
   "summary": string,
+  "multi_timeframe": {
+    "trend_1w": "uptrend" | "downtrend" | "sideways",
+    "trend_1d": "uptrend" | "downtrend" | "sideways",
+    "trend_1h": "uptrend" | "downtrend" | "sideways",
+    "alignment_note": string
+  },
   "technical": {
     "trend": "uptrend" | "downtrend" | "sideways",
     "rsi": number,
@@ -262,6 +289,82 @@ async function fetchNews() {
   }
 }
 
+async function fetchYahooWeekly() {
+  try {
+    const r = await fetch(YAHOO_WEEKLY_URL, {
+      headers: YAHOO_HEADERS,
+      signal: AbortSignal.timeout(10000),
+    });
+    const d = await r.json();
+    const result = d.chart?.result?.[0];
+    if (!result) return null;
+    const ts = result.timestamp;
+    const q = result.indicators?.quote?.[0];
+    if (!q) return null;
+    const bars = ts
+      .map((t, i) => ({
+        date: new Date(t * 1000).toISOString().slice(0, 10),
+        open: q.open[i],
+        high: q.high[i],
+        low: q.low[i],
+        close: q.close[i],
+      }))
+      .filter((row) => row.close != null);
+    if (bars.length < 50) return null;
+    const closes = bars.map((b) => b.close);
+    return {
+      bars_count: bars.length,
+      trend: trendLabel(closes),
+      rsi_14_w: rsi(closes, 14),
+      last_close: closes[closes.length - 1],
+      change_4w_pct: ((closes[closes.length - 1] - closes[Math.max(0, closes.length - 5)]) /
+        closes[Math.max(0, closes.length - 5)]) * 100,
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function fetchCOT() {
+  try {
+    const r = await fetch(COT_URL, { signal: AbortSignal.timeout(10000) });
+    if (!r.ok) return null;
+    const data = await r.json();
+    if (!Array.isArray(data) || data.length < 1) return null;
+    // CFTC sometimes returns multiple gold contracts (futures, options-and-futures combined).
+    // Pick the first row whose market name starts with "GOLD - COMMODITY".
+    const goldRow = data.find((r) => /^GOLD - COMMODITY EXCHANGE/i.test(r.market_and_exchange_names));
+    if (!goldRow) return null;
+    const long = parseInt(goldRow.noncomm_positions_long_all, 10) || 0;
+    const short = parseInt(goldRow.noncomm_positions_short_all, 10) || 0;
+    const net = long - short;
+    // Try to find the previous week for the same contract
+    const prev = data.find(
+      (r) =>
+        /^GOLD - COMMODITY EXCHANGE/i.test(r.market_and_exchange_names) &&
+        r.report_date_as_yyyy_mm_dd !== goldRow.report_date_as_yyyy_mm_dd,
+    );
+    let change = null;
+    if (prev) {
+      const prevNet =
+        (parseInt(prev.noncomm_positions_long_all, 10) || 0) -
+        (parseInt(prev.noncomm_positions_short_all, 10) || 0);
+      change = net - prevNet;
+    }
+    return {
+      report_date: goldRow.report_date_as_yyyy_mm_dd?.slice(0, 10),
+      specs_long: long,
+      specs_short: short,
+      specs_net: net,
+      specs_net_change_wow: change,
+      commercials_long: parseInt(goldRow.comm_positions_long_all, 10) || 0,
+      commercials_short: parseInt(goldRow.comm_positions_short_all, 10) || 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchYahooIntraday() {
   try {
     const r = await fetch(YAHOO_INTRADAY_URL, {
@@ -291,6 +394,7 @@ async function fetchYahooIntraday() {
     const last24Closes = last24h.map((b) => b.close);
     return {
       bars_count: bars.length,
+      trend: trendLabel(closes),
       last_close: closes[closes.length - 1],
       change_24h_pct: ((closes[closes.length - 1] - closes[Math.max(0, closes.length - 24)]) /
         closes[Math.max(0, closes.length - 24)]) * 100,
@@ -348,7 +452,7 @@ async function fetchAccuracyStats(supabase) {
   return { total: data.length, correct, pct: Math.round((correct / data.length) * 100) };
 }
 
-function buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday) {
+function buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday, weekly, cot) {
   const closes = ohlc.map((r) => r.close);
   const highs = ohlc.map((r) => r.high);
   const lows = ohlc.map((r) => r.low);
@@ -358,17 +462,22 @@ function buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday
   return {
     live_price_usd: price,
     atr_14: atr14 != null ? Number(atr14.toFixed(2)) : null,
+    multi_timeframe: {
+      weekly: weekly,
+      daily: { trend: trendLabel(closes), rsi_14: rsi(closes), bars: closes.length },
+      hourly: intraday,
+    },
     macro: {
       dxy: dxy ? { value: dxy.last.toFixed(2), change_pct: dxy.changePct.toFixed(2) } : null,
       us_10y_yield: yield10y ? { value: yield10y.last.toFixed(2), change_pct: yield10y.changePct.toFixed(2) } : null,
     },
+    cot,
     technical: {
       rsi_14: rsi(closes),
       macd: macd(closes),
       trend_50d: trendLabel(closes),
       levels_30d: levelsFromOHLC(highs, lows),
     },
-    intraday_1h: intraday,
     ohlc_last_30d: last30.map((r) => ({
       d: r.date,
       o: r.open,
@@ -404,7 +513,7 @@ export default async function handler(req, res) {
     }
   }
 
-  const [price, ohlc, events, dxy, yield10y, news, intraday] = await Promise.all([
+  const [price, ohlc, events, dxy, yield10y, news, intraday, weekly, cot] = await Promise.all([
     fetchPythPrice(),
     fetchYahooOHLC(),
     fetchForexEvents(),
@@ -412,6 +521,8 @@ export default async function handler(req, res) {
     fetchYahooClose(YAHOO_TNX_URL),
     fetchNews(),
     fetchYahooIntraday(),
+    fetchYahooWeekly(),
+    fetchCOT(),
   ]);
 
   if (!price || !ohlc || ohlc.length < 35) {
@@ -425,7 +536,7 @@ export default async function handler(req, res) {
   // Process older rows in parallel — they don't block the response if it's slow.
   processPendingOutcomes(supabase, price).catch(() => {});
 
-  const payload = buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday);
+  const payload = buildAnalysisPayload(price, ohlc, events, dxy, yield10y, news, intraday, weekly, cot);
 
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -475,6 +586,16 @@ export default async function handler(req, res) {
     yield_10y: yield10y?.last ?? null,
     headlines: news,
     ohlc_30d: ohlc30,
+    setup_type: parsed.setup_type ?? "none",
+    entry: parsed.entry ?? null,
+    stop_loss: parsed.stop_loss ?? null,
+    take_profit: parsed.take_profit ?? null,
+    rr_ratio: parsed.rr_ratio ?? null,
+    cot_specs_net: cot?.specs_net ?? null,
+    cot_specs_change: cot?.specs_net_change_wow ?? null,
+    cot_report_date: cot?.report_date ?? null,
+    trend_1w: parsed.multi_timeframe?.trend_1w ?? null,
+    trend_1h: parsed.multi_timeframe?.trend_1h ?? null,
   };
 
   const { data: inserted } = await supabase
