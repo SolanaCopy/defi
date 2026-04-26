@@ -308,6 +308,11 @@ function App() {
   const [legacyClaimed, setLegacyClaimed] = useState(false);
   const [marketStatus, setMarketStatus] = useState(getGoldMarketStatus);
 
+  // Gold AI analysis State
+  const [analysisData, setAnalysisData] = useState(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState('');
+
   // Blockchain State
   const [walletUSDC, setWalletUSDC] = useState(0);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -490,6 +495,31 @@ function App() {
       if (stored) setReferrer(stored);
     }
   }, []);
+
+  // Gold AI analysis loader — fires when wallet connects and tab is analysis
+  const loadAnalysis = async (force = false) => {
+    setAnalysisLoading(true);
+    setAnalysisError('');
+    try {
+      const url = force ? '/api/analyze-gold?refresh=1' : '/api/analyze-gold';
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      setAnalysisData(data);
+    } catch (e) {
+      setAnalysisError(e.message || 'Failed to load analysis');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!account || activeTab !== 'analysis') return;
+    if (!analysisData) loadAnalysis(false);
+    const id = setInterval(() => loadAnalysis(false), 15 * 60 * 1000);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account, activeTab]);
 
   // Generate referral link + load stats when wallet connects
   useEffect(() => {
@@ -3167,6 +3197,162 @@ function App() {
             Accounting, Bot Guide, Admin Guide, Events, Errors — all on GitHub
           </p>
         </div>
+      </div>
+    );
+  };
+
+  const renderAnalysis = () => {
+    if (!account) {
+      return (
+        <div style={{ maxWidth: 720, margin: '80px auto', padding: '0 16px', textAlign: 'center' }}>
+          <div style={{
+            background: 'rgba(255,255,255,0.03)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: 16,
+            padding: '48px 32px',
+            backdropFilter: 'blur(20px)',
+          }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+            <h2 style={{ margin: '0 0 12px', fontSize: '1.5rem', fontWeight: 600 }}>Members Only</h2>
+            <p style={{ color: 'rgba(255,255,255,0.6)', margin: '0 0 24px', lineHeight: 1.6 }}>
+              Connect your wallet to access the Gold AI analysis. Updated every 15 minutes with technical indicators, news impact, and AI-powered verdict.
+            </p>
+            <button className="btn btn-gold btn-lg" onClick={() => connectWallet?.()}>
+              Connect Wallet
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    const a = analysisData;
+    const verdictColor = a?.verdict === 'bullish' ? '#22c55e' : a?.verdict === 'bearish' ? '#ef4444' : '#eab308';
+    const verdictBg = a?.verdict === 'bullish' ? 'rgba(34,197,94,0.12)' : a?.verdict === 'bearish' ? 'rgba(239,68,68,0.12)' : 'rgba(234,179,8,0.12)';
+
+    return (
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 16px 80px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 24, flexWrap: 'wrap', gap: 12 }}>
+          <div>
+            <h1 style={{ margin: 0, fontSize: '1.75rem', fontWeight: 700 }}>
+              <span className="text-gold-gradient">Gold AI</span> — XAU/USD
+            </h1>
+            <p style={{ margin: '4px 0 0', color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem' }}>
+              {a?.created_at ? `Last updated ${new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Loading…'}
+              {a?.cached ? ' • cached' : ''}
+            </p>
+          </div>
+          <button
+            className="btn btn-glass"
+            onClick={() => loadAnalysis(true)}
+            disabled={analysisLoading}
+            style={{ minHeight: 38 }}
+          >
+            {analysisLoading ? 'Analyzing…' : 'Refresh'}
+          </button>
+        </div>
+
+        {analysisLoading && !a && (
+          <div style={{ textAlign: 'center', padding: 80, color: 'rgba(255,255,255,0.5)' }}>
+            Running analysis…
+          </div>
+        )}
+        {analysisError && !a && (
+          <div style={{ textAlign: 'center', padding: 40, color: '#ef4444' }}>
+            {analysisError}
+          </div>
+        )}
+
+        {a && (
+          <>
+            <div style={{
+              background: verdictBg,
+              border: `1px solid ${verdictColor}40`,
+              borderRadius: 16,
+              padding: '24px 28px',
+              marginBottom: 20,
+              display: 'flex',
+              alignItems: 'center',
+              gap: 24,
+              flexWrap: 'wrap',
+            }}>
+              <div style={{ flex: '0 0 auto' }}>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6 }}>Verdict</div>
+                <div style={{ fontSize: '1.75rem', fontWeight: 700, color: verdictColor, textTransform: 'uppercase' }}>
+                  {a.verdict}
+                </div>
+                <div style={{ fontSize: '0.85rem', opacity: 0.7 }}>
+                  {a.confidence}% confidence
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6, marginBottom: 4 }}>Live price</div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 600 }}>
+                  ${a.price?.toFixed(2)}
+                </div>
+              </div>
+              <div style={{ flex: 1, minWidth: 280, fontSize: '0.95rem', lineHeight: 1.55, opacity: 0.92 }}>
+                {a.summary}
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 16 }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
+                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 12 }}>
+                  Key Levels
+                </div>
+                <div style={{ display: 'grid', gap: 10 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ opacity: 0.7 }}>Support</span>
+                    <span style={{ fontWeight: 600, color: '#22c55e' }}>${a.levels?.support?.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ opacity: 0.7 }}>Resistance</span>
+                    <span style={{ fontWeight: 600, color: '#ef4444' }}>${a.levels?.resistance?.toFixed(2)}</span>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ opacity: 0.7 }}>Target</span>
+                    <span style={{ fontWeight: 600, color: '#D4A843' }}>${a.levels?.target?.toFixed(2)}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
+                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 12 }}>
+                  Technical
+                </div>
+                <div style={{ display: 'grid', gap: 8, fontSize: '0.9rem', lineHeight: 1.5 }}>
+                  <div><b>Trend:</b> {a.technical?.trend}</div>
+                  <div><b>RSI:</b> {a.technical?.rsi?.toFixed(1)} — <span style={{ opacity: 0.8 }}>{a.technical?.rsi_note}</span></div>
+                  <div><b>MACD:</b> <span style={{ opacity: 0.8 }}>{a.technical?.macd_note}</span></div>
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
+                <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55, marginBottom: 12 }}>
+                  Fundamental
+                </div>
+                <div style={{ fontSize: '0.9rem', lineHeight: 1.55, opacity: 0.9, marginBottom: 12 }}>
+                  {a.fundamental?.note}
+                </div>
+                {a.fundamental?.events?.length > 0 && (
+                  <div style={{ display: 'grid', gap: 8, fontSize: '0.85rem' }}>
+                    {a.fundamental.events.map((e, i) => (
+                      <div key={i} style={{ borderLeft: '2px solid rgba(212,168,67,0.4)', paddingLeft: 10 }}>
+                        <div style={{ fontWeight: 600 }}>{e.event}</div>
+                        <div style={{ opacity: 0.7, fontSize: '0.8rem' }}>{e.when}</div>
+                        <div style={{ opacity: 0.85, marginTop: 2 }}>{e.impact}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div style={{ marginTop: 24, padding: '12px 16px', background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)', borderRadius: 10, fontSize: '0.7rem', color: 'rgba(255,255,255,0.4)', lineHeight: 1.5 }}>
+              Not financial advice. AI-generated analysis based on price data and economic events. Updated every 15 minutes. Always do your own research.
+            </div>
+          </>
+        )}
       </div>
     );
   };
@@ -6409,6 +6595,7 @@ function App() {
             {[
               { key: 'invest', label: 'Copy Trading' },
               { key: 'dashboard', label: 'Dashboard' },
+              { key: 'analysis', label: 'Gold AI' },
               { key: 'results', label: 'Results' },
               { key: 'referral', label: 'Referral' },
               { key: 'docs', label: 'Docs' },
@@ -6505,6 +6692,10 @@ function App() {
             ) : activeTab === 'strategies' ? (
               <motion.div key="strategies" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
                 {renderStrategies()}
+              </motion.div>
+            ) : activeTab === 'analysis' ? (
+              <motion.div key="analysis" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+                {renderAnalysis()}
               </motion.div>
             ) : (
               <motion.div key="dashboard" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
