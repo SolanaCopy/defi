@@ -361,49 +361,138 @@ async function fetchNews() {
 }
 
 
-// Mark outcome on rows older than 24h that don't have one yet.
-// Outcome = correct if price moved >= 0.3% in the predicted direction within 24h.
+// Score scalp setups by replaying 5m OHLC bars from signal time to valid_until
+// and detecting which level was hit first (TP, SL, or neither).
+// Conservative tie-breaker: if a single bar's range contains both TP and SL,
+// assume SL hit first.
 async function processPendingOutcomes(supabase, currentPrice) {
-  const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
   const { data: pending } = await supabase
     .from("gold_analysis")
-    .select("id, verdict, price, created_at")
-    .lte("created_at", cutoff)
-    .is("outcome_price", null)
+    .select("id, created_at, valid_until, setup_type, entry, stop_loss, take_profit, verdict, price")
+    .lte("valid_until", now)
+    .is("outcome_correct", null)
+    .not("valid_until", "is", null)
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(20);
 
   if (!pending?.length) return;
 
   for (const row of pending) {
-    if (!row.price) continue;
-    const pctMove = ((currentPrice - row.price) / row.price) * 100;
-    let correct = null;
-    if (row.verdict === "bullish") correct = pctMove >= 0.3;
-    else if (row.verdict === "bearish") correct = pctMove <= -0.3;
-    else correct = Math.abs(pctMove) < 0.5; // neutral verdict: counts if price stayed inside ±0.5%
+    try {
+      // "none" setups: no entry/SL/TP to score against. Mark as timeout/no-trade.
+      if (
+        row.setup_type === "none" ||
+        row.entry == null ||
+        row.stop_loss == null ||
+        row.take_profit == null
+      ) {
+        await supabase
+          .from("gold_analysis")
+          .update({
+            outcome_type: "no-trade",
+            outcome_correct: null, // explicitly excluded from accuracy stats
+            outcome_checked_at: new Date().toISOString(),
+          })
+          .eq("id", row.id);
+        continue;
+      }
 
-    await supabase
-      .from("gold_analysis")
-      .update({
-        outcome_price: currentPrice,
-        outcome_checked_at: new Date().toISOString(),
-        outcome_correct: correct,
-      })
-      .eq("id", row.id);
+      const fromSec = Math.floor(new Date(row.created_at).getTime() / 1000);
+      const toSec = Math.floor(new Date(row.valid_until).getTime() / 1000);
+      const url = `https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=5m&period1=${fromSec}&period2=${toSec}`;
+      const r = await fetch(url, {
+        headers: { "User-Agent": "Mozilla/5.0" },
+        signal: AbortSignal.timeout(8000),
+      });
+      const d = await r.json();
+      const result = d.chart?.result?.[0];
+      if (!result || !result.timestamp) continue;
+      const ts = result.timestamp;
+      const q = result.indicators?.quote?.[0];
+      if (!q) continue;
+      const bars = ts
+        .map((t, i) => ({ time: t * 1000, high: q.high[i], low: q.low[i], close: q.close[i] }))
+        .filter((b) => b.high != null && b.low != null);
+      if (!bars.length) continue;
+
+      const isLong = row.verdict === "bullish";
+      let outcomeType = "timeout";
+      let outcomePrice = bars[bars.length - 1].close;
+
+      for (const bar of bars) {
+        if (isLong) {
+          // Long: SL is below entry, TP is above entry.
+          // Conservative: check SL first; if both inside same bar, SL wins.
+          if (bar.low <= row.stop_loss) {
+            outcomeType = "sl";
+            outcomePrice = row.stop_loss;
+            break;
+          }
+          if (bar.high >= row.take_profit) {
+            outcomeType = "tp";
+            outcomePrice = row.take_profit;
+            break;
+          }
+        } else {
+          // Short: SL above entry, TP below.
+          if (bar.high >= row.stop_loss) {
+            outcomeType = "sl";
+            outcomePrice = row.stop_loss;
+            break;
+          }
+          if (bar.low <= row.take_profit) {
+            outcomeType = "tp";
+            outcomePrice = row.take_profit;
+            break;
+          }
+        }
+      }
+
+      const correct = outcomeType === "tp" ? true : outcomeType === "sl" ? false : null; // timeout = excluded
+
+      await supabase
+        .from("gold_analysis")
+        .update({
+          outcome_type: outcomeType,
+          outcome_price: outcomePrice,
+          outcome_correct: correct,
+          outcome_checked_at: new Date().toISOString(),
+        })
+        .eq("id", row.id);
+    } catch {
+      // skip — try again next run
+    }
   }
 }
 
+// Hit rate = TP hits / (TP hits + SL hits). Timeouts and "none" rows excluded.
+// Also breaks down by setup_type so we can see which patterns work.
 async function fetchAccuracyStats(supabase) {
   const { data } = await supabase
     .from("gold_analysis")
-    .select("outcome_correct")
+    .select("outcome_correct, outcome_type, setup_type")
     .not("outcome_correct", "is", null)
     .order("created_at", { ascending: false })
-    .limit(30);
-  if (!data?.length) return { total: 0, correct: 0, pct: null };
+    .limit(50);
+  if (!data?.length) return { total: 0, correct: 0, pct: null, by_setup: {} };
   const correct = data.filter((r) => r.outcome_correct).length;
-  return { total: data.length, correct, pct: Math.round((correct / data.length) * 100) };
+  const bySetup = {};
+  for (const r of data) {
+    const k = r.setup_type || "unknown";
+    bySetup[k] = bySetup[k] || { total: 0, correct: 0 };
+    bySetup[k].total++;
+    if (r.outcome_correct) bySetup[k].correct++;
+  }
+  for (const k of Object.keys(bySetup)) {
+    bySetup[k].pct = Math.round((bySetup[k].correct / bySetup[k].total) * 100);
+  }
+  return {
+    total: data.length,
+    correct,
+    pct: Math.round((correct / data.length) * 100),
+    by_setup: bySetup,
+  };
 }
 
 function buildAnalysisPayload({ price, daily, h1, h4, m15, m5, dxy, yield10y, events, news }) {
