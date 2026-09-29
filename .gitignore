@@ -28,3 +28,6 @@ bot/poll-state.json
 
 .vercel
 .env*.local
+research/tv.json
+research/__pycache__/
+research/backtest_results.json
