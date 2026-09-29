@@ -410,6 +410,10 @@ class CloseWatcher {
     this.httpProvider = new ethers.JsonRpcProvider(httpRpc, undefined, {
       staticNetwork: true,
       pollingInterval: 30_000, // 30s instead of default 4s — prevents Infura rate limits
+      // One request per call. Public nodes (publicnode) mishandle ethers'
+      // JSON-RPC batches: a batched call could wait forever, which froze the
+      // trade monitor on its very first activeSignalId() read.
+      batchMaxCount: 1,
     });
     // Use same provider for logs — limit block range to 10 for Alchemy free tier
     this.wallet = new ethers.Wallet(key, this.httpProvider);
@@ -1446,7 +1450,6 @@ class CloseWatcher {
 
     const check = async () => {
       if (!this.running) return;
-
       try {
         const activeId = await this.copyTrader.activeSignalId();
         if (Number(activeId) === 0) {
