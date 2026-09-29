@@ -25,3 +25,6 @@ yarn-error.log*
 
 .vercel
 bot/poll-state.json
+
+.vercel
+.env*.local

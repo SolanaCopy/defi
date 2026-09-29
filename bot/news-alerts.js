@@ -6,6 +6,7 @@
 import { pollVotes, savePollVotes } from "./telegram-ai.js";
 import { loadPollState, savePollState } from "./poll-state.js";
 import { dailyPollImage } from "./telegram-images.js";
+import { fetchGoldPrice as fetchGtradeGold } from "./gold-price.js";
 
 const {
   TELEGRAM_BOT_TOKEN,
@@ -400,16 +401,8 @@ function persistPollState() {
   });
 }
 
-const PYTH_GOLD_URL = "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
-
 async function fetchGoldPrice() {
-  try {
-    const res = await fetch(PYTH_GOLD_URL, { signal: AbortSignal.timeout(10000) });
-    const data = await res.json();
-    const p = data.parsed?.[0]?.price;
-    if (p) return Number(p.price) * Math.pow(10, Number(p.expo));
-    return null;
-  } catch { return null; }
+  try { return await fetchGtradeGold(); } catch { return null; }
 }
 
 async function checkDailyPoll() {

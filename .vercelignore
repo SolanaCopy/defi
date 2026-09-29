@@ -1,0 +1,19 @@
+# Nothing here is needed to build or serve the site — keeping it out of the
+# upload keeps deploys fast. (Vite only copies public/ into build/.)
+
+# Source screenshots and originals for the Remotion videos (~115 MB)
+media-archive/
+remotion/
+remotion.config.mjs
+
+# Smart-contract tooling
+artifacts/
+cache/
+forge-out/
+contracts/
+test/
+lib/
+slither-*.json
+
+# Services that deploy elsewhere (Railway)
+bot/

@@ -1,14 +1,18 @@
-const CACHE_NAME = 'stc-v2';
+const CACHE_NAME = 'stc-v4';
 const PRECACHE = [
   '/',
-  '/logo.png',
+  '/logo-mark.webp',
   '/logo192.png',
   '/logo512.png',
 ];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(PRECACHE))
+    // Per-entry so one missing asset cannot reject the whole install and
+    // leave the site without a service worker.
+    caches.open(CACHE_NAME).then((cache) =>
+      Promise.all(PRECACHE.map((url) => cache.add(url).catch(() => {})))
+    )
   );
   self.skipWaiting();
 });

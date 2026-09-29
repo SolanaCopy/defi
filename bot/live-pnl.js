@@ -6,8 +6,8 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { fetchGoldPrice } from "./gold-price.js";
 
-const PYTH_XAU_FEED = "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
 const UPDATE_INTERVAL_MS = 45_000;
 const SAFETY_CHECK_EVERY = 5;
 const FEE_RATE = 0.0012;
@@ -50,12 +50,8 @@ async function loadAllRows() {
   return data || [];
 }
 
-async function fetchPythPrice() {
-  const res = await fetch(`https://hermes.pyth.network/v2/updates/price/latest?ids[]=${PYTH_XAU_FEED}`);
-  if (!res.ok) throw new Error(`Pyth HTTP ${res.status}`);
-  const d = await res.json();
-  return Number(d.parsed[0].price.price) * Math.pow(10, Number(d.parsed[0].price.expo));
-}
+// gTrade pricing replaced Pyth (401 since 2026); see gold-price.js
+const fetchPythPrice = fetchGoldPrice;
 
 function progressBar({ price, tp, sl, long, prevPrice }) {
   let pos = long ? (price - sl) / (tp - sl) : (sl - price) / (sl - tp);

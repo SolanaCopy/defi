@@ -2,8 +2,10 @@ import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
 
 const CACHE_MINUTES = 5;
-const PYTH_GOLD_URL =
-  "https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
+// Live price: gTrade's pricing backend (pair 90 = XAU/USD), the price trades
+// execute at. Pyth's public Hermes endpoint answers 401 since 2026, which left
+// every refresh falling back to the stale cached row.
+const GTRADE_PRICING_URL = "https://backend-pricing.eu.gains.trade/charts";
 const YAHOO_DAILY_URL =
   "https://query1.finance.yahoo.com/v8/finance/chart/GC%3DF?interval=1d&range=1mo";
 const YAHOO_4H_URL =
@@ -170,11 +172,13 @@ function levelsFromOHLC(highs, lows) {
 }
 
 async function fetchPythPrice() {
-  const r = await fetch(PYTH_GOLD_URL, { signal: AbortSignal.timeout(8000) });
-  const d = await r.json();
-  const p = d.parsed?.[0]?.price;
-  if (!p) return null;
-  return Number(p.price) * Math.pow(10, Number(p.expo));
+  try {
+    const r = await fetch(GTRADE_PRICING_URL, { signal: AbortSignal.timeout(8000) });
+    const p = Number((await r.json()).closes?.[90]);
+    return p > 0 ? p : null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchYahooClose(url) {
@@ -600,7 +604,29 @@ function buildAnalysisPayload({ price, daily, h1, h4, m15, m5, dxy, yield10y, ev
   };
 }
 
+// A forced refresh runs nine outbound fetches and a live Claude completion, so
+// it is the expensive path and must not be reachable by anonymous callers —
+// otherwise a loop over `?refresh=1` drains the Anthropic budget and every
+// upstream quota at no cost to the caller. Reads of the cached row stay public.
+function isAuthorizedToForce(req) {
+  const secret = process.env.ANALYSIS_REFRESH_SECRET;
+  // Fail closed: with no secret configured, nobody may force a refresh.
+  if (!secret) return false;
+  const header = req.headers?.["x-refresh-secret"];
+  // Vercel Cron signs its invocations with the project's CRON_SECRET.
+  const cronAuth = req.headers?.authorization;
+  return (
+    header === secret ||
+    (!!process.env.CRON_SECRET && cronAuth === `Bearer ${process.env.CRON_SECRET}`)
+  );
+}
+
 export default async function handler(req, res) {
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("Allow", "GET, HEAD");
+    return res.status(405).json({ error: "method_not_allowed" });
+  }
+
   const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY,
@@ -613,16 +639,38 @@ export default async function handler(req, res) {
     .limit(1)
     .maybeSingle();
 
+  const authorized = isAuthorizedToForce(req);
   const force = req.query?.refresh === "1";
-  if (latest && !force) {
-    const ageMs = Date.now() - new Date(latest.created_at).getTime();
-    if (ageMs < CACHE_MINUTES * 60 * 1000) {
-      const [accuracy, recentSignals] = await Promise.all([
-        fetchAccuracyStats(supabase),
-        fetchRecentSignals(supabase),
-      ]);
-      return res.status(200).json({ ...latest, accuracy, recent_signals: recentSignals, cached: true });
-    }
+
+  if (force && !authorized) {
+    return res.status(403).json({ error: "forbidden", detail: "refresh requires authorization" });
+  }
+
+  const ageMs = latest ? Date.now() - new Date(latest.created_at).getTime() : Infinity;
+  const fresh = ageMs < CACHE_MINUTES * 60 * 1000;
+
+  // Only an authorized caller may trigger a regeneration. Gating `?refresh=1`
+  // alone was not enough: once the cached row aged past CACHE_MINUTES, any
+  // anonymous request fell straight through to the expensive path, so the
+  // spend tap simply reopened every five minutes. Public callers now always
+  // get the newest stored row, however old it is.
+  if (latest && (fresh || !authorized)) {
+    const [accuracy, recentSignals] = await Promise.all([
+      fetchAccuracyStats(supabase),
+      fetchRecentSignals(supabase),
+    ]);
+    return res.status(200).json({
+      ...latest,
+      accuracy,
+      recent_signals: recentSignals,
+      cached: true,
+      stale: !fresh,
+    });
+  }
+
+  // No stored analysis at all and no authorization to generate one.
+  if (!latest && !authorized) {
+    return res.status(503).json({ error: "unavailable", detail: "no analysis generated yet" });
   }
 
   const [price, daily, h1, m15, m5, events, dxy, yield10y, news] = await Promise.all([
@@ -683,16 +731,18 @@ export default async function handler(req, res) {
 
   const message = await client.messages.create({
     model: "claude-sonnet-4-6",
-    max_tokens: 1500,
+    // Headroom: the JSON schema response ran close to the old 1500 ceiling, and
+    // a truncated response is an unparseable signal rather than a short one.
+    max_tokens: 2400,
     system: [
-      {
-        type: "text",
-        text: SYSTEM_PROMPT,
-        cache_control: { type: "ephemeral" },
-      },
+      { type: "text", text: SYSTEM_PROMPT },
       {
         type: "text",
         text: ANALYSIS_INSTRUCTIONS,
+        // One breakpoint, not two. The minimum cacheable prefix on this model
+        // is 1024 tokens; SYSTEM_PROMPT alone is ~810, so a breakpoint after it
+        // silently cached nothing (cache_creation_input_tokens: 0). This single
+        // breakpoint covers both blocks (~1090 tokens), which does clear the bar.
         cache_control: { type: "ephemeral" },
       },
     ],

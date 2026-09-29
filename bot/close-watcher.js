@@ -14,6 +14,7 @@ import { signalImage, depositImage, signalClosedImage, claimImage, autoCloseImag
 import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
 import { startLivePnl, stopLivePnl, resumeLivePnl } from "./live-pnl.js";
+import { startAutopilot, stopAutopilot, dmAdmin } from "./autopilot.js";
 
 // ===== CONFIG =====
 const {
@@ -36,6 +37,13 @@ const REFERRAL_REWARD_PCT = 50; // 50% of fee goes to referrer
 
 const GTRADE_DIAMOND = "0xFF162c694eAA571f685030649814282eA457f169";
 const TRADE_MONITOR_INTERVAL = 30_000; // 30s trade check when signal active
+// gTrade's XAU/USD minimum position size. The SignalPosted path used 800 while
+// the monitor retry still demanded 3000, so a pool between the two that missed
+// the first open was never retried and sat in COLLECTING forever (#80).
+const MIN_POSITION_USD = 800;
+// A signal that has not opened this long after posting will not open: cancel it
+// and refund, or it blocks every signal after it (postSignal needs no active one).
+const STALE_COLLECTING_MIN = 30;
 const RECONNECT_DELAY = 5_000;
 const ARBISCAN_TX = "https://arbiscan.io/tx/";
 const ARBISCAN_ADDR = "https://arbiscan.io/address/";
@@ -450,6 +458,9 @@ class CloseWatcher {
     // Trade monitor: checks gTrade every 30s when signal active (replaces heavy event polling)
     this.startTradeMonitor();
 
+    // Autopilot: posts Scalp AI signals on its own (off unless AUTOPILOT=on or /autopilot on)
+    startAutopilot(this.httpProvider);
+
     // IMMEDIATE: check for stuck trades on startup (trade closed while bot was down)
     this.checkStuckTradeOnStartup();
   }
@@ -510,8 +521,8 @@ class CloseWatcher {
         const lev = Number(leverage) / 1000;
         const posSize = (deposited / 1e6) * lev;
         // gTrade's current XAU/USD min position is $800 — old $3000 check was stale
-        if (posSize < 800) {
-          log(`Position size $${posSize.toFixed(0)} under $800 minimum — cannot open`);
+        if (posSize < MIN_POSITION_USD) {
+          log(`Position size $${posSize.toFixed(0)} under $${MIN_POSITION_USD} minimum — cannot open`);
           return;
         }
 
@@ -831,7 +842,17 @@ class CloseWatcher {
 
       // ── Auto-claim for all users with positions (3-pass retry) ──
       try {
-        const users = await this.copyTrader.getAutoCopyUsers();
+        // Auto-copy users plus anyone who deposited by hand in this signal —
+        // manual depositors used to be left to claim() on their own.
+        const users = new Set((await this.copyTrader.getAutoCopyUsers()).map(a => a.toLowerCase()));
+        try {
+          const head = await this.httpProvider.getBlockNumber();
+          const deposits = await this.copyTrader.queryFilter(
+            this.copyTrader.filters.UserDeposited(null, signalId), Math.max(0, head - 400_000), head);
+          for (const d of deposits) users.add(d.args.user.toLowerCase());
+        } catch (err) {
+          log(`  depositor lookup failed, claiming for auto-copy users only: ${err.message?.slice(0, 80)}`);
+        }
         const MAX_PASSES = 3;
         for (let pass = 1; pass <= MAX_PASSES; pass++) {
           let nonce = await this.wallet.getNonce();
@@ -1449,7 +1470,21 @@ class CloseWatcher {
           const deposited = Number(vault.totalDeposited) / 1e6;
           const levNum = Number(signal.leverage) / 1000;
           const posSize = deposited * levNum;
-          if (posSize >= 3000) {
+          const ageMin = (Date.now() / 1000 - Number(vault.timestamp)) / 60;
+          if (posSize < MIN_POSITION_USD && ageMin > STALE_COLLECTING_MIN) {
+            log(`Trade monitor: Signal #${activeId} still collecting after ${ageMin.toFixed(0)}m with $${deposited.toFixed(0)} — cancelling and refunding`);
+            try {
+              const tx = await this.copyTrader.cancelSignal();
+              await tx.wait();
+              log(`  cancelSignal confirmed: ${tx.hash}`);
+              await dmAdmin(`♻️ Signal #${activeId} never reached gTrade's $${MIN_POSITION_USD} minimum ($${deposited.toFixed(2)} deposited). Cancelled and refunded in full.`);
+            } catch (err) {
+              log(`  cancelSignal failed: ${err.reason || err.message?.slice(0, 80)}`);
+            }
+            setTimeout(check, MONITOR_INTERVAL);
+            return;
+          }
+          if (posSize >= MIN_POSITION_USD) {
             log(`Trade monitor: Signal #${activeId} has $${deposited.toFixed(0)} × ${levNum}x = $${posSize.toFixed(0)} — opening trade`);
             try {
               const openTx = await this.copyTrader.openTrade();
@@ -1724,6 +1759,7 @@ class CloseWatcher {
     }
     stopTelegramAI();
     stopNewsAlerts();
+    stopAutopilot();
     log("Bot stopped.");
   }
 }

@@ -10,14 +10,21 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="STC" />
 
-    <!-- Preconnect for performance -->
-    <link rel="preconnect" href="https://arb-mainnet.g.alchemy.com" />
-    <link rel="preconnect" href="https://www.googletagmanager.com" />
+    <!-- Fonts: Inter for text, IBM Plex Mono for every figure. Loaded here
+         rather than via CSS @import so the request starts during HTML parse. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Geist:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500;700&display=swap" />
+
+    <!-- Preconnect: the hosts the first paint actually talks to -->
+    <link rel="preconnect" href="https://hermes.pyth.network" crossorigin />
+    <link rel="preconnect" href="https://arbitrum-one.publicnode.com" crossorigin />
+    <link rel="preconnect" href="https://iqrdexbrkhhmuzidlwni.supabase.co" crossorigin />
+    <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
 
     <!-- SEO -->
-    <title>Smart Trading Club — Copy Gold Trades On-Chain | Best Crypto Copy Trading Platform 2026</title>
-    <meta name="description" content="Copy live gold (XAU/USD) trades on Arbitrum with one click. Best on-chain copy trading platform for gold. Auto-copy mode, 50% referral rewards, USDC profits. No experience needed. Powered by gTrade." />
-    <meta name="keywords" content="copy trading, copy trading crypto, best copy trading platform, gold trading, gold trading crypto, XAU/USD trading, on-chain copy trading, decentralized copy trading, Arbitrum DeFi, gTrade, crypto copy trade, auto copy trading, gold signals, XAUUSD crypto, copy trade gold, DeFi copy trading, web3 trading, smart trading, copy trading platform 2026, perp trading, gold DeFi, arbitrum trading" />
+    <title>Smart Trading Club — Copy Gold Trades On-Chain</title>
+    <meta name="description" content="Copy live gold (XAU/USD) trades on Arbitrum with one click. Auto-copy mode, 50% referral rewards, USDC profits. No experience needed. Powered by gTrade." />
     <meta name="author" content="Smart Trading Club" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <link rel="canonical" href="https://www.smarttradingclub.io/" />
@@ -159,6 +166,21 @@
       ]
     }
     </script>
+
+    <!-- Structured Data: tutorial video -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoObject",
+      "name": "How to copy trade gold on Smart Trading Club",
+      "description": "A two-minute walkthrough: connect your wallet, wait for a gold signal, click Copy, and claim your profit on-chain.",
+      "thumbnailUrl": "https://www.smarttradingclub.io/howitworks-poster.webp",
+      "uploadDate": "2026-04-13",
+      "duration": "PT2M50S",
+      "contentUrl": "https://www.smarttradingclub.io/HowItWorks-720.mp4",
+      "embedUrl": "https://www.smarttradingclub.io/"
+    }
+    </script>
   </head>
   <body>
     <!-- SEO: visible to crawlers before JS loads, hidden by React once mounted -->
@@ -202,18 +224,6 @@
       <p><strong>What do I need to start?</strong> A Web3 wallet (MetaMask), USDC on Arbitrum, and a small amount of ETH for gas.</p>
       <p><strong>Is it safe?</strong> All trades are on-chain via a verified smart contract on Arbitrum. Your funds are never held by a third party.</p>
       <p><strong>What is the referral program?</strong> Earn 50% of platform fees from your referrals' profitable trades. Paid automatically in USDC.</p>
-
-      <h2 style="color:#fff;margin-top:2rem;">Best Crypto Copy Trading Platform 2026</h2>
-      <p>Smart Trading Club is the best on-chain copy trading platform for gold in 2026. Unlike centralized copy trading platforms like Bybit, Bitget, or eToro, all trades are executed on the Arbitrum blockchain through gTrade — a decentralized perpetual trading exchange. This means full transparency, no custody risk, and verifiable results.</p>
-
-      <h2 style="color:#fff;margin-top:2rem;">On-Chain Copy Trading vs Centralized Copy Trading</h2>
-      <p>Traditional copy trading platforms hold your funds and execute trades on your behalf. With on-chain copy trading on Smart Trading Club, your funds stay in your wallet until you copy a trade. Every trade is verifiable on Arbiscan. No KYC required. No withdrawal delays. Just connect, copy, and earn.</p>
-
-      <h2 style="color:#fff;margin-top:2rem;">How to Trade Gold (XAU/USD) with Crypto</h2>
-      <p>Gold (XAU/USD) is one of the most popular trading pairs in the world. With Smart Trading Club, you can trade gold using USDC stablecoins on the Arbitrum blockchain. This combines the stability of gold trading with the speed and transparency of DeFi. No forex broker needed — trade gold directly from your crypto wallet.</p>
-
-      <h2 style="color:#fff;margin-top:2rem;">DeFi Gold Trading on Arbitrum</h2>
-      <p>Arbitrum is a Layer 2 blockchain that offers fast and cheap transactions. gTrade (Gains Network) is a decentralized trading platform on Arbitrum that supports gold (XAU/USD) trading with leverage. Smart Trading Club connects you to gTrade's liquidity, making it easy to copy professional gold trades on-chain.</p>
 
       <p style="margin-top:2rem;">
         <a href="https://www.smarttradingclub.io" style="color:#D4A843;">Start Copy Trading</a> |

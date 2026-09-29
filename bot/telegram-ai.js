@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { welcomeImage } from "./telegram-images.js";
 import { loadPollState, savePollState, mapFromObject } from "./poll-state.js";
 import { approveAndOpenSignal, dismissSignal } from "./signal-actions.js";
+import { handleAutopilotCommand } from "./autopilot.js";
 
 const {
   TELEGRAM_BOT_TOKEN,
@@ -286,6 +287,14 @@ async function handleUpdate(update) {
   }
 
   if (!msg || !msg.text) return;
+
+  // Admin only, from the admin's own chat: /autopilot on | off | status
+  if (/^\/autopilot\b/i.test(msg.text.trim())) {
+    if (String(msg.chat.id) !== String(process.env.ADMIN_TELEGRAM_CHAT_ID ?? "")) return;
+    const arg = msg.text.trim().split(/\s+/)[1]?.toLowerCase() || "status";
+    await sendReply(msg.chat.id, await handleAutopilotCommand(arg), msg.message_id);
+    return;
+  }
 
   if (!shouldRespond(update)) return;
 

@@ -2,15 +2,19 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { motion, useScroll, useTransform, AnimatePresence } from 'framer-motion';
 import CountUp from 'react-countup';
-import Particles, { initParticlesEngine } from '@tsparticles/react';
-import { loadSlim } from '@tsparticles/slim';
 import { ethers } from 'ethers';
 import { Wallet, ArrowDownRight, ArrowUpRight, Coins, TrendingUp, ShieldCheck, Zap, BarChart3, History, CheckCircle2, Lock, BrainCircuit, Network, Cpu, Clock, ArrowRight, Shield, ExternalLink, ChevronDown, Sparkles, Eye, Copy, X, AlertTriangle, Settings, ArrowLeftRight, Loader2, RefreshCw, Share2, Users, Star, Trophy, Target, UserPlus, Crown, Menu, BookOpen, FileText, Code, GitBranch, Play } from 'lucide-react';
-import { LiFiWidget } from '@lifi/widget';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createClient } from '@supabase/supabase-js';
+
+// Lazy — see src/BridgeWidget.jsx. Keeps ~2.5 MB of LI.FI/MUI/wallet-adapter
+// code out of the initial bundle; it loads the first time the bridge opens.
+const BridgeWidget = React.lazy(() => import('./BridgeWidget'));
 import CONTRACT_ABI from './contractABI.json';
 import MARKETPLACE_ABI from './marketplaceABI.json';
+import { fadeUp, staggerContainer, scaleIn, slideInLeft, slideInRight } from './animations';
+import { fetchAllSignals } from './signals';
+import { fetchGoldPrice } from './goldPrice';
+import GoldLanding from './GoldLanding';
 import './index.css';
 
 // ===== SUPABASE =====
@@ -19,11 +23,99 @@ const supabase = createClient(
   'sb_publishable_wj2j8y7-HVbaqx2CvEuDhQ_C3Oa09C9'
 );
 
-const queryClient = new QueryClient();
 
-// ===== PYTH PRICE FEED (same source as gTrade) =====
-const PYTH_XAU_USD_FEED = "0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2";
-const PYTH_HERMES_URL = "https://hermes.pyth.network/v2/updates/price/latest";
+// ===== PUBLIC RPC =====
+// arb1.arbitrum.io is heavily rate-limited on mobile, so we keep a pool. The
+// endpoints are raced rather than probed one by one — a sequential health check
+// costs one full round-trip per dead endpoint before any data is fetched.
+// The winner is cached for the session; a failed race is retried next call.
+const RPC_ENDPOINTS = [
+  "https://arbitrum-one.publicnode.com",
+  "https://arb-mainnet.public.blastapi.io",
+  "https://arbitrum.llamarpc.com",
+  "https://arb1.arbitrum.io/rpc",
+];
+
+let publicProviderPromise = null;
+
+function getPublicProvider() {
+  if (publicProviderPromise) return publicProviderPromise;
+  publicProviderPromise = Promise.any(
+    RPC_ENDPOINTS.map(async (rpc) => {
+      const prov = new ethers.JsonRpcProvider(rpc);
+      await prov.getBlockNumber(); // reject on unreachable/rate-limited endpoints
+      return prov;
+    })
+  ).catch(() => {
+    // Every endpoint failed — don't cache the failure, but still hand back a
+    // provider so callers keep their existing error handling.
+    publicProviderPromise = null;
+    return new ethers.JsonRpcProvider(RPC_ENDPOINTS[0]);
+  });
+  return publicProviderPromise;
+}
+
+// ===== RISK / REWARD GATE =====
+//
+// The first 78 signals settled at -2.3% on $14,739 with a 42% win rate. At
+// that win rate a system needs R:R >= 1.36 just to break even before costs;
+// the posted average was 1.46, and 31 of 78 signals went out already below
+// break-even. A margin of 0.10 R does not survive gTrade's fees, so the
+// result was 78 trades, zero profit, and zero fees ever collected.
+//
+// This gate makes that arithmetic impossible to skip.
+
+// gTrade charges 0.06% of position size to open and 0.06% to close. Expressed
+// against the price move it is a flat 0.12%, because both the payoff and the
+// fee scale with leverage — which is why a tight stop is what makes fees bite,
+// not a high multiplier on its own.
+const GTRADE_ROUNDTRIP_FEE = 0.0012;
+
+// Hard floor: the break-even R:R at the observed 42% win rate. Below this the
+// trade loses money on average by construction, so it is never postable.
+const RR_HARD_FLOOR = 1.36;
+
+// Target: leaves real margin over the floor once slippage and funding are paid.
+const RR_TARGET = 1.8;
+
+function evaluateSignalRR({ entryPrice, tp, sl, long }) {
+  const entry = parseFloat(entryPrice);
+  const takeProfit = parseFloat(tp);
+  const stopLoss = parseFloat(sl);
+  if (![entry, takeProfit, stopLoss].every(n => Number.isFinite(n) && n > 0)) return null;
+
+  // Direction sanity: TP must be beyond entry and SL behind it.
+  const tpValid = long ? takeProfit > entry : takeProfit < entry;
+  const slValid = long ? stopLoss < entry : stopLoss > entry;
+  if (!tpValid || !slValid) {
+    return { invalid: true, reason: long ? 'For a long, TP must sit above entry and SL below it.' : 'For a short, TP must sit below entry and SL above it.' };
+  }
+
+  const rewardMove = Math.abs(takeProfit - entry) / entry;
+  const riskMove = Math.abs(entry - stopLoss) / entry;
+  if (riskMove <= 0) return { invalid: true, reason: 'Stop loss cannot equal entry.' };
+
+  const grossRR = rewardMove / riskMove;
+  // Fees are paid on the way in and out regardless of outcome: they shrink
+  // every win and deepen every loss.
+  const netReward = rewardMove - GTRADE_ROUNDTRIP_FEE;
+  const netRisk = riskMove + GTRADE_ROUNDTRIP_FEE;
+  const netRR = netReward > 0 ? netReward / netRisk : 0;
+
+  return {
+    invalid: false,
+    grossRR,
+    netRR,
+    rewardMove,
+    riskMove,
+    feeDragPct: (GTRADE_ROUNDTRIP_FEE / riskMove) * 100,
+    // Win rate this trade must clear to be profitable, given its own R:R.
+    breakEvenWinRate: (1 / (1 + netRR)) * 100,
+    blocked: netRR < RR_HARD_FLOOR,
+    thin: netRR >= RR_HARD_FLOOR && netRR < RR_TARGET,
+  };
+}
+
 
 // ===== ARBITRUM CONFIG =====
 const CONTRACT_ADDRESS = "0xbE1E770670a0186772594ED381F573B3161029a2";
@@ -78,53 +170,22 @@ const ERC20_ABI = [
 const USDC_DECIMALS = 6;
 const PRICE_PRECISION = 1e10; // gTrade uses 1e10 for prices
 const LEVERAGE_PRECISION = 1000; // gTrade uses 1e3 for leverage
+const ABANDONED_AFTER_S = 24 * 3600; // the contract's collectingTimeout
 
-// Animation variants
-const fadeUp = {
-  hidden: { opacity: 0, y: 40 },
-  visible: (i = 0) => ({
-    opacity: 1, y: 0,
-    transition: { duration: 0.7, delay: i * 0.12, ease: [0.25, 0.46, 0.45, 0.94] }
-  })
-};
-
-const staggerContainer = {
-  hidden: {},
-  visible: { transition: { staggerChildren: 0.1, delayChildren: 0.2 } }
-};
-
-const scaleIn = {
-  hidden: { opacity: 0, scale: 0.85 },
-  visible: (i = 0) => ({
-    opacity: 1, scale: 1,
-    transition: { duration: 0.6, delay: i * 0.1, ease: [0.25, 0.46, 0.45, 0.94] }
-  })
-};
-
-const slideInLeft = {
-  hidden: { opacity: 0, x: -60 },
-  visible: { opacity: 1, x: 0, transition: { duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] } }
-};
-
-const slideInRight = {
-  hidden: { opacity: 0, x: 60 },
-  visible: { opacity: 1, x: 0, transition: { duration: 0.8, ease: [0.25, 0.46, 0.45, 0.94] } }
-};
-
-// Particle config
-const particlesOptions = {
-  fullScreen: false,
-  particles: {
-    number: { value: 60, density: { enable: true, area: 1000 } },
-    color: { value: ["#D4A843", "#F0D078", "#9A7B2E", "#ffffff"] },
-    shape: { type: "circle" },
-    opacity: { value: { min: 0.1, max: 0.5 }, animation: { enable: true, speed: 0.5, minimumValue: 0.1 } },
-    size: { value: { min: 1, max: 3 }, animation: { enable: true, speed: 1, minimumValue: 0.5 } },
-    move: { enable: true, speed: 0.6, direction: "none", outModes: { default: "out" } },
-    links: { enable: true, distance: 120, color: "#D4A843", opacity: 0.08, width: 1 },
-  },
-  detectRetina: true,
-};
+// Placeholder shown while the lazy bridge chunk downloads. Matches the widget's
+// compact footprint so the modal does not jump when it swaps in.
+function BridgeWidgetSkeleton() {
+  return (
+    <div style={{
+      height: 480, borderRadius: '8px', background: '#0d0d1a',
+      border: '1px solid var(--border)', display: 'flex',
+      flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12,
+    }}>
+      <Loader2 size={28} className="spin" style={{ color: 'var(--accent)' }} />
+      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Loading bridge…</span>
+    </div>
+  );
+}
 
 // Animated gradient border component
 function GlowCard({ children, className = "", delay = 0, gold = false }) {
@@ -186,18 +247,17 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong, showPrices }) {
 
   return (
     <div style={{ marginBottom: '2px' }}>
-      <div style={{ position: 'relative', height: '6px', borderRadius: '3px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
+      <div style={{ position: 'relative', height: '6px', borderRadius: '12px', background: 'rgba(255,255,255,0.06)', overflow: 'hidden' }}>
         {/* Gradient fill from SL to current price */}
         <div style={{
           position: 'absolute', left: 0, top: 0, height: '100%',
-          width: `${progress}%`, borderRadius: '3px',
+          width: `${progress}%`, borderRadius: '12px',
           background: nearSL
-            ? 'linear-gradient(90deg, rgba(248,113,113,0.8), rgba(248,113,113,0.4))'
+            ? 'linear-gradient(90deg, rgba(196,84,78,0.8), rgba(196,84,78,0.4))'
             : nearTP
-              ? 'linear-gradient(90deg, rgba(52,211,153,0.3), rgba(52,211,153,0.8))'
-              : `linear-gradient(90deg, rgba(248,113,113,0.4) 0%, rgba(212,168,67,0.4) ${entryPos}%, rgba(52,211,153,0.5) 100%)`,
+              ? 'linear-gradient(90deg, rgba(62,158,110,0.3), rgba(62,158,110,0.8))'
+              : `linear-gradient(90deg, rgba(196,84,78,0.4) 0%, rgba(224, 164, 58,0.4) ${entryPos}%, rgba(62,158,110,0.5) 100%)`,
           transition: 'width 0.5s ease',
-          boxShadow: nearSL ? '0 0 8px rgba(248,113,113,0.3)' : nearTP ? '0 0 8px rgba(52,211,153,0.3)' : 'none',
         }} />
         {/* Entry marker */}
         <div style={{
@@ -208,25 +268,24 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong, showPrices }) {
         <div style={{
           position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
           width: '12px', height: '12px', borderRadius: '50%',
-          background: isProfit ? '#34D399' : '#F87171',
+          background: isProfit ? 'var(--success)' : 'var(--danger)',
           border: '2px solid rgba(0,0,0,0.3)',
-          boxShadow: `0 0 ${nearSL || nearTP ? '12px' : '6px'} ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
           transition: 'left 0.5s ease',
           animation: `pulse ${pulseSpeed} ease-in-out infinite`,
         }} />
       </div>
       {/* Labels */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
-        <span style={{ fontSize: '0.55rem', color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
+        <span style={{ fontSize: '0.55rem', color: 'var(--danger)', fontFamily: 'var(--font-mono)' }}>
           SL {showPrices ? `$${sl.toFixed(0)}` : `${String(sl.toFixed(0)).slice(0, 2)}••`}
         </span>
         <span style={{
-          fontSize: '0.6rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+          fontSize: '0.6rem', fontWeight: 700, fontFamily: 'var(--font-mono)',
           color: isProfit ? 'var(--success)' : 'var(--danger)',
         }}>
           {Math.round(pctToTP)}% to TP
         </span>
-        <span style={{ fontSize: '0.55rem', color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
+        <span style={{ fontSize: '0.55rem', color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
           TP {showPrices ? `$${tp.toFixed(0)}` : `${String(tp.toFixed(0)).slice(0, 2)}••`}
         </span>
       </div>
@@ -238,7 +297,7 @@ function TradeProgressBar({ entry, tp, sl, currentPrice, isLong, showPrices }) {
 // Provider level badges
 function getProviderLevel(totalTrades, winRate) {
   if (totalTrades >= 50 && winRate >= 80) return { label: 'Diamond', color: '#B9F2FF', bg: 'rgba(185,242,255,0.12)', border: 'rgba(185,242,255,0.25)' };
-  if (totalTrades >= 30 && winRate >= 70) return { label: 'Gold', color: '#D4A843', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.25)' };
+  if (totalTrades >= 30 && winRate >= 70) return { label: 'Gold', color: 'var(--accent)', bg: 'rgba(224, 164, 58,0.12)', border: 'rgba(224, 164, 58,0.25)' };
   if (totalTrades >= 15 && winRate >= 60) return { label: 'Silver', color: '#C0C0C0', bg: 'rgba(192,192,192,0.12)', border: 'rgba(192,192,192,0.25)' };
   if (totalTrades >= 5) return { label: 'Bronze', color: '#CD7F32', bg: 'rgba(205,127,50,0.12)', border: 'rgba(205,127,50,0.25)' };
   return null;
@@ -302,7 +361,6 @@ function App() {
   });
   const [isConnecting, setIsConnecting] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [particlesReady, setParticlesReady] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [legacyClaimed, setLegacyClaimed] = useState(false);
@@ -331,6 +389,7 @@ function App() {
 
   // Signal State
   const [activeSignal, setActiveSignal] = useState(null);
+  const [depositLimits, setDepositLimits] = useState({ min: 0, max: 0 });
   const [signalHistory, setSignalHistory] = useState([]);
   const [userPositions, setUserPositions] = useState({});
   const [signalCount, setSignalCount] = useState(0);
@@ -389,15 +448,35 @@ function App() {
       let losses = 0;
       let totalCopied = 0;
       let avgPnl = 0;
+      let deposited = 0;
+      let returned = 0;
 
       for (const s of filtered) {
         if (s.tradePct > 0) wins++;
         else if (s.tradePct < 0) losses++;
         totalCopied += parseFloat(ethers.formatUnits(s.totalCopied || 0n, 6));
         avgPnl += s.tradePct;
+        deposited += parseFloat(ethers.formatUnits(s.originalDeposited || 0n, 6));
+        returned += parseFloat(ethers.formatUnits(s.totalReturned || 0n, 6));
       }
 
-      return { wins, losses, trades: filtered.length, winRate: filtered.length > 0 ? (wins / filtered.length * 100) : 0, totalCopied, avgPnl: filtered.length > 0 ? avgPnl / filtered.length : 0 };
+      // Capital-weighted return, not the sum of per-trade percentages.
+      //
+      // Summing percentages treats a $20 trade and a $2,000 trade as equal, so
+      // a run of small losers reads as a catastrophe. Across all 78 settled
+      // signals the summed figure was -126.6% while the actual capital outcome
+      // was -2.3% ($14,739 in, $14,405 back). This is the number that answers
+      // "what happened to the money", which is the only one a visitor cares about.
+      const netUsdc = returned - deposited;
+      const returnPct = deposited > 0 ? (netUsdc / deposited) * 100 : 0;
+
+      return {
+        wins, losses, trades: filtered.length,
+        winRate: filtered.length > 0 ? (wins / filtered.length * 100) : 0,
+        totalCopied,
+        avgPnl: filtered.length > 0 ? avgPnl / filtered.length : 0,
+        deposited, returned, netUsdc, returnPct,
+      };
     };
 
     return {
@@ -456,13 +535,8 @@ function App() {
   const contractRef = useRef(null);
   const usdcRef = useRef(null);
 
-  // Init particles
+  // Hide the crawler-only SEO block once React has mounted.
   useEffect(() => {
-    initParticlesEngine(async (engine) => {
-      await loadSlim(engine);
-    }).then(() => setParticlesReady(true));
-
-    // Hide SEO content once React mounts
     const seo = document.getElementById('seo-content');
     if (seo) seo.style.display = 'none';
   }, []);
@@ -471,7 +545,8 @@ function App() {
   useEffect(() => {
     const base = 'https://www.smarttradingclub.io';
     const meta = {
-      invest: { url: base + '/', title: 'Smart Trading Club — Best On-Chain Gold Copy Trading Platform 2026', desc: 'Copy live gold (XAU/USD) trades on Arbitrum. Best crypto copy trading platform. Auto-copy, 50% referral rewards, USDC profits.' },
+      // Keep titles under ~60 chars — Google truncates past that in results.
+      invest: { url: base + '/', title: 'Smart Trading Club — Copy Gold Trades On-Chain', desc: 'Copy live gold (XAU/USD) trades on Arbitrum. Auto-copy, 50% referral rewards, USDC profits.' },
       dashboard: { url: base + '/?tab=dashboard', title: 'Copy Gold Trades Dashboard — Smart Trading Club', desc: 'Copy live gold signals on Arbitrum. Auto-copy mode, manage positions, track profits. On-chain copy trading with USDC.' },
       results: { url: base + '/?tab=results', title: 'Gold Trading Results & Performance — Smart Trading Club', desc: 'Verified on-chain gold trading results. Win rate, profit history, and trade performance on Arbitrum.' },
       referral: { url: base + '/?tab=referral', title: 'Earn 50% Referral Rewards — Smart Trading Club', desc: 'Earn 50% of platform fees by referring friends to Smart Trading Club. Share your link, earn USDC automatically.' },
@@ -539,12 +614,7 @@ function App() {
     let flashTimeout;
     const tick = async () => {
       try {
-        const r = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2', { signal: AbortSignal.timeout(5000) });
-        if (!r.ok) return;
-        const d = await r.json();
-        const p = d.parsed?.[0]?.price;
-        if (!p) return;
-        const next = Number(p.price) * Math.pow(10, Number(p.expo));
+        const next = await fetchGoldPrice();
         if (cancelled) return;
         if (prev != null) {
           const diff = next - prev;
@@ -562,7 +632,7 @@ function App() {
           trimmed.push({ t: now, p: next });
           return trimmed;
         });
-      } catch {}
+      } catch { /* one dropped price tick is harmless; the next poll recovers */ }
     };
     tick();
     const id = setInterval(tick, 4000);
@@ -619,7 +689,7 @@ function App() {
       try {
         const chainId = await window.ethereum.request({ method: 'eth_chainId' });
         setCurrentChainId(chainId);
-      } catch {}
+      } catch { /* wallet locked or provider not ready — chain badge stays hidden */ }
     };
     checkChain();
     const handleChainChanged = (chainId) => setCurrentChainId(chainId);
@@ -781,6 +851,7 @@ function App() {
       const fromChainId = bridgeDirection === 'toArbitrum' ? 56 : 42161;
       const toChainId = bridgeDirection === 'toArbitrum' ? 42161 : 56;
       let completed = false;
+      let failed = false;
       for (let i = 0; i < 60; i++) { // max 5 min polling
         await new Promise(r => setTimeout(r, 5000));
         try {
@@ -790,9 +861,30 @@ function App() {
             break;
           }
           if (status.status === "FAILED") {
-            throw new Error("Bridge transaction failed");
+            // Previously this threw straight into an empty catch, so a failed
+            // bridge was swallowed and polling continued for the full 5 minutes.
+            failed = true;
+            break;
           }
-        } catch {}
+        } catch (err) {
+          // A single poll failing is normal (RPC hiccup, indexer lag) — keep
+          // polling, but don't stay silent about it.
+          console.warn("[Bridge] status poll failed:", err?.message || err);
+        }
+      }
+
+      // `completed` was computed and then ignored: the UI reported "done" even
+      // when the bridge had failed or timed out, so users were told their funds
+      // had arrived when they had not.
+      if (failed) {
+        setBridgeStatus("error");
+        setBridgeError("The bridge reported a failed transfer. Check the transaction on the explorer before retrying.");
+        return;
+      }
+      if (!completed) {
+        setBridgeStatus("error");
+        setBridgeError("Bridge still pending after 5 minutes. Your funds are not lost — check the explorer; transfers can take longer under load.");
+        return;
       }
 
       setBridgeStatus("done");
@@ -859,29 +951,36 @@ function App() {
   // Load public data (no wallet needed) — for Results page & homepage stats
   const loadPublicData = useCallback(async () => {
     try {
-      // Try multiple public RPCs — arb1.arbitrum.io is heavily rate-limited on mobile
-      const RPC_ENDPOINTS = [
-        "https://arbitrum-one.publicnode.com",
-        "https://arb-mainnet.public.blastapi.io",
-        "https://arbitrum.llamarpc.com",
-        "https://arb1.arbitrum.io/rpc",
-      ];
-      let publicProvider = null;
-      for (const rpc of RPC_ENDPOINTS) {
-        try {
-          const prov = new ethers.JsonRpcProvider(rpc);
-          await prov.getBlockNumber(); // quick health check
-          publicProvider = prov;
-          break;
-        } catch { /* try next */ }
-      }
-      if (!publicProvider) publicProvider = new ethers.JsonRpcProvider(RPC_ENDPOINTS[RPC_ENDPOINTS.length - 1]);
+      const publicProvider = await getPublicProvider();
       const publicContract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, publicProvider);
 
       const count = await publicContract.signalCount();
       setSignalCount(Number(count));
+
+      // Signal history — ALL signals in one multicall (see src/signals.js).
+      // Started now and not awaited: it is what the landing page's numbers and
+      // trade list show, so it should not queue behind the calls below.
+      fetchAllSignals(publicProvider, publicContract, Number(count))
+        .then(rows => {
+          const histArr = rows.map(r => parseSignal(r.id, r.core, r.vault)).filter(s => !s.abandoned);
+          if (histArr.length > 0) setSignalHistory(histArr);
+        })
+        .catch(err => console.error('Signal history load failed:', err)); // keep existing
       const fee = await publicContract.feePercent();
       setFeePercent(Number(fee));
+
+      // The contract enforces these; without reading them the UI let users pay
+      // gas to discover a revert instead of showing a plain message first.
+      try {
+        const [minDep, maxDep] = await Promise.all([
+          publicContract.minDeposit(),
+          publicContract.maxDeposit(),
+        ]);
+        setDepositLimits({
+          min: parseFloat(ethers.formatUnits(minDep, USDC_DECIMALS)),
+          max: parseFloat(ethers.formatUnits(maxDep, USDC_DECIMALS)),
+        });
+      } catch { /* older contract without limit getters */ }
 
       try {
         const copierCount = await publicContract.getAutoCopyUserCount();
@@ -892,7 +991,7 @@ function App() {
       // signalCore: long, phase(uint8), entryPrice, tp, sl, leverage, feeAtCreation
       // signalVault: timestamp, closedAt, totalDeposited, originalDeposited, realizedReturned, totalClaimed, copierCount, vaultBalance, gTradePending, closePending, balanceSnapshot, tradeIndex
       // Phase: 0=NONE, 1=COLLECTING, 2=TRADING, 3=SETTLED
-      const parseSignal = (id, core, vault) => {
+      function parseSignal(id, core, vault) {  // declaration: hoisted for the early history fetch
         const phase = Number(core[1]);
         const totalDeposited = vault[2];
         const totalReturned = vault[4]; // realizedReturned
@@ -934,8 +1033,15 @@ function App() {
           totalReturned,
           originalDeposited,
           copierCount: vault[6],
+          // Never reached gTrade: cancelled while collecting and the pool was
+          // paid back in full. Not a trade, so not a win, loss or break-even.
+          refunded: closed && Number(vault[11]) === 0 && totalReturned === originalDeposited,
+          // Still collecting a day after posting: it will never open (the bot
+          // cancels these now; #80 sat like this from May). Showing it as LIVE
+          // with a PnL measured from a months-old entry printed -599%.
+          abandoned: phase === 1 && Date.now() / 1000 - Number(vault[0]) > ABANDONED_AFTER_S,
         };
-      };
+      }
 
       // Active signal
       try {
@@ -943,7 +1049,8 @@ function App() {
         if (Number(activeId) > 0) {
           const core = await publicContract.signalCore(activeId);
           const vault = await publicContract.signalVault(activeId);
-          setActiveSignal(parseSignal(activeId, core, vault));
+          const sig = parseSignal(activeId, core, vault);
+          setActiveSignal(sig.abandoned ? null : sig);
         } else {
           setActiveSignal(null);
         }
@@ -951,31 +1058,6 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history — ALL signals, batched + per-call fault-tolerant
-      try {
-        const total = Number(count);
-        const BATCH = 8;
-        const histArr = [];
-        for (let batchStart = total; batchStart >= 1; batchStart -= BATCH) {
-          const batch = [];
-          for (let i = batchStart; i > batchStart - BATCH && i >= 1; i--) batch.push(i);
-          const batchResults = await Promise.all(batch.map(async (i) => {
-            try {
-              const [core, vault] = await Promise.all([
-                publicContract.signalCore(i),
-                publicContract.signalVault(i),
-              ]);
-              return parseSignal(i, core, vault);
-            } catch {
-              return null; // skip this one — don't kill the batch
-            }
-          }));
-          for (const r of batchResults) if (r) histArr.push(r);
-        }
-        if (histArr.length > 0) setSignalHistory(histArr);
-      } catch {
-        // keep existing
-      }
 
       // Active volume = sum of all enabled auto-copy amounts (what goes into next trade)
       try {
@@ -1013,7 +1095,7 @@ function App() {
   // ===== MARKETPLACE DATA =====
   const loadMarketplace = useCallback(async () => {
     try {
-      const provider = new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc");
+      const provider = await getPublicProvider();
       const mp = new ethers.Contract(MARKETPLACE_ADDRESS, MARKETPLACE_ABI, provider);
 
       const providerAddrs = await mp.getProviderList();
@@ -1175,18 +1257,15 @@ function App() {
     }
   };
 
-  // Live XAU/USD price from Pyth Network (same source as gTrade, poll every 10s)
+  // Live XAU/USD from gTrade's pricing backend (see src/goldPrice.js), every 5s
   useEffect(() => {
     const fetchPrice = async () => {
       try {
-        const res = await fetch(`${PYTH_HERMES_URL}?ids[]=${PYTH_XAU_USD_FEED}`);
-        const data = await res.json();
-        const p = data.parsed[0].price;
-        setLivePrice(Number(p.price) * Math.pow(10, p.expo));
+        setLivePrice(await fetchGoldPrice());
       } catch { /* keep existing */ }
     };
     fetchPrice();
-    const interval = setInterval(fetchPrice, 10000);
+    const interval = setInterval(fetchPrice, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -1223,7 +1302,7 @@ function App() {
       // Helper to parse signal data from contract Result objects
       // V3 pool-based: signalCore returns [long, phase, entryPrice, tp, sl, leverage, feeAtCreation]
       // signalVault: timestamp, closedAt, totalDeposited, originalDeposited, realizedReturned, totalClaimed, copierCount, vaultBalance, gTradePending, closePending, balanceSnapshot, tradeIndex
-      const parseSignal = (id, core, vault) => {
+      function parseSignal(id, core, vault) {  // declaration: hoisted for the early history fetch
         const phase = Number(core[1]);
         const totalDeposited = vault[2];
         const totalReturned = vault[4]; // realizedReturned
@@ -1262,6 +1341,10 @@ function App() {
           totalReturned,
           originalDeposited,
           copierCount: vault[6],
+          // Never reached gTrade: cancelled while collecting and the pool was
+          // paid back in full. Not a trade, so not a win, loss or break-even.
+          refunded: closed && Number(vault[11]) === 0 && totalReturned === originalDeposited,
+          abandoned: phase === 1 && Date.now() / 1000 - Number(vault[0]) > ABANDONED_AFTER_S,
         };
       };
 
@@ -1271,7 +1354,8 @@ function App() {
         if (Number(activeId) > 0) {
           const core = await contract.signalCore(activeId);
           const vault = await contract.signalVault(activeId);
-          setActiveSignal(parseSignal(activeId, core, vault));
+          const sig = parseSignal(activeId, core, vault);
+          setActiveSignal(sig.abandoned ? null : sig);
         } else {
           setActiveSignal(null);
         }
@@ -1279,27 +1363,10 @@ function App() {
         setActiveSignal(null);
       }
 
-      // Signal history — ALL signals, batched + per-call fault-tolerant
+      // Signal history — ALL signals in one multicall (see src/signals.js)
       try {
-        const total = Number(count);
-        const BATCH = 8;
-        const histArr = [];
-        for (let batchStart = total; batchStart >= 1; batchStart -= BATCH) {
-          const batch = [];
-          for (let i = batchStart; i > batchStart - BATCH && i >= 1; i--) batch.push(i);
-          const batchResults = await Promise.all(batch.map(async (i) => {
-            try {
-              const [core, vault] = await Promise.all([
-                contract.signalCore(i),
-                contract.signalVault(i),
-              ]);
-              return parseSignal(i, core, vault);
-            } catch {
-              return null;
-            }
-          }));
-          for (const r of batchResults) if (r) histArr.push(r);
-        }
+        const rows = await fetchAllSignals(contract.runner?.provider ?? contract.runner, contract, Number(count));
+        const histArr = rows.map(r => parseSignal(r.id, r.core, r.vault)).filter(s => !s.abandoned);
         if (histArr.length > 0) setSignalHistory(histArr);
       } catch {
         // Keep previous history on failure — don't wipe to 0s
@@ -1349,11 +1416,11 @@ function App() {
           const oldContract = new ethers.Contract(
             '0xf41d121DB5841767f403a4Bc59A54B26DecF6b99',
             ['function positions(address, uint256) view returns (uint256 collateral, uint32 tradeIndex, bool claimed)'],
-            new ethers.JsonRpcProvider("https://arb1.arbitrum.io/rpc")
+            await getPublicProvider()
           );
           const pos = await oldContract.positions(userAddress, 17);
           setLegacyClaimed(pos.claimed);
-        } catch {}
+        } catch { /* legacy V1 contract lookup — absent for every other wallet */ }
       }
     } catch (err) {
       console.error("Error loading data:", err);
@@ -1451,7 +1518,11 @@ function App() {
             } else {
               setAccount(accounts[0]);
             }
-          } catch {}
+          } catch (err) {
+            // Silent failure here left the app looking disconnected with no
+            // explanation; at least surface it in the console.
+            console.warn('[wallet] reconnect failed:', err?.message || err);
+          }
         }
       }).catch(() => {});
     }
@@ -1477,6 +1548,40 @@ function App() {
   const handlePostSignal = async (e) => {
     e.preventDefault();
     if (!isAdmin || !account) return;
+
+    // Risk/reward gate — see evaluateSignalRR. A signal that cannot pay for
+    // its own fees must not reach copiers, so this runs before anything else.
+    const rr = evaluateSignalRR(signalForm);
+    if (!rr) {
+      alert('Fill in entry, take profit and stop loss first.');
+      return;
+    }
+    if (rr.invalid) {
+      alert(rr.reason);
+      return;
+    }
+    if (rr.blocked) {
+      alert(
+        `Signal blocked — risk/reward is ${rr.netRR.toFixed(2)} net of fees.\n\n` +
+        `At a ${RR_HARD_FLOOR} floor this trade needs to win ${rr.breakEvenWinRate.toFixed(0)}% of the time ` +
+        `just to break even. The last 78 signals won 42%.\n\n` +
+        `Fees eat ${rr.feeDragPct.toFixed(0)}% of your stop distance.\n\n` +
+        `Fix it by widening the take profit, or by moving the stop FURTHER out. ` +
+        `A tighter stop makes this worse, not better — the fee is fixed, so the ` +
+        `smaller your risk budget, the bigger the share it takes.\n\n` +
+        `On gold at this price you need roughly ${(GTRADE_ROUNDTRIP_FEE / 0.15 * parseFloat(signalForm.entryPrice)).toFixed(0)} points of stop ` +
+        `to keep fees under 15% of your risk.`
+      );
+      return;
+    }
+    if (rr.thin) {
+      const proceed = window.confirm(
+        `Thin signal — risk/reward is ${rr.netRR.toFixed(2)} net of fees (target is ${RR_TARGET}).\n\n` +
+        `It needs a ${rr.breakEvenWinRate.toFixed(0)}% win rate to break even; the record is 42%.\n\n` +
+        `Post anyway?`
+      );
+      if (!proceed) return;
+    }
 
     try {
       setIsLoading(true);
@@ -1508,6 +1613,48 @@ function App() {
   const handleCloseSignal = async (e) => {
     e.preventDefault();
     if (!isAdmin || !account) return;
+
+    // This number decides what every copier gets back, and the transaction is
+    // irreversible. A missing decimal point once left two wallets short, so the
+    // amount is bounded against what was actually deposited and confirmed with
+    // the resulting per-copier payout spelled out before it is signed.
+    const returned = parseFloat(settleTotalReturned);
+    if (!Number.isFinite(returned) || returned < 0) {
+      alert('Enter the total USDC returned from gTrade.');
+      return;
+    }
+
+    const deposited = activeSignal
+      ? parseFloat(ethers.formatUnits(activeSignal.originalDeposited || 0n, 6))
+      : 0;
+
+    if (deposited > 0) {
+      const ratio = returned / deposited;
+      // A settle outside this band is far more likely to be a typo than a real
+      // result: a total loss still returns something, and a 3x on one trade
+      // would be extraordinary.
+      if (ratio < 0.05 || ratio > 3) {
+        alert(
+          `Settle blocked — $${returned.toFixed(2)} against $${deposited.toFixed(2)} deposited ` +
+          `is ${ratio.toFixed(2)}x.\n\n` +
+          `That is outside the plausible range (0.05x – 3x) and looks like a typo. ` +
+          `Check the decimal point and the gTrade close amount.`
+        );
+        return;
+      }
+
+      const copiers = Number(activeSignal?.copierCount || 0);
+      const pnlPct = ((returned - deposited) / deposited) * 100;
+      const proceed = window.confirm(
+        `Settle signal #${activeSignal?.id}\n\n` +
+        `Deposited:  $${deposited.toFixed(2)}\n` +
+        `Returning:  $${returned.toFixed(2)}\n` +
+        `Result:     ${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%\n` +
+        (copiers > 0 ? `Copiers:    ${copiers} (avg $${(returned / copiers).toFixed(2)} each)\n` : '') +
+        `\nThis cannot be undone. Continue?`
+      );
+      if (!proceed) return;
+    }
 
     try {
       setIsLoading(true);
@@ -1596,6 +1743,16 @@ function App() {
     if (!account || !activeSignal) return;
     if (!copyAmount || isNaN(copyAmount) || Number(copyAmount) <= 0) return;
 
+    const requested = Number(copyAmount);
+    if (depositLimits.min > 0 && requested < depositLimits.min) {
+      alert(`Minimum copy amount is $${depositLimits.min} USDC.`);
+      return;
+    }
+    if (depositLimits.max > 0 && requested > depositLimits.max) {
+      alert(`Maximum copy amount is $${depositLimits.max} USDC.`);
+      return;
+    }
+
     try {
       setIsLoading(true);
       const amount = ethers.parseUnits(copyAmount, USDC_DECIMALS);
@@ -1666,788 +1823,20 @@ function App() {
   // Yield calculator state
   const [calcAmount, setCalcAmount] = useState(1000);
 
-  const particlesLoaded = useCallback(async (container) => {}, []);
 
   const renderInvest = () => (
-    <>
-      {/* ===== PARTICLES ===== */}
-      {particlesReady && (
-        <div className="particles-container">
-          <Particles id="tsparticles" options={particlesOptions} particlesLoaded={particlesLoaded} />
-        </div>
-      )}
-
-      {/* ===== HERO ===== */}
-      <motion.section className="hero-section" style={{ opacity: heroOpacity }}>
-        <div className="hero-content">
-          <motion.div className="hero-left" variants={staggerContainer} initial="hidden" animate="visible">
-            <motion.div className="hero-tag" variants={fadeUp} custom={0}>
-              <span className="pulse-dot" />
-              <span>Live on Arbitrum</span>
-              <span className="hero-tag-badge">v3.0</span>
-            </motion.div>
-
-            <motion.h1 className="hero-title" variants={fadeUp} custom={1}>
-              <span className="hero-title-line">Gold Trading.</span>
-              <span className="hero-title-accent">
-                <span className="text-gold-gradient">Copy & Earn.</span>
-                <Sparkles className="hero-sparkle" size={28} />
-              </span>
-            </motion.h1>
-
-            <motion.p className="hero-subtitle" variants={fadeUp} custom={2}>
-              Copy our live gold trades with one click. Just connect your wallet,
-              wait for a signal, and click Copy Now. Your profit is paid directly to your wallet.
-            </motion.p>
-
-            {/* Live stats — daysLive, trades, volume, copiers */}
-            {(() => {
-              const LAUNCH_DATE = new Date('2026-03-31T00:00:00Z');
-              const daysLive = Math.max(1, Math.floor((Date.now() - LAUNCH_DATE.getTime()) / 86400000));
-              const closedSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0);
-              const tradesCount = closedSignals.length;
-              const cumulativeVolume = closedSignals.reduce((sum, s) => sum + parseFloat(ethers.formatUnits(s.totalCopied || 0n, 6)), 0);
-              const formatVol = v => v >= 1000 ? `$${(v / 1000).toFixed(1)}K` : `$${Math.round(v)}`;
-              const formatLaunch = LAUNCH_DATE.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
-              const stats = [
-                { value: daysLive, label: 'days live' },
-                { value: tradesCount, label: 'trades' },
-                { value: formatVol(cumulativeVolume), label: 'volume' },
-                { value: uniqueCopiers, label: 'copiers' },
-              ];
-              return (
-                <motion.div variants={fadeUp} custom={3} style={{
-                  display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
-                  margin: '20px 0 18px', padding: '12px 16px',
-                  background: 'rgba(212,168,67,0.06)',
-                  border: '1px solid rgba(212,168,67,0.2)',
-                  borderRadius: 12,
-                  backdropFilter: 'blur(10px)',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, paddingRight: 14, borderRight: '1px solid rgba(212,168,67,0.2)' }}>
-                    <span className="pulse-dot" style={{ width: 8, height: 8, background: '#22c55e' }} />
-                    <span style={{ fontSize: '0.78rem', color: 'rgba(255,255,255,0.55)', fontWeight: 500 }}>
-                      Live since {formatLaunch}
-                    </span>
-                  </div>
-                  {stats.map((s, i) => (
-                    <div key={i} style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
-                      <span style={{ fontSize: '0.95rem', fontWeight: 700, color: '#D4A843' }}>{s.value}</span>
-                      <span style={{ fontSize: '0.72rem', color: 'rgba(255,255,255,0.55)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</span>
-                    </div>
-                  ))}
-                </motion.div>
-              );
-            })()}
-
-            {/* Trust indicators */}
-            <motion.div className="hero-trust-row" variants={fadeUp} custom={4}>
-              <div className="trust-item">
-                <ShieldCheck size={14} />
-                <span>Verified Contract</span>
-              </div>
-              <div className="trust-item">
-                <Network size={14} />
-                <span>Arbitrum L2</span>
-              </div>
-              <div className="trust-item">
-                <Copy size={14} />
-                <span>Copy Trading</span>
-              </div>
-            </motion.div>
-
-            <motion.div className="hero-cta-row" variants={fadeUp} custom={4}>
-              <button className="btn btn-primary btn-lg btn-glow" onClick={() => setActiveTab('dashboard')}>
-                <Zap size={18} />
-                Start Copy Trading
-                <ArrowRight size={18} />
-              </button>
-              <button className="btn btn-glass btn-lg" onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}>
-                How does it work?
-                <ChevronDown size={16} />
-              </button>
-            </motion.div>
-          </motion.div>
-
-          <motion.div className="hero-right" variants={slideInRight} initial="hidden" animate="visible">
-            {/* Main stats card */}
-            <div className="hero-card">
-              <div className="hero-card-glow" />
-              <div className="hero-card-inner">
-                {/* Header */}
-                <div className="hero-card-header">
-                  <div className="hero-card-header-left">
-                    <span className={marketStatus.open ? "pulse-dot" : "pulse-dot pulse-dot-red"} />
-                    <span className="hero-card-label">Live Trading Terminal</span>
-                  </div>
-                  <span className={marketStatus.open ? "hero-card-live" : "hero-card-live hero-card-closed"}>
-                    {marketStatus.open ? 'LIVE' : 'CLOSED'}
-                  </span>
-                </div>
-
-                {/* Market closed banner */}
-                {!marketStatus.open && (
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: '8px',
-                    padding: '10px 12px', margin: '12px 0 0',
-                    borderRadius: '10px',
-                    background: 'rgba(248,113,113,0.08)',
-                    border: '1px solid rgba(248,113,113,0.2)',
-                  }}>
-                    <Clock size={15} style={{ color: 'var(--danger)', flexShrink: 0 }} />
-                    <span style={{ fontSize: '0.75rem', color: 'var(--danger)', fontWeight: 600 }}>
-                      {marketStatus.reason}
-                    </span>
-                  </div>
-                )}
-
-                {/* Active trade preview */}
-                <div style={{ padding: '16px 0 12px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ marginBottom: '10px' }}>
-                    {/* Row 1: Pair name + signal meta */}
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.3rem', fontWeight: 700 }}>XAU/USD</span>
-                      {activeSignal && (
-                        <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
-                          #{Number(activeSignal.id)} &middot; {timeAgo(activeSignal.timestamp)}
-                        </span>
-                      )}
-                    </div>
-                    {/* Row 2: Badges */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <span style={{
-                        padding: '4px 12px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.05em',
-                        background: !marketStatus.open
-                          ? 'rgba(248,113,113,0.1)'
-                          : activeSignal ? (activeSignal.long ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)',
-                        color: !marketStatus.open
-                          ? 'var(--danger)'
-                          : activeSignal ? (activeSignal.long ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
-                        border: `1px solid ${!marketStatus.open ? 'rgba(248,113,113,0.2)' : activeSignal ? (activeSignal.long ? 'rgba(52,211,153,0.3)' : 'rgba(248,113,113,0.3)') : 'rgba(255,255,255,0.06)'}`,
-                      }}>
-                        {!marketStatus.open ? 'CLOSED' : activeSignal ? (activeSignal.long ? 'LONG' : 'SHORT') : 'WAITING'}
-                      </span>
-                      {activeSignal && marketStatus.open && (
-                        <span style={{
-                          padding: '4px 12px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: 600,
-                          background: 'rgba(212, 168, 67, 0.1)', color: 'var(--accent)',
-                          border: '1px solid rgba(212, 168, 67, 0.2)',
-                        }}>
-                          {formatLeverage(activeSignal.leverage)}x
-                        </span>
-                      )}
-                      {activeSignal && marketStatus.open && livePrice && (() => {
-                        const entry = Number(activeSignal.entryPrice) / 1e10;
-                        const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
-                        const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
-                        return (
-                          <span style={{
-                            padding: '4px 12px', borderRadius: '20px', fontSize: '0.65rem', fontWeight: 700,
-                            fontFamily: "'Space Grotesk', sans-serif",
-                            background: livePnl >= 0 ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
-                            color: livePnl >= 0 ? 'var(--success)' : 'var(--danger)',
-                            border: `1px solid ${livePnl >= 0 ? 'rgba(52,211,153,0.2)' : 'rgba(248,113,113,0.2)'}`,
-                          }}>
-                            {livePnl >= 0 ? '+' : ''}{livePnl.toFixed(2)}%
-                          </span>
-                        );
-                      })()}
-                    </div>
-                  </div>
-                  {activeSignal && marketStatus.open ? (
-                    <div>
-                      {/* Live price + progress bar */}
-                      {livePrice && (() => {
-                        const entry = Number(activeSignal.entryPrice) / 1e10;
-                        const tp = Number(activeSignal.tp) / 1e10;
-                        const sl = Number(activeSignal.sl) / 1e10;
-                        const pctMove = ((livePrice - entry) / entry) * 100 * (activeSignal.long ? 1 : -1);
-                        const livePnl = pctMove * (Number(activeSignal.leverage) / 1000);
-                        const isProfit = livePnl >= 0;
-                        return (
-                          <div style={{ marginBottom: '8px' }}>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
-                              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.1rem' }}>
-                                ${livePrice.toFixed(2)}
-                              </span>
-                              <span style={{
-                                fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem',
-                                color: isProfit ? 'var(--success)' : 'var(--danger)',
-                              }}>
-                                {isProfit ? '+' : ''}{livePnl.toFixed(2)}%
-                              </span>
-                            </div>
-                            <TradeProgressBar entry={entry} tp={tp} sl={sl} currentPrice={livePrice} isLong={activeSignal.long} showPrices={isAdmin || !!userPositions[Number(activeSignal.id)]} />
-                          </div>
-                        );
-                      })()}
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px' }}>
-                        {[
-                          { label: 'ENTRY', rawValue: formatGTradePrice(activeSignal.entryPrice), color: 'var(--text-primary)' },
-                          { label: 'TP', rawValue: formatGTradePrice(activeSignal.tp), color: 'var(--success)' },
-                          { label: 'SL', rawValue: formatGTradePrice(activeSignal.sl), color: 'var(--danger)' },
-                        ].map(item => (
-                          <div key={item.label} style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px', textAlign: 'center' }}>
-                            <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.08em', marginBottom: '2px' }}>{item.label}</div>
-                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem', color: item.color }}>
-                              {(isAdmin || (activeSignal && userPositions[Number(activeSignal.id)])) ? `$${item.rawValue}` : `${item.rawValue.replace(/,/g, '').slice(0, 2)}••`}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
-                      <Clock size={14} />
-                      <span>{!marketStatus.open ? 'Market is closed — no trading possible' : 'No active trade — waiting for next signal'}</span>
-                    </div>
-                  )}
-                </div>
-
-                {/* Stats row */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '4px', padding: '14px 0 12px' }}>
-                  <div style={{ textAlign: 'center' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent)' }}>
-                      $<CountUp end={totalVolume} duration={2} decimals={0} separator="," />
-                    </div>
-                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Volume</div>
-                  </div>
-                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700 }}>
-                      <CountUp end={uniqueCopiers} duration={2} />
-                    </div>
-                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Copiers</div>
-                  </div>
-                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: 'var(--accent)' }}>
-                      <CountUp end={signalCount} duration={2} />
-                    </div>
-                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Signals</div>
-                  </div>
-                  <div style={{ textAlign: 'center', borderLeft: '1px solid rgba(255,255,255,0.06)' }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700 }}>
-                      {(feePercent / 100).toFixed(0)}%
-                    </div>
-                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.04em' }}>Profit Fee</div>
-                  </div>
-                </div>
-
-                {/* Performance bars */}
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: '12px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', marginBottom: '8px' }}>
-                    <span style={{ color: 'var(--text-secondary)' }}>Recent Performance</span>
-                    <span style={{ color: 'var(--success)', fontWeight: 600 }}>Gold Trading</span>
-                  </div>
-                  <div style={{ display: 'flex', gap: '3px', alignItems: 'flex-end', height: '48px' }}>
-                    {(() => {
-                      const closed = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0).slice(0, 12);
-                      if (closed.length === 0) return [{ h: 20, win: true }];
-                      const maxPct = Math.max(...closed.map(s => Math.abs(s.tradePct)), 1);
-                      return closed.map(s => {
-                        const pct = Math.abs(s.tradePct);
-                        return { h: Math.max(15, (pct / maxPct) * 100), win: s.tradePct >= 0 };
-                      });
-                    })().map((bar, i) => (
-                      <motion.div
-                        key={i}
-                        style={{
-                          flex: 1, borderRadius: '3px 3px 0 0',
-                          background: bar.win
-                            ? 'linear-gradient(to top, rgba(52,211,153,0.3), rgba(52,211,153,0.7))'
-                            : 'linear-gradient(to top, rgba(248,113,113,0.2), rgba(248,113,113,0.5))',
-                        }}
-                        initial={{ height: 0 }}
-                        animate={{ height: `${bar.h}%` }}
-                        transition={{ duration: 0.6, delay: 0.6 + i * 0.06, ease: "easeOut" }}
-                      />
-                    ))}
-                  </div>
-                </div>
-
-              </div>
-            </div>
-
-          </motion.div>
-        </div>
-
-        {/* Scroll indicator */}
-        <motion.div
-          className="scroll-indicator"
-          animate={{ y: [0, 8, 0] }}
-          transition={{ duration: 1.5, repeat: Infinity }}
-        >
-          <ChevronDown size={20} />
-        </motion.div>
-      </motion.section>
-
-      {/* ===== MARQUEE STATS ===== */}
-      <div className="marquee-bar">
-        <div className="marquee-track">
-          {[...Array(2)].map((_, idx) => (
-            <div className="marquee-content" key={idx}>
-              <div className="marquee-item">
-                <span className="marquee-dot gold" />
-                <span className="marquee-label">Total Volume</span>
-                <span className="marquee-value gold">${totalVolume.toLocaleString(undefined, {maximumFractionDigits: 0})} USDC</span>
-              </div>
-              <div className="marquee-divider">&bull;</div>
-              <div className="marquee-item">
-                <span className="marquee-dot green" />
-                <span className="marquee-label">Total Copiers</span>
-                <span className="marquee-value green">{uniqueCopiers}</span>
-              </div>
-              <div className="marquee-divider">&bull;</div>
-              <div className="marquee-item">
-                <span className="marquee-dot green" />
-                <span className="marquee-label">Signals</span>
-                <span className="marquee-value">{signalCount}</span>
-              </div>
-              <div className="marquee-divider">&bull;</div>
-              <div className="marquee-item">
-                <span className="marquee-dot gold" />
-                <span className="marquee-label">Pair</span>
-                <span className="marquee-value gold">XAU/USD</span>
-              </div>
-              <div className="marquee-divider">&bull;</div>
-              <div className="marquee-item">
-                <span className="marquee-dot green" />
-                <span className="marquee-label">Network</span>
-                <span className="marquee-value green">Arbitrum One</span>
-              </div>
-              <div className="marquee-divider">&bull;</div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ===== HOW IT WORKS ===== */}
-      <section className="section" id="how-it-works">
-        <motion.div
-          className="section-header"
-          variants={fadeUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-        >
-          <span className="section-badge">Simple & Fast</span>
-          <h2 className="section-title">How It Works</h2>
-          <p className="section-subtitle">Get started in less than 2 minutes. Four simple steps.</p>
-        </motion.div>
-
-        <div className="timeline">
-          {[
-            { num: '01', icon: <Wallet size={22} />, title: 'Connect Wallet', desc: 'Install MetaMask and connect to Arbitrum network. Make sure you have USDC in your wallet (you can bridge from any chain).', color: 'var(--blue)' },
-            { num: '02', icon: <Eye size={22} />, title: 'Wait for Signal', desc: 'When our AI trading bot spots a gold opportunity, a live signal appears on the dashboard. You also get a notification in Telegram.', color: 'var(--emerald)' },
-            { num: '03', icon: <Copy size={22} />, title: 'Click Copy Now', desc: 'Click the "Copy Now" button, enter how much USDC you want to invest. MetaMask opens — confirm and your trade is live.', color: 'var(--accent)' },
-            { num: '04', icon: <Zap size={22} />, title: 'Get Paid', desc: 'The trade closes automatically when it hits profit or stop loss. Click "Claim" to receive your USDC back — including your profit.', color: 'var(--violet)' },
-          ].map((step, i) => (
-            <motion.div
-              className={`timeline-item ${i % 2 === 1 ? 'timeline-item-right' : ''}`}
-              key={step.num}
-              variants={i % 2 === 0 ? slideInLeft : slideInRight}
-              initial="hidden"
-              whileInView="visible"
-              viewport={{ once: true, amount: 0.3 }}
-            >
-              <div className="timeline-num" style={{ '--step-color': step.color }}>{step.num}</div>
-              <div className="timeline-line" />
-              <div className="timeline-card">
-                <div className="timeline-icon" style={{ color: step.color, borderColor: step.color, background: `color-mix(in srgb, ${step.color} 8%, transparent)` }}>
-                  {step.icon}
-                </div>
-                <div className="timeline-text">
-                  <h4>{step.title}</h4>
-                  <p>{step.desc}</p>
-                </div>
-              </div>
-            </motion.div>
-          ))}
-        </div>
-
-        {/* Video Tutorial */}
-        <motion.div
-          variants={fadeUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-          style={{ maxWidth: '720px', margin: '3rem auto 0', borderRadius: '16px', overflow: 'hidden', border: '1px solid var(--border)', boxShadow: '0 8px 32px rgba(0,0,0,0.3)' }}
-        >
-          <video
-            controls
-            playsInline
-            preload="metadata"
-            poster=""
-            style={{ width: '100%', display: 'block', background: '#000' }}
-          >
-            <source src="/HowItWorks.mp4" type="video/mp4" />
-          </video>
-          <div style={{ padding: '12px 16px', background: 'var(--bg-card)', display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Play size={16} style={{ color: 'var(--accent)' }} />
-            <span style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Watch: How to copy trade in 2 minutes</span>
-          </div>
-        </motion.div>
-      </section>
-
-      {/* ===== FEATURES ===== */}
-      <section className="section">
-        <motion.div
-          className="section-header"
-          variants={fadeUp}
-          initial="hidden"
-          whileInView="visible"
-          viewport={{ once: true }}
-        >
-          <span className="section-badge">Benefits</span>
-          <h2 className="section-title">Why Gold Copy Trading</h2>
-          <p className="section-subtitle">Built for maximum performance and security.</p>
-        </motion.div>
-
-        <div className="bento-grid">
-          {/* Large hero feature */}
-          <motion.div
-            className="bento-hero"
-            variants={slideInLeft}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-          >
-            <div className="bento-hero-glow" />
-            <div className="bento-hero-content">
-              <div className="bento-hero-icon"><BrainCircuit size={32} /></div>
-              <h3>Copy Trading<br /><span className="text-gold-gradient">Engine</span></h3>
-              <p>Copy trades from our AI trading bot. Every trade is executed on-chain via gTrade with real leverage on XAU/USD.</p>
-              <div className="bento-hero-bottom">
-                <div className="bento-hero-stat">
-                  <span className="bento-hero-stat-num">25x</span>
-                  <span className="bento-hero-stat-label">leverage</span>
-                </div>
-                <div className="bento-hero-tags">
-                  <span>gTrade</span>
-                  <span>XAU/USD</span>
-                  <span>On-Chain</span>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Stat tile */}
-          <motion.div className="bento-stat-tile" variants={fadeUp} custom={1} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-            <TrendingUp size={20} className="bento-stat-icon" />
-            <span className="bento-stat-number">$197B</span>
-            <span className="bento-stat-desc">Daily volume on the gold market</span>
-            <div className="bento-stat-bar">
-              <motion.div className="bento-stat-bar-fill" initial={{ width: 0 }} whileInView={{ width: '78%' }} transition={{ duration: 1.2, delay: 0.5 }} viewport={{ once: true }} />
-            </div>
-          </motion.div>
-
-          {/* Stat tile */}
-          <motion.div className="bento-stat-tile bento-stat-dark" variants={fadeUp} custom={2} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-            <Cpu size={20} className="bento-stat-icon" />
-            <span className="bento-stat-number">24/5</span>
-            <span className="bento-stat-desc">Fully automated, no emotions</span>
-            <div className="bento-uptime-dots">
-              {[...Array(14)].map((_, i) => (
-                <motion.div
-                  key={i}
-                  className="uptime-dot"
-                  initial={{ opacity: 0.2 }}
-                  whileInView={{ opacity: 1 }}
-                  transition={{ delay: 0.5 + i * 0.05 }}
-                  viewport={{ once: true }}
-                />
-              ))}
-            </div>
-          </motion.div>
-
-          {/* Wide row */}
-          <motion.div className="bento-wide" variants={fadeUp} custom={3} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-            <div className="bento-wide-left">
-              <ShieldCheck size={22} className="bento-wide-icon" />
-              <div>
-                <h4>On-Chain Copy Trading</h4>
-                <p>Trades are executed via gTrade on Arbitrum. Fully transparent and verifiable.</p>
-              </div>
-            </div>
-            <div className="bento-wide-stats">
-              <div className="bento-wide-stat">
-                <span className="bento-wide-stat-val">100%</span>
-                <span className="bento-wide-stat-label">On-chain</span>
-              </div>
-              <div className="bento-wide-stat-divider" />
-              <div className="bento-wide-stat">
-                <span className="bento-wide-stat-val green">{'<'}$0.05</span>
-                <span className="bento-wide-stat-label">Gas fee</span>
-              </div>
-              <div className="bento-wide-stat-divider" />
-              <div className="bento-wide-stat">
-                <span className="bento-wide-stat-val gold">Arbitrum</span>
-                <span className="bento-wide-stat-label">Network</span>
-              </div>
-            </div>
-          </motion.div>
-
-          {/* Two small inline cards */}
-          <motion.div className="bento-inline" variants={fadeUp} custom={4} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-            <div className="bento-inline-icon" style={{ color: 'var(--emerald)', borderColor: 'rgba(52,211,153,0.2)', background: 'rgba(52,211,153,0.06)' }}>
-              <Wallet size={20} />
-            </div>
-            <h4>Pay Per Trade</h4>
-            <p>No upfront deposit needed. You only pay when you copy a trade — directly from your wallet via MetaMask.</p>
-            <span className="bento-inline-badge green">Directly from wallet</span>
-          </motion.div>
-
-          <motion.div className="bento-inline" variants={fadeUp} custom={5} initial="hidden" whileInView="visible" viewport={{ once: true }}>
-            <div className="bento-inline-icon" style={{ color: 'var(--violet)', borderColor: 'rgba(139,92,246,0.2)', background: 'rgba(139,92,246,0.06)' }}>
-              <Copy size={20} />
-            </div>
-            <h4>1-Click Copy</h4>
-            <p>When a signal goes live, just click "Copy Now", choose your amount, and confirm in MetaMask. Done.</p>
-            <span className="bento-inline-badge purple">Instant copy</span>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ===== STRATEGY ===== */}
-      <section className="section" id="strategy">
-        <div className="strat-showcase">
-          <motion.div
-            className="strat-showcase-left"
-            variants={slideInLeft}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-          >
-            <span className="section-badge">Technology</span>
-            <h2 className="strat-showcase-title">
-              Copy Trading on<br />
-              <span className="text-gold-gradient">XAU/USD Gold</span>
-            </h2>
-            <p className="strat-showcase-desc">
-              Our AI trading bot opens positions via gTrade on-chain.
-              You copy with your own wallet and earn from every profitable trade.
-            </p>
-            <div className="strat-indicators">
-              {['gTrade', 'Arbitrum', 'USDC', 'Leverage', 'XAU/USD', 'On-Chain'].map(tag => (
-                <span key={tag} className="strat-indicator-tag">{tag}</span>
-              ))}
-            </div>
-            <button className="btn btn-glass" onClick={() => document.getElementById('how-it-works')?.scrollIntoView({ behavior: 'smooth' })}>
-              More about copy trading <ArrowRight size={16} />
-            </button>
-          </motion.div>
-
-          <motion.div
-            className="strat-showcase-right"
-            variants={slideInRight}
-            initial="hidden"
-            whileInView="visible"
-            viewport={{ once: true }}
-          >
-            {[
-              { icon: <BarChart3 size={18} />, title: 'Live Signals', desc: 'See trades as soon as they open.', value: 'Real-time', color: 'var(--cyan)' },
-              { icon: <Copy size={18} />, title: '1-Click Copy', desc: 'Copy directly from your wallet.', value: 'Instant', color: 'var(--accent)' },
-              { icon: <Shield size={18} />, title: 'Auto TP/SL', desc: 'Take-profit and stop-loss built in.', value: 'Always', color: 'var(--emerald)' },
-              { icon: <Coins size={18} />, title: 'Low Fees', desc: `Only ${(feePercent / 100).toFixed(0)}% fee on profit.`, value: `${(feePercent / 100).toFixed(0)}%`, color: 'var(--violet)' },
-            ].map((item, i) => (
-              <motion.div
-                className="strat-list-item"
-                key={item.title}
-                variants={fadeUp}
-                custom={i}
-                initial="hidden"
-                whileInView="visible"
-                viewport={{ once: true }}
-                whileHover={{ x: 4 }}
-              >
-                <div className="strat-list-icon" style={{ color: item.color, borderColor: `color-mix(in srgb, ${item.color} 25%, transparent)`, background: `color-mix(in srgb, ${item.color} 6%, transparent)` }}>
-                  {item.icon}
-                </div>
-                <div className="strat-list-text">
-                  <h4>{item.title}</h4>
-                  <p>{item.desc}</p>
-                </div>
-                <span className="strat-list-value" style={{ color: item.color }}>{item.value}</span>
-              </motion.div>
-            ))}
-          </motion.div>
-        </div>
-      </section>
-
-      {/* ===== REFERRAL CTA ===== */}
-      <motion.section
-        className="section"
-        variants={fadeUp}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-        style={{ paddingBottom: '2rem' }}
-      >
-        <div style={{ position: 'relative', borderRadius: '24px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}>
-          {/* Animated glow border */}
-          <div style={{
-            position: 'absolute', inset: '-2px', borderRadius: '24px',
-            background: 'conic-gradient(from 180deg, #8B5CF6, #D4A843, #8B5CF6, #34D399, #8B5CF6)',
-            animation: 'spin 6s linear infinite', filter: 'blur(3px)', opacity: 0.5,
-          }} />
-
-          {/* Inner card */}
-          <div style={{
-            position: 'relative', zIndex: 1,
-            background: 'linear-gradient(135deg, rgba(12,15,21,0.95), rgba(20,15,35,0.95))',
-            backdropFilter: 'blur(24px)',
-            borderRadius: '24px', padding: '40px 44px',
-            overflow: 'hidden',
-          }}>
-            {/* Background decoration */}
-            <div style={{
-              position: 'absolute', top: '-60px', right: '-40px', width: '220px', height: '220px',
-              borderRadius: '50%', background: 'radial-gradient(circle, rgba(139,92,246,0.12), transparent 70%)',
-              pointerEvents: 'none',
-            }} />
-            <div style={{
-              position: 'absolute', bottom: '-40px', left: '-20px', width: '160px', height: '160px',
-              borderRadius: '50%', background: 'radial-gradient(circle, rgba(212,168,67,0.08), transparent 70%)',
-              pointerEvents: 'none',
-            }} />
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '32px', flexWrap: 'wrap', position: 'relative' }}>
-              {/* Left: content */}
-              <div style={{ flex: '1 1 auto' }}>
-                <div style={{
-                  display: 'inline-flex', alignItems: 'center', gap: '8px',
-                  padding: '5px 14px', borderRadius: '20px', marginBottom: '16px',
-                  background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)',
-                }}>
-                  <Share2 size={12} style={{ color: '#8B5CF6' }} />
-                  <span style={{ fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6', letterSpacing: '0.08em', textTransform: 'uppercase' }}>Referral Program</span>
-                </div>
-
-                <h3 style={{ fontSize: '1.6rem', fontWeight: 800, lineHeight: 1.2, marginBottom: '10px', letterSpacing: '-0.02em' }}>
-                  Share. Refer.{' '}
-                  <span style={{
-                    background: 'linear-gradient(135deg, #8B5CF6, #D4A843)',
-                    WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                  }}>Earn 50%.</span>
-                </h3>
-
-                <p style={{ fontSize: '0.88rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: '0 0 20px', maxWidth: '420px' }}>
-                  Invite friends and earn <strong style={{ color: 'var(--text-primary)' }}>50% of all platform fees</strong> from their profitable trades. Paid instantly in USDC.
-                </p>
-
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                  <button
-                    className="btn btn-primary btn-glow"
-                    style={{
-                      padding: '13px 28px', fontSize: '0.9rem', fontWeight: 700,
-                      background: 'linear-gradient(135deg, #8B5CF6, #7C3AED)',
-                      boxShadow: '0 8px 32px rgba(139,92,246,0.3)',
-                    }}
-                    onClick={() => setActiveTab('referral')}
-                  >
-                    <Share2 size={16} /> Start Earning
-                  </button>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <CheckCircle2 size={14} style={{ color: 'var(--success)' }} />
-                    <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>No limits, instant payout</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right: big 50% highlight */}
-              <div style={{
-                textAlign: 'center', flexShrink: 0,
-                padding: '24px 32px', borderRadius: '20px',
-                background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)',
-              }}>
-                <div style={{
-                  fontFamily: "'Space Grotesk', sans-serif", fontSize: '3.5rem', fontWeight: 800, lineHeight: 1,
-                  background: 'linear-gradient(135deg, #8B5CF6, #D4A843)',
-                  WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent',
-                }}>50%</div>
-                <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, letterSpacing: '0.06em', marginTop: '6px', textTransform: 'uppercase' }}>
-                  of platform fees
-                </div>
-                <div style={{
-                  display: 'flex', justifyContent: 'center', gap: '16px', marginTop: '14px',
-                  padding: '10px 0 0', borderTop: '1px solid rgba(255,255,255,0.06)',
-                }}>
-                  {[
-                    { icon: <Zap size={12} />, text: 'Instant' },
-                    { icon: <Coins size={12} />, text: 'USDC' },
-                    { icon: <Shield size={12} />, text: 'On-chain' },
-                  ].map(item => (
-                    <div key={item.text} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span style={{ color: '#8B5CF6' }}>{item.icon}</span>
-                      <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', fontWeight: 600 }}>{item.text}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </motion.section>
-
-      {/* ===== BOTTOM CTA ===== */}
-      <motion.section
-        className="bottom-cta"
-        variants={fadeUp}
-        initial="hidden"
-        whileInView="visible"
-        viewport={{ once: true }}
-      >
-        <div className="bottom-cta-glow" />
-        <span className="section-badge">Start Today</span>
-        <h2>Ready to <span className="text-gold-gradient">copy trade</span>?</h2>
-        <p>Copy live gold trades directly from your wallet on Arbitrum.</p>
-        <div className="bottom-cta-buttons">
-          <button className="btn btn-primary btn-lg btn-glow" onClick={() => setActiveTab('dashboard')}>
-            <Zap size={18} />
-            Start Now
-            <ArrowRight size={18} />
-          </button>
-          <button className="btn btn-glass btn-lg" onClick={() => setActiveTab('results')}>
-            <BarChart3 size={16} />
-            View Results
-            <ArrowRight size={14} />
-          </button>
-        </div>
-      </motion.section>
-
-      {/* ===== SOCIAL LINKS ===== */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '20px',
-        padding: '2rem 0 3rem',
-      }}>
-        <a href="https://x.com/STCprotocol" target="_blank" rel="noopener noreferrer" style={{
-          display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
-          borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-          color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none',
-          transition: 'all 0.2s ease',
-        }}>
-          <span style={{ fontSize: '1.1rem' }}>𝕏</span>
-          Twitter
-        </a>
-        <a href="https://t.me/SmartTradingClubDapp" target="_blank" rel="noopener noreferrer" style={{
-          display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
-          borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-          color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none',
-          transition: 'all 0.2s ease',
-        }}>
-          <ExternalLink size={14} />
-          Telegram
-        </a>
-        <a href={`https://arbiscan.io/address/${CONTRACT_ADDRESS}`} target="_blank" rel="noopener noreferrer" style={{
-          display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
-          borderRadius: '12px', background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
-          color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, textDecoration: 'none',
-          transition: 'all 0.2s ease',
-        }}>
-          <ShieldCheck size={14} />
-          Contract
-        </a>
-      </div>
-    </>
+    <GoldLanding
+      activeSignal={activeSignal}
+      livePrice={livePrice}
+      marketStatus={marketStatus}
+      signalHistory={signalHistory}
+      uniqueCopiers={uniqueCopiers}
+      feePercent={feePercent}
+      depositLimits={depositLimits}
+      canSeeLevels={isAdmin || (activeSignal && !!userPositions[Number(activeSignal.id)])}
+      contractAddress={CONTRACT_ADDRESS}
+      onNavigate={(tab) => { setActiveTab(tab); window.scrollTo({ top: 0 }); }}
+    />
   );
 
   // ===== RESULTS PAGE =====
@@ -2515,8 +1904,18 @@ function App() {
       ? closedSignals.reduce((sum, s) => sum + getTradeResult(s), 0) / closedSignals.length
       : 0;
 
-    // Total PnL (sum of all leveraged results)
-    const totalPnl = closedSignals.reduce((sum, s) => sum + getTradeResult(s), 0);
+    // Capital-weighted return — what actually happened to the money.
+    //
+    // Summing per-trade percentages weights a $20 trade the same as a $2,000
+    // one. On the real history that reads as -126.6% when the capital outcome
+    // is -2.3% ($14,739 deposited, $14,405 returned). Publishing the summed
+    // figure understates the record by two orders of magnitude.
+    const capDeposited = closedSignals.reduce(
+      (sum, s) => sum + parseFloat(ethers.formatUnits(s.originalDeposited || 0n, 6)), 0);
+    const capReturned = closedSignals.reduce(
+      (sum, s) => sum + parseFloat(ethers.formatUnits(s.totalReturned || 0n, 6)), 0);
+    const capNet = capReturned - capDeposited;
+    const totalPnl = capDeposited > 0 ? (capNet / capDeposited) * 100 : 0;
 
     const monthlyGroups = groupByPeriod(closedSignals, 30);
 
@@ -2541,22 +1940,24 @@ function App() {
         {/* Overview Stats */}
         <motion.div
           variants={staggerContainer} initial="hidden" animate="visible"
-          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '12px', marginBottom: '24px' }}
+          style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px', marginBottom: '24px' }}
         >
           {[
-            { label: 'Total PnL', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(1)}%`, color: totalPnl >= 0 ? 'var(--success)' : 'var(--danger)' },
+            { label: 'Return on Capital', value: `${totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}%`, color: totalPnl >= 0 ? 'var(--success)' : 'var(--danger)' },
+            { label: 'Net Result', value: `${capNet >= 0 ? '+' : '−'}$${Math.abs(capNet).toFixed(0)}`, color: capNet >= 0 ? 'var(--success)' : 'var(--danger)' },
+            { label: 'Capital Traded', value: `$${capDeposited.toFixed(0)}`, color: 'var(--text-primary)' },
             { label: 'Total Trades', value: closedSignals.length.toString(), color: 'var(--text-primary)' },
             { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, color: winRate >= 50 ? 'var(--success)' : 'var(--danger)' },
             { label: 'Wins', value: wins.length.toString(), color: 'var(--success)' },
             { label: 'Losses', value: losses.length.toString(), color: 'var(--danger)' },
-            { label: 'Avg Result', value: `${avgResult >= 0 ? '+' : ''}${avgResult.toFixed(2)}%`, color: avgResult >= 0 ? 'var(--success)' : 'var(--danger)' },
-            { label: 'Streak', value: `${streak} ${streakType}${streak > 1 ? 's' : ''}`, color: streakType === 'win' ? 'var(--success)' : streak > 0 ? 'var(--danger)' : 'var(--text-secondary)' },
+            { label: 'Avg Trade', value: `${avgResult >= 0 ? '+' : ''}${avgResult.toFixed(2)}%`, color: avgResult >= 0 ? 'var(--success)' : 'var(--danger)' },
+            { label: 'Streak', value: `${streak} ${streak > 1 ? (streakType === 'loss' ? 'losses' : 'wins') : streakType}`, color: streakType === 'win' ? 'var(--success)' : streak > 0 ? 'var(--danger)' : 'var(--text-secondary)' },
           ].map((stat, i) => (
             <motion.div key={stat.label} variants={fadeUp} custom={i} style={{
-              background: 'var(--bg-card)', borderRadius: '14px', padding: '20px', border: '1px solid var(--border)', textAlign: 'center',
+              background: 'var(--bg-card)', borderRadius: '12px', padding: '20px', border: '1px solid var(--border)', textAlign: 'center',
             }}>
               <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>{stat.label}</div>
-              <div style={{ fontSize: '1.4rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif", color: stat.color }}>{stat.value}</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: stat.color }}>{stat.value}</div>
             </motion.div>
           ))}
         </motion.div>
@@ -2566,18 +1967,18 @@ function App() {
           <motion.div variants={fadeUp} initial="hidden" animate="visible"
             style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '24px' }}
           >
-            <div style={{ background: 'rgba(52, 211, 153, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(52, 211, 153, 0.15)' }}>
+            <div style={{ background: 'rgba(62, 158, 110, 0.05)', borderRadius: '12px', padding: '20px', border: '1px solid rgba(62, 158, 110, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--success)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Best Trade</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--success)', fontFamily: 'var(--font-sans)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>
                 +{bestTrade.tradePct.toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
                 #{Number(bestTrade.id)} &middot; {bestTrade.long ? 'LONG' : 'SHORT'} &middot; {formatLeverage(bestTrade.leverage)}x
               </div>
             </div>
-            <div style={{ background: 'rgba(248, 113, 113, 0.05)', borderRadius: '14px', padding: '20px', border: '1px solid rgba(248, 113, 113, 0.15)' }}>
+            <div style={{ background: 'rgba(196, 84, 78, 0.05)', borderRadius: '12px', padding: '20px', border: '1px solid rgba(196, 84, 78, 0.15)' }}>
               <div style={{ fontSize: '0.7rem', color: 'var(--danger)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: '8px' }}>Worst Trade</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--danger)', fontFamily: "'Space Grotesk', sans-serif" }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: 'var(--danger)', fontFamily: 'var(--font-sans)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em' }}>
                 {worstTrade.tradePct.toFixed(2)}%
               </div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
@@ -2592,7 +1993,7 @@ function App() {
           style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '24px' }}
         >
           {/* Daily Performance */}
-          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '24px', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
               <BarChart3 size={16} style={{ color: 'var(--accent)' }} />
               <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Daily Performance</h3>
@@ -2611,7 +2012,7 @@ function App() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{data.trades} trades</span>
                     <span style={{
-                      fontSize: '0.85rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                      fontSize: '0.85rem', fontWeight: 700, fontFamily: 'var(--font-mono)',
                       color: data.winRate >= 50 ? 'var(--success)' : data.trades === 0 ? 'var(--text-secondary)' : 'var(--danger)',
                     }}>
                       {data.trades > 0 ? `${data.winRate.toFixed(0)}%` : '-'}
@@ -2624,7 +2025,7 @@ function App() {
           </div>
 
           {/* Monthly Breakdown */}
-          <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '24px', border: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
               <History size={16} style={{ color: 'var(--accent)' }} />
               <h3 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--text-primary)' }}>Monthly Breakdown</h3>
@@ -2660,7 +2061,7 @@ function App() {
 
         {/* Full Trade Log */}
         <motion.div variants={fadeUp} initial="hidden" animate="visible"
-          style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}
+          style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '24px', border: '1px solid var(--border)' }}
         >
           {/* Header + filters */}
           <div style={{ marginBottom: '12px' }}>
@@ -2678,8 +2079,8 @@ function App() {
                 ].map(p => (
                   <button key={p.key} onClick={() => { setTradeLogPeriod(p.key); setTradeLogFrom(''); setTradeLogTo(''); }} style={{
                     padding: '4px 10px', borderRadius: '8px', fontSize: '0.65rem', fontWeight: 600,
-                    background: tradeLogPeriod === p.key && !tradeLogFrom ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${tradeLogPeriod === p.key && !tradeLogFrom ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                    background: tradeLogPeriod === p.key && !tradeLogFrom ? 'rgba(224, 164, 58,0.12)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${tradeLogPeriod === p.key && !tradeLogFrom ? 'rgba(224, 164, 58,0.25)' : 'rgba(255,255,255,0.06)'}`,
                     color: tradeLogPeriod === p.key && !tradeLogFrom ? 'var(--accent)' : 'var(--text-secondary)',
                     cursor: 'pointer',
                   }}>
@@ -2766,9 +2167,9 @@ function App() {
                           setTradeLogTo(dateStr);
                           setTradeLogPeriod('custom');
                         }} style={{
-                          padding: '4px 0', borderRadius: '6px', fontSize: '0.65rem', fontWeight: isToday ? 700 : 500,
-                          background: isSelected ? 'rgba(212,168,67,0.2)' : hasWins && !hasLosses ? 'rgba(52,211,153,0.1)' : hasLosses && !hasWins ? 'rgba(248,113,113,0.1)' : hasWins && hasLosses ? 'rgba(212,168,67,0.08)' : 'transparent',
-                          border: isToday ? '1px solid rgba(212,168,67,0.4)' : '1px solid transparent',
+                          padding: '4px 0', borderRadius: '8px', fontSize: '0.65rem', fontWeight: isToday ? 700 : 500,
+                          background: isSelected ? 'rgba(224, 164, 58,0.2)' : hasWins && !hasLosses ? 'rgba(62,158,110,0.1)' : hasLosses && !hasWins ? 'rgba(196,84,78,0.1)' : hasWins && hasLosses ? 'rgba(224, 164, 58,0.08)' : 'transparent',
+                          border: isToday ? '1px solid rgba(224, 164, 58,0.4)' : '1px solid transparent',
                           color: isFuture ? 'rgba(255,255,255,0.15)' : isSelected ? 'var(--accent)' : hasWins && !hasLosses ? 'var(--success)' : hasLosses && !hasWins ? 'var(--danger)' : 'var(--text-secondary)',
                           cursor: isFuture ? 'default' : 'pointer',
                           textAlign: 'center',
@@ -2843,7 +2244,7 @@ function App() {
                       )}
                       {(group.wins > 0 || group.losses > 0) && (
                         <span style={{
-                          fontSize: '0.7rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                          fontSize: '0.7rem', fontWeight: 700, fontFamily: 'var(--font-mono)',
                           color: group.dayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
                         }}>
                           {group.dayPnl >= 0 ? '+' : ''}{group.dayPnl.toFixed(1)}%
@@ -2865,21 +2266,21 @@ function App() {
                   animate={{ opacity: 1 }}
                   transition={{ delay: index * 0.03 }}
                 >
-                  <span className="trade-log-id" style={{ color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>#{Number(signal.id)}</span>
+                  <span className="trade-log-id" style={{ color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>#{Number(signal.id)}</span>
                   <span className="trade-log-dir" style={{
-                    padding: '2px 8px', borderRadius: '10px', fontSize: '0.65rem', fontWeight: 700, textAlign: 'center',
-                    background: signal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                    padding: '2px 8px', borderRadius: '12px', fontSize: '0.65rem', fontWeight: 700, textAlign: 'center',
+                    background: signal.long ? 'rgba(62,158,110,0.12)' : 'rgba(196,84,78,0.12)',
                     color: signal.long ? 'var(--success)' : 'var(--danger)',
                   }}>
                     {signal.long ? 'LONG' : 'SHORT'} {formatLeverage(signal.leverage)}x
                   </span>
-                  <span className="trade-log-entry" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                  <span className="trade-log-entry" style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
                     ${formatGTradePrice(signal.entryPrice)}
                   </span>
-                  <span className="trade-log-copiers" style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.8rem' }}>
+                  <span className="trade-log-copiers" style={{ fontFamily: 'var(--font-mono)', fontSize: '0.8rem' }}>
                     {Number(signal.copierCount)} · ${parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6)).toFixed(0)}
                   </span>
-                  <div style={{ textAlign: 'right', fontFamily: "'Space Grotesk', sans-serif" }}>
+                  <div style={{ textAlign: 'right', fontFamily: 'var(--font-mono)' }}>
                     {(() => {
                       const totalCol = parseFloat(ethers.formatUnits(signal.totalCopied || 0n, 6));
                       const totalRet = parseFloat(ethers.formatUnits(signal.totalReturned || 0n, 6));
@@ -2918,10 +2319,10 @@ function App() {
                   {/* Copied badge */}
                   {account ? (
                     <span style={{
-                      padding: '2px 6px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 600, textAlign: 'center',
-                      background: userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.1)' : 'rgba(255,255,255,0.04)',
+                      padding: '2px 6px', borderRadius: '8px', fontSize: '0.55rem', fontWeight: 600, textAlign: 'center',
+                      background: userPositions[Number(signal.id)] ? 'rgba(62,158,110,0.1)' : 'rgba(255,255,255,0.04)',
                       color: userPositions[Number(signal.id)] ? 'var(--success)' : 'var(--text-secondary)',
-                      border: `1px solid ${userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                      border: `1px solid ${userPositions[Number(signal.id)] ? 'rgba(62,158,110,0.2)' : 'rgba(255,255,255,0.06)'}`,
                     }}>
                       {userPositions[Number(signal.id)] ? 'COPIED' : '—'}
                     </span>
@@ -2947,8 +2348,8 @@ function App() {
         <motion.div variants={fadeUp} initial="hidden" animate="visible"
           style={{
             display: 'flex', alignItems: 'center', gap: '12px', marginTop: '16px',
-            background: 'rgba(212, 168, 67, 0.05)', borderRadius: '12px', padding: '16px 20px',
-            border: '1px solid rgba(212, 168, 67, 0.15)',
+            background: 'rgba(224, 164, 58, 0.05)', borderRadius: '12px', padding: '16px 20px',
+            border: '1px solid rgba(224, 164, 58, 0.15)',
           }}
         >
           <ShieldCheck size={20} style={{ color: 'var(--accent)', flexShrink: 0 }} />
@@ -3115,13 +2516,13 @@ function App() {
     const cardStyle = {
       background: 'rgba(255,255,255,0.03)',
       border: '1px solid rgba(255,255,255,0.06)',
-      borderRadius: '16px',
+      borderRadius: '8px',
       padding: '28px',
       marginBottom: '20px',
     };
     const headerStyle = {
       display: 'flex', alignItems: 'center', gap: '12px',
-      marginBottom: '20px', color: '#FFD700',
+      marginBottom: '20px', color: 'var(--accent)',
       fontSize: '1.15rem', fontWeight: 600,
     };
     const rowStyle = {
@@ -3131,17 +2532,17 @@ function App() {
     const labelStyle = { color: 'rgba(255,255,255,0.5)', fontSize: '0.85rem' };
     const valueStyle = { color: '#fff', fontSize: '0.85rem', fontWeight: 500, textAlign: 'right' };
     const badgeStyle = (color) => ({
-      display: 'inline-block', padding: '3px 10px', borderRadius: '6px', fontSize: '0.7rem',
+      display: 'inline-block', padding: '3px 10px', borderRadius: '8px', fontSize: '0.7rem',
       fontWeight: 600, background: color + '22', color: color, letterSpacing: '0.03em',
     });
-    const phaseColor = { COLLECTING: '#3B82F6', TRADING: '#F59E0B', SETTLED: '#10B981' };
+    const phaseColor = { COLLECTING: 'var(--blue)', TRADING: 'var(--accent)', SETTLED: 'var(--success)' };
 
     return (
       <div style={{ maxWidth: '800px', margin: '0 auto', padding: '0 16px' }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '40px' }}>
           <h1 style={{ fontSize: '2rem', fontWeight: 700, marginBottom: '8px' }}>
-            <span style={{ color: '#FFD700' }}>Smart Contract</span> Documentation
+            <span style={{ color: 'var(--accent)' }}>Smart Contract</span> Documentation
           </h1>
           <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.95rem', marginBottom: '20px' }}>
             GoldCopyTraderV3 — Audited, tested, transparent
@@ -3150,13 +2551,13 @@ function App() {
             <a href={GITHUB_URL} target="_blank" rel="noopener noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
                 background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: '10px', color: '#fff', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 500 }}>
+                borderRadius: '12px', color: '#fff', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 500 }}>
               <GitBranch size={16} /> GitHub Repository <ExternalLink size={13} />
             </a>
             <a href={`https://arbiscan.io/address/${CONTRACT_ADDR}`} target="_blank" rel="noopener noreferrer"
               style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
-                background: 'rgba(255,215,0,0.08)', border: '1px solid rgba(255,215,0,0.2)',
-                borderRadius: '10px', color: '#FFD700', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 500 }}>
+                background: 'rgba(224, 164, 58,0.08)', border: '1px solid rgba(224, 164, 58,0.2)',
+                borderRadius: '12px', color: 'var(--accent)', textDecoration: 'none', fontSize: '0.85rem', fontWeight: 500 }}>
               <ShieldCheck size={16} /> Verified on Arbiscan <ExternalLink size={13} />
             </a>
           </div>
@@ -3210,7 +2611,7 @@ function App() {
           <div style={{ display: 'grid', gap: '10px' }}>
             {sections[3].features.map((f, i) => (
               <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: '10px' }}>
-                <CheckCircle2 size={15} style={{ color: '#10B981', marginTop: '2px', flexShrink: 0 }} />
+                <CheckCircle2 size={15} style={{ color: 'var(--success)', marginTop: '2px', flexShrink: 0 }} />
                 <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: '0.85rem' }}>{f}</span>
               </div>
             ))}
@@ -3220,7 +2621,7 @@ function App() {
         {/* Escape Hatches */}
         <div style={cardStyle}>
           <div style={headerStyle}>{sections[4].icon} {sections[4].title}</div>
-          <p style={{ color: '#10B981', fontSize: '0.8rem', fontWeight: 500, marginBottom: '16px' }}>
+          <p style={{ color: 'var(--success)', fontSize: '0.8rem', fontWeight: 500, marginBottom: '16px' }}>
             {sections[4].desc}
           </p>
           <div style={{ overflowX: 'auto' }}>
@@ -3236,7 +2637,7 @@ function App() {
                 {sections[4].escapes.map((e, i) => (
                   <tr key={i} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
                     <td style={{ padding: '8px' }}><span style={badgeStyle(phaseColor[e.phase])}>{e.phase}</span></td>
-                    <td style={{ padding: '8px', color: '#FFD700', fontFamily: 'monospace', fontSize: '0.75rem' }}>{e.action}</td>
+                    <td style={{ padding: '8px', color: 'var(--accent)', fontFamily: 'monospace', fontSize: '0.75rem' }}>{e.action}</td>
                     <td style={{ padding: '8px', color: 'rgba(255,255,255,0.7)' }}>{e.who}</td>
                     <td style={{ padding: '8px', color: 'rgba(255,255,255,0.5)' }}>{e.wait}</td>
                   </tr>
@@ -3250,10 +2651,10 @@ function App() {
         <div style={cardStyle}>
           <div style={headerStyle}>{sections[5].icon} {sections[5].title}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px',
-            padding: '14px 18px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: '10px' }}>
-            <CheckCircle2 size={20} style={{ color: '#10B981' }} />
+            padding: '14px 18px', background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.15)', borderRadius: '12px' }}>
+            <CheckCircle2 size={20} style={{ color: 'var(--success)' }} />
             <div>
-              <div style={{ color: '#10B981', fontWeight: 600, fontSize: '1.1rem' }}>
+              <div style={{ color: 'var(--success)', fontWeight: 600, fontSize: '1.1rem' }}>
                 {sections[5].tests.reduce((s, t) => s + t.count, 0)}+ Tests Passing
               </div>
               <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem' }}>0 failures across all suites</div>
@@ -3265,7 +2666,7 @@ function App() {
                 <div style={{ color: '#fff', fontSize: '0.85rem', fontWeight: 500 }}>{t.suite}</div>
                 <div style={{ color: 'rgba(255,255,255,0.4)', fontSize: '0.75rem' }}>{t.desc}</div>
               </div>
-              <span style={{ ...badgeStyle('#10B981'), minWidth: '40px', textAlign: 'center' }}>{t.count}</span>
+              <span style={{ ...badgeStyle('var(--success)'), minWidth: '40px', textAlign: 'center' }}>{t.count}</span>
             </div>
           ))}
         </div>
@@ -3274,9 +2675,9 @@ function App() {
         <div style={{ textAlign: 'center', padding: '30px 0' }}>
           <a href={GITHUB_URL + '/tree/main/docs'} target="_blank" rel="noopener noreferrer"
             style={{ display: 'inline-flex', alignItems: 'center', gap: '10px', padding: '14px 28px',
-              background: 'linear-gradient(135deg, rgba(255,215,0,0.15), rgba(255,215,0,0.05))',
-              border: '1px solid rgba(255,215,0,0.3)', borderRadius: '12px',
-              color: '#FFD700', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600 }}>
+              background: 'linear-gradient(135deg, rgba(224, 164, 58,0.15), rgba(224, 164, 58,0.05))',
+              border: '1px solid rgba(224, 164, 58,0.3)', borderRadius: '12px',
+              color: 'var(--accent)', textDecoration: 'none', fontSize: '0.9rem', fontWeight: 600 }}>
             <FileText size={18} />
             Full Technical Documentation
             <ExternalLink size={14} />
@@ -3298,9 +2699,8 @@ function App() {
             border: '1px solid rgba(255,255,255,0.08)',
             borderRadius: 16,
             padding: '48px 32px',
-            backdropFilter: 'blur(20px)',
           }}>
-            <div style={{ fontSize: 48, marginBottom: 16 }}>🔒</div>
+            <div style={{ width: 56, height: 56, margin: '0 auto 16px', borderRadius: '50%', display: 'grid', placeItems: 'center', background: 'var(--gold-a12)', color: 'var(--accent)' }}><Lock size={24} /></div>
             <h2 style={{ margin: '0 0 12px', fontSize: '1.5rem', fontWeight: 600 }}>Members Only</h2>
             <p style={{ color: 'rgba(255,255,255,0.6)', margin: '0 0 24px', lineHeight: 1.6 }}>
               Connect your wallet to access the Scalp AI engine. Intraday gold setups (5m–1H), refreshed every 5 minutes, with entry / stop / target and a hard validity window.
@@ -3314,8 +2714,8 @@ function App() {
     }
 
     const a = analysisData;
-    const verdictColor = a?.verdict === 'bullish' ? '#22c55e' : a?.verdict === 'bearish' ? '#ef4444' : '#eab308';
-    const verdictBg = a?.verdict === 'bullish' ? 'rgba(34,197,94,0.12)' : a?.verdict === 'bearish' ? 'rgba(239,68,68,0.12)' : 'rgba(234,179,8,0.12)';
+    const verdictColor = a?.verdict === 'bullish' ? 'var(--success)' : a?.verdict === 'bearish' ? 'var(--danger)' : 'var(--accent)';
+    const verdictBg = a?.verdict === 'bullish' ? 'rgba(62,158,110,0.12)' : a?.verdict === 'bearish' ? 'rgba(196,84,78,0.12)' : 'rgba(234,179,8,0.12)';
 
     return (
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '24px 16px 80px' }}>
@@ -3328,12 +2728,12 @@ function App() {
               {a?.created_at ? `Last updated ${new Date(a.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Loading…'}
               {a?.cached ? ' • cached' : ''}
               {a?.accuracy?.pct != null && (
-                <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(212,168,67,0.12)', border: '1px solid rgba(212,168,67,0.3)', color: '#D4A843', fontSize: '0.75rem' }}>
+                <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(224, 164, 58,0.12)', border: '1px solid rgba(224, 164, 58,0.3)', color: 'var(--accent)', fontSize: '0.75rem' }}>
                   {a.accuracy.pct}% hit rate · last {a.accuracy.total} trades
                 </span>
               )}
               {a?.data_quality && a.data_quality.ok === false && (
-                <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(234,179,8,0.12)', border: '1px solid rgba(234,179,8,0.35)', color: '#eab308', fontSize: '0.75rem' }}>
+                <span style={{ marginLeft: 10, padding: '2px 8px', borderRadius: 999, background: 'rgba(234,179,8,0.12)', border: '1px solid rgba(234,179,8,0.35)', color: 'var(--accent)', fontSize: '0.75rem' }}>
                   ⚠ Data quality low (Δ ${a.data_quality.delta_usd})
                 </span>
               )}
@@ -3355,7 +2755,7 @@ function App() {
           </div>
         )}
         {analysisError && !a && (
-          <div style={{ textAlign: 'center', padding: 40, color: '#ef4444' }}>
+          <div style={{ textAlign: 'center', padding: 40, color: 'var(--danger)' }}>
             {analysisError}
           </div>
         )}
@@ -3385,9 +2785,9 @@ function App() {
               <div style={{ flex: 1, minWidth: 200 }}>
                 <div style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.6, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 6 }}>
                   Live price
-                  {liveGoldPrice != null && <span className="pulse-dot" style={{ width: 6, height: 6, background: '#22c55e' }} />}
+                  {liveGoldPrice != null && <span className="pulse-dot" style={{ width: 6, height: 6, background: 'var(--success)' }} />}
                 </div>
-                <div style={{ fontSize: '1.5rem', fontWeight: 600, color: priceFlash === 'up' ? '#22c55e' : priceFlash === 'down' ? '#ef4444' : 'inherit', transition: 'color 0.4s ease' }}>
+                <div style={{ fontSize: '1.5rem', fontWeight: 600, color: priceFlash === 'up' ? 'var(--success)' : priceFlash === 'down' ? 'var(--danger)' : 'inherit', transition: 'color 0.4s ease' }}>
                   ${(liveGoldPrice ?? a.price)?.toFixed(2)}
                 </div>
                 {liveGoldPrice != null && a.price != null && (
@@ -3400,7 +2800,7 @@ function App() {
                 {a.summary}
               </div>
               {a.setup_type && a.setup_type !== 'none' && a.confidence >= 75 && a.rr_ratio >= 1.5 && (
-                <div style={{ flex: '0 0 auto', padding: '6px 12px', borderRadius: 999, background: '#D4A843', color: '#0a0a0a', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
+                <div style={{ flex: '0 0 auto', padding: '6px 12px', borderRadius: 999, background: 'var(--accent)', color: 'var(--bg-primary)', fontSize: '0.72rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 1 }}>
                   ⚡ Tradeable Signal
                 </div>
               )}
@@ -3408,7 +2808,7 @@ function App() {
 
             {/* Multi-timeframe alignment strip + session + valid-until */}
             {(a.trend_4h || a.trend_1h || a.trend_15m || a.session) && (() => {
-              const tfTrend = (t) => t === 'uptrend' ? { label: 'UP', color: '#22c55e' } : t === 'downtrend' ? { label: 'DOWN', color: '#ef4444' } : { label: 'FLAT', color: '#eab308' };
+              const tfTrend = (t) => t === 'uptrend' ? { label: 'UP', color: 'var(--success)' } : t === 'downtrend' ? { label: 'DOWN', color: 'var(--danger)' } : { label: 'FLAT', color: 'var(--accent)' };
               const tfs = [
                 { tf: '4H', t: a.trend_4h },
                 { tf: '1H', t: a.trend_1h },
@@ -3446,10 +2846,10 @@ function App() {
             {/* Trade idea card — only when setup is real */}
             {a.setup_type && a.setup_type !== 'none' && a.entry != null && a.stop_loss != null && a.take_profit != null && (() => {
               const isLong = a.verdict === 'bullish';
-              const sideColor = isLong ? '#22c55e' : '#ef4444';
+              const sideColor = isLong ? 'var(--success)' : 'var(--danger)';
               const qualifies = a.confidence >= 75 && a.rr_ratio >= 1.5;
               return (
-                <div style={{ marginBottom: 20, background: qualifies ? 'rgba(212,168,67,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${qualifies ? 'rgba(212,168,67,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 14, padding: 20 }}>
+                <div style={{ marginBottom: 20, background: qualifies ? 'rgba(224, 164, 58,0.08)' : 'rgba(255,255,255,0.03)', border: `1px solid ${qualifies ? 'rgba(224, 164, 58,0.3)' : 'rgba(255,255,255,0.08)'}`, borderRadius: 14, padding: 20 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14, flexWrap: 'wrap', gap: 10 }}>
                     <div>
                       <div style={{ fontSize: '0.75rem', textTransform: 'uppercase', letterSpacing: 1, opacity: 0.55 }}>Trade Idea</div>
@@ -3460,7 +2860,7 @@ function App() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: '0.7rem', opacity: 0.55 }}>R:R</div>
-                      <div style={{ fontSize: '1.1rem', fontWeight: 700, color: a.rr_ratio >= 2 ? '#22c55e' : '#eab308' }}>{Number(a.rr_ratio).toFixed(2)} : 1</div>
+                      <div style={{ fontSize: '1.1rem', fontWeight: 700, color: a.rr_ratio >= 2 ? 'var(--success)' : 'var(--accent)' }}>{Number(a.rr_ratio).toFixed(2)} : 1</div>
                     </div>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: 10 }}>
@@ -3468,13 +2868,13 @@ function App() {
                       <div style={{ fontSize: '0.65rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>Entry</div>
                       <div style={{ fontSize: '1.05rem', fontWeight: 600 }}>${Number(a.entry).toFixed(2)}</div>
                     </div>
-                    <div style={{ padding: '10px 12px', background: 'rgba(239,68,68,0.06)', borderRadius: 8 }}>
+                    <div style={{ padding: '10px 12px', background: 'rgba(196,84,78,0.06)', borderRadius: 8 }}>
                       <div style={{ fontSize: '0.65rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>Stop loss</div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 600, color: '#ef4444' }}>${Number(a.stop_loss).toFixed(2)}</div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--danger)' }}>${Number(a.stop_loss).toFixed(2)}</div>
                     </div>
-                    <div style={{ padding: '10px 12px', background: 'rgba(34,197,94,0.06)', borderRadius: 8 }}>
+                    <div style={{ padding: '10px 12px', background: 'rgba(62,158,110,0.06)', borderRadius: 8 }}>
                       <div style={{ fontSize: '0.65rem', opacity: 0.55, textTransform: 'uppercase', letterSpacing: 0.5 }}>Take profit</div>
-                      <div style={{ fontSize: '1.05rem', fontWeight: 600, color: '#22c55e' }}>${Number(a.take_profit).toFixed(2)}</div>
+                      <div style={{ fontSize: '1.05rem', fontWeight: 600, color: 'var(--success)' }}>${Number(a.take_profit).toFixed(2)}</div>
                     </div>
                   </div>
                   {!qualifies && (
@@ -3543,7 +2943,7 @@ function App() {
                 <g key={label}>
                   <line x1={padL} x2={padL + innerW} y1={yScale(price)} y2={yScale(price)} stroke={color} strokeWidth={opts.width ?? 1} strokeDasharray={opts.dash ?? "4 4"} opacity={opts.opacity ?? 0.7} />
                   <rect x={padL + innerW + 2} y={yScale(price) - 9} width={84} height={18} rx={3} fill={color} opacity={opts.labelOpacity ?? 0.85} />
-                  <text x={padL + innerW + 44} y={yScale(price) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">{label} ${Number(price).toFixed(2)}</text>
+                  <text x={padL + innerW + 44} y={yScale(price) + 4} fontSize="10" fill="var(--bg-primary)" fontWeight="700" textAnchor="middle">{label} ${Number(price).toFixed(2)}</text>
                 </g>
               );
 
@@ -3564,7 +2964,7 @@ function App() {
                     ))}
                     {data.map((c, i) => {
                       const up = c.c >= c.o;
-                      const color = up ? '#22c55e' : '#ef4444';
+                      const color = up ? 'var(--success)' : 'var(--danger)';
                       const x = xCenter(i);
                       return (
                         <g key={i}>
@@ -3599,47 +2999,47 @@ function App() {
                         <text x={padL + innerW - 4} y={yScale(a.session_vwap) - 3} fontSize="9" fill="#a78bfa" textAnchor="end" fontWeight="600">VWAP ${Number(a.session_vwap).toFixed(2)}</text>
                       </g>
                     )}
-                    {horizLine(a.levels?.support, '#22c55e', 'S')}
-                    {horizLine(a.levels?.resistance, '#ef4444', 'R')}
-                    {horizLine(a.levels?.target, '#D4A843', 'T')}
+                    {horizLine(a.levels?.support, 'var(--success)', 'S')}
+                    {horizLine(a.levels?.resistance, 'var(--danger)', 'R')}
+                    {horizLine(a.levels?.target, 'var(--accent)', 'T')}
                     {/* Trade idea levels — only when a real setup exists */}
                     {a.setup_type && a.setup_type !== 'none' && a.entry != null && (
                       <g>
                         <line x1={padL} x2={padL + innerW} y1={yScale(a.entry)} y2={yScale(a.entry)} stroke="#06b6d4" strokeWidth={1.5} strokeDasharray="6 3" opacity={0.95} />
                         <rect x={padL + innerW + 2} y={yScale(a.entry) - 9} width={84} height={18} rx={3} fill="#06b6d4" />
-                        <text x={padL + innerW + 44} y={yScale(a.entry) + 4} fontSize="10" fill="#0a0a0a" fontWeight="800" textAnchor="middle">ENTRY ${Number(a.entry).toFixed(2)}</text>
+                        <text x={padL + innerW + 44} y={yScale(a.entry) + 4} fontSize="10" fill="var(--bg-primary)" fontWeight="800" textAnchor="middle">ENTRY ${Number(a.entry).toFixed(2)}</text>
                       </g>
                     )}
                     {a.setup_type && a.setup_type !== 'none' && a.stop_loss != null && (
                       <g>
-                        <line x1={padL} x2={padL + innerW} y1={yScale(a.stop_loss)} y2={yScale(a.stop_loss)} stroke="#ef4444" strokeWidth={1.5} opacity={0.9} />
-                        <rect x={padL + innerW + 2} y={yScale(a.stop_loss) - 9} width={84} height={18} rx={3} fill="#ef4444" />
-                        <text x={padL + innerW + 44} y={yScale(a.stop_loss) + 4} fontSize="10" fill="#0a0a0a" fontWeight="800" textAnchor="middle">SL ${Number(a.stop_loss).toFixed(2)}</text>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(a.stop_loss)} y2={yScale(a.stop_loss)} stroke="var(--danger)" strokeWidth={1.5} opacity={0.9} />
+                        <rect x={padL + innerW + 2} y={yScale(a.stop_loss) - 9} width={84} height={18} rx={3} fill="var(--danger)" />
+                        <text x={padL + innerW + 44} y={yScale(a.stop_loss) + 4} fontSize="10" fill="var(--bg-primary)" fontWeight="800" textAnchor="middle">SL ${Number(a.stop_loss).toFixed(2)}</text>
                       </g>
                     )}
                     {a.setup_type && a.setup_type !== 'none' && a.take_profit != null && (
                       <g>
-                        <line x1={padL} x2={padL + innerW} y1={yScale(a.take_profit)} y2={yScale(a.take_profit)} stroke="#22c55e" strokeWidth={1.5} opacity={0.9} />
-                        <rect x={padL + innerW + 2} y={yScale(a.take_profit) - 9} width={84} height={18} rx={3} fill="#22c55e" />
-                        <text x={padL + innerW + 44} y={yScale(a.take_profit) + 4} fontSize="10" fill="#0a0a0a" fontWeight="800" textAnchor="middle">TP ${Number(a.take_profit).toFixed(2)}</text>
+                        <line x1={padL} x2={padL + innerW} y1={yScale(a.take_profit)} y2={yScale(a.take_profit)} stroke="var(--success)" strokeWidth={1.5} opacity={0.9} />
+                        <rect x={padL + innerW + 2} y={yScale(a.take_profit) - 9} width={84} height={18} rx={3} fill="var(--success)" />
+                        <text x={padL + innerW + 44} y={yScale(a.take_profit) + 4} fontSize="10" fill="var(--bg-primary)" fontWeight="800" textAnchor="middle">TP ${Number(a.take_profit).toFixed(2)}</text>
                       </g>
                     )}
                     {/* Live tick line — last 30 min of Pyth ticks */}
                     {tickHistory.length >= 2 && (() => {
                       const points = tickHistory.map(t => `${tickXScale(t.t).toFixed(2)},${yScale(t.p).toFixed(2)}`).join(' ');
                       return (
-                        <polyline points={points} fill="none" stroke="#D4A843" strokeWidth={1.2} opacity={0.85} />
+                        <polyline points={points} fill="none" stroke="var(--accent)" strokeWidth={1.2} opacity={0.85} />
                       );
                     })()}
                     {(() => {
                       const nowP = liveGoldPrice ?? a.price;
                       if (nowP == null) return null;
-                      const flashColor = priceFlash === 'up' ? '#22c55e' : priceFlash === 'down' ? '#ef4444' : '#fff';
+                      const flashColor = priceFlash === 'up' ? 'var(--success)' : priceFlash === 'down' ? 'var(--danger)' : '#fff';
                       return (
                         <g>
                           <line x1={padL} x2={padL + innerW} y1={yScale(nowP)} y2={yScale(nowP)} stroke={flashColor} strokeWidth={priceFlash ? 1.5 : 1} opacity={priceFlash ? 0.85 : 0.4} style={{ transition: 'all 0.3s' }} />
                           <rect x={padL + innerW + 2} y={yScale(nowP) - 9} width={70} height={18} rx={3} fill={flashColor} style={{ transition: 'fill 0.3s' }} />
-                          <text x={padL + innerW + 37} y={yScale(nowP) + 4} fontSize="10" fill="#0a0a0a" fontWeight="700" textAnchor="middle">
+                          <text x={padL + innerW + 37} y={yScale(nowP) + 4} fontSize="10" fill="var(--bg-primary)" fontWeight="700" textAnchor="middle">
                             {priceFlash === 'up' ? '▲' : priceFlash === 'down' ? '▼' : ''} ${Number(nowP).toFixed(2)}
                           </text>
                         </g>
@@ -3658,15 +3058,15 @@ function App() {
                 <div style={{ display: 'grid', gap: 10 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ opacity: 0.7 }}>Support</span>
-                    <span style={{ fontWeight: 600, color: '#22c55e' }}>${a.levels?.support?.toFixed(2)}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--success)' }}>${a.levels?.support?.toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ opacity: 0.7 }}>Resistance</span>
-                    <span style={{ fontWeight: 600, color: '#ef4444' }}>${a.levels?.resistance?.toFixed(2)}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--danger)' }}>${a.levels?.resistance?.toFixed(2)}</span>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                     <span style={{ opacity: 0.7 }}>Target</span>
-                    <span style={{ fontWeight: 600, color: '#D4A843' }}>${a.levels?.target?.toFixed(2)}</span>
+                    <span style={{ fontWeight: 600, color: 'var(--accent)' }}>${a.levels?.target?.toFixed(2)}</span>
                   </div>
                 </div>
               </div>
@@ -3692,7 +3092,7 @@ function App() {
                 {a.fundamental?.events?.length > 0 && (
                   <div style={{ display: 'grid', gap: 8, fontSize: '0.85rem' }}>
                     {a.fundamental.events.map((e, i) => (
-                      <div key={i} style={{ borderLeft: '2px solid rgba(212,168,67,0.4)', paddingLeft: 10 }}>
+                      <div key={i} style={{ borderLeft: '2px solid rgba(224, 164, 58,0.4)', paddingLeft: 10 }}>
                         <div style={{ fontWeight: 600 }}>{e.event}</div>
                         <div style={{ opacity: 0.7, fontSize: '0.8rem' }}>{e.when}</div>
                         <div style={{ opacity: 0.85, marginTop: 2 }}>{e.impact}</div>
@@ -3712,7 +3112,7 @@ function App() {
                   </div>
                   {a.accuracy?.total > 0 && (
                     <div style={{ fontSize: '0.78rem', opacity: 0.7 }}>
-                      Overall: <b style={{ color: a.accuracy.pct >= 55 ? '#22c55e' : a.accuracy.pct >= 45 ? '#eab308' : '#ef4444' }}>{a.accuracy.pct}%</b> over {a.accuracy.total} closed trades
+                      Overall: <b style={{ color: a.accuracy.pct >= 55 ? 'var(--success)' : a.accuracy.pct >= 45 ? 'var(--accent)' : 'var(--danger)' }}>{a.accuracy.pct}%</b> over {a.accuracy.total} closed trades
                     </div>
                   )}
                 </div>
@@ -3720,7 +3120,7 @@ function App() {
                 {a.accuracy?.by_setup && Object.keys(a.accuracy.by_setup).length > 0 && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, marginBottom: 16 }}>
                     {Object.entries(a.accuracy.by_setup).map(([setup, s]) => {
-                      const color = s.pct >= 55 ? '#22c55e' : s.pct >= 45 ? '#eab308' : '#ef4444';
+                      const color = s.pct >= 55 ? 'var(--success)' : s.pct >= 45 ? 'var(--accent)' : 'var(--danger)';
                       return (
                         <div key={setup} style={{ padding: '10px 12px', background: 'rgba(255,255,255,0.04)', borderRadius: 8, border: `1px solid ${color}30` }}>
                           <div style={{ fontSize: '0.72rem', opacity: 0.7, textTransform: 'capitalize' }}>{setup.replace(/_/g, ' ')}</div>
@@ -3740,13 +3140,13 @@ function App() {
                     <div style={{ display: 'grid', gap: 6 }}>
                       {a.recent_signals.map(s => {
                         const isLong = s.verdict === 'bullish';
-                        const sideColor = isLong ? '#22c55e' : '#ef4444';
-                        const outcomeIcon = s.outcome_type === 'tp' ? { icon: '✅', color: '#22c55e', label: 'TP' }
-                          : s.outcome_type === 'sl' ? { icon: '❌', color: '#ef4444', label: 'SL' }
+                        const sideColor = isLong ? 'var(--success)' : 'var(--danger)';
+                        const outcomeIcon = s.outcome_type === 'tp' ? { icon: '✅', color: 'var(--success)', label: 'TP' }
+                          : s.outcome_type === 'sl' ? { icon: '❌', color: 'var(--danger)', label: 'SL' }
                           : s.outcome_type === 'timeout' ? { icon: '⏱', color: 'rgba(255,255,255,0.5)', label: 'Timeout' }
                           : s.outcome_type === 'no-trade' ? { icon: '—', color: 'rgba(255,255,255,0.4)', label: 'No-trade' }
                           : s.valid_until && new Date(s.valid_until).getTime() > Date.now()
-                            ? { icon: '🟡', color: '#eab308', label: 'Active' }
+                            ? { icon: '🟡', color: 'var(--accent)', label: 'Active' }
                             : { icon: '⏳', color: 'rgba(255,255,255,0.4)', label: 'Pending' };
                         return (
                           <div key={s.id} style={{ display: 'grid', gridTemplateColumns: 'auto 1fr auto auto auto auto', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'rgba(255,255,255,0.02)', borderRadius: 6, fontSize: '0.78rem' }}>
@@ -3771,7 +3171,7 @@ function App() {
               const change = a.cot_specs_change != null ? Number(a.cot_specs_change) : null;
               // Heuristic: > 200K net long is historically extreme for gold; < 50K modest
               const extreme = net > 200000 ? 'extreme long' : net > 100000 ? 'heavy long' : net < -50000 ? 'extreme short' : net < 0 ? 'net short' : 'moderate long';
-              const extremeColor = (net > 200000 || net < -50000) ? '#ef4444' : net > 100000 ? '#eab308' : '#22c55e';
+              const extremeColor = (net > 200000 || net < -50000) ? 'var(--danger)' : net > 100000 ? 'var(--accent)' : 'var(--success)';
               return (
                 <div style={{ marginTop: 16, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: 20 }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
@@ -3795,7 +3195,7 @@ function App() {
                     {change != null && (
                       <div>
                         <div style={{ fontSize: '0.7rem', opacity: 0.55, textTransform: 'uppercase' }}>Week-over-Week Δ</div>
-                        <div style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: 2, color: change >= 0 ? '#22c55e' : '#ef4444' }}>
+                        <div style={{ fontSize: '1.2rem', fontWeight: 700, marginTop: 2, color: change >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                           {change >= 0 ? '+' : ''}{change.toLocaleString()}
                         </div>
                         <div style={{ fontSize: '0.72rem', opacity: 0.55, marginTop: 1 }}>contracts</div>
@@ -3850,7 +3250,7 @@ function App() {
         {/* Hero */}
         <motion.section className="section" style={{ paddingTop: '3rem', paddingBottom: '1.5rem' }}>
           <motion.div className="section-header" variants={staggerContainer} initial="hidden" animate="visible">
-            <motion.div className="section-badge" variants={fadeUp} style={{ background: 'rgba(212,168,67,0.1)', border: '1px solid rgba(212,168,67,0.2)' }}>
+            <motion.div className="section-badge" variants={fadeUp} style={{ background: 'rgba(224, 164, 58,0.1)', border: '1px solid rgba(224, 164, 58,0.2)' }}>
               <Trophy size={14} style={{ color: 'var(--accent)' }} />
               <span style={{ color: 'var(--accent)' }}>Strategy Marketplace</span>
             </motion.div>
@@ -3868,24 +3268,23 @@ function App() {
         <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '1.5rem' }}>
           <motion.div
             variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
-            style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}
+            style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', maxWidth: '900px', margin: '0 auto' }}
           >
             <div style={{
-              position: 'absolute', inset: '-1px', borderRadius: '20px',
-              background: 'conic-gradient(from 200deg, transparent, rgba(212,168,67,0.3), transparent, rgba(52,211,153,0.15), transparent)',
-              animation: 'spin 8s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+              position: 'absolute', inset: '-1px', borderRadius: '8px',
+              background: 'var(--border)',
             }} />
             <div style={{
-              position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-              borderRadius: '20px', padding: '28px 32px',
+              position: 'relative', zIndex: 1, background: 'var(--bg-card)',
+              borderRadius: '8px', padding: '28px 32px',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '24px', flexWrap: 'wrap',
             }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: '14px',
-                  background: 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
+                  width: 48, height: 48, borderRadius: '12px',
+                  background: 'linear-gradient(135deg, rgba(224, 164, 58,0.2), rgba(224, 164, 58,0.05))',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  border: '1px solid rgba(212,168,67,0.15)',
+                  border: '1px solid rgba(224, 164, 58,0.15)',
                 }}>
                   <Target size={22} style={{ color: 'var(--accent)' }} />
                 </div>
@@ -3924,9 +3323,9 @@ function App() {
                   key={opt.key}
                   onClick={() => setStrategySort(opt.key)}
                   style={{
-                    padding: '7px 16px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 600,
-                    background: strategySort === opt.key ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
-                    border: `1px solid ${strategySort === opt.key ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                    padding: '7px 16px', borderRadius: '12px', fontSize: '0.75rem', fontWeight: 600,
+                    background: strategySort === opt.key ? 'rgba(224, 164, 58,0.12)' : 'rgba(255,255,255,0.03)',
+                    border: `1px solid ${strategySort === opt.key ? 'rgba(224, 164, 58,0.25)' : 'rgba(255,255,255,0.06)'}`,
                     color: strategySort === opt.key ? 'var(--accent)' : 'var(--text-secondary)',
                     cursor: 'pointer', transition: 'all 0.15s ease',
                   }}
@@ -3936,7 +3335,7 @@ function App() {
               ))}
             </div>
             <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
-              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, color: 'var(--accent)' }}>{traders.length}</span> traders
+              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent)' }}>{traders.length}</span> traders
             </div>
           </div>
         </motion.section>
@@ -3959,8 +3358,8 @@ function App() {
                   variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }} custom={idx}
                   onClick={() => setSelectedProvider(trader)}
                   style={{
-                    background: 'var(--bg-card)', borderRadius: '16px', padding: '20px',
-                    border: `1px solid ${isFollowing ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                    background: 'var(--bg-card)', borderRadius: '8px', padding: '20px',
+                    border: `1px solid ${isFollowing ? 'rgba(62,158,110,0.2)' : 'rgba(255,255,255,0.06)'}`,
                     position: 'relative', overflow: 'hidden', cursor: 'pointer',
                   }}
                 >
@@ -3972,14 +3371,14 @@ function App() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                       {profile?.avatar_url ? (
-                        <img src={profile.avatar_url} alt="" style={{ width: 40, height: 40, borderRadius: '12px', objectFit: 'cover', border: '1px solid rgba(212,168,67,0.2)' }} />
+                        <img src={profile.avatar_url} alt={`${profile.display_name || 'Trader'} avatar`} loading="lazy" decoding="async" width={40} height={40} style={{ width: 40, height: 40, borderRadius: '12px', objectFit: 'cover', border: '1px solid rgba(224, 164, 58,0.2)' }} />
                       ) : (
                         <div style={{
                           width: 40, height: 40, borderRadius: '12px',
-                          background: level ? `linear-gradient(135deg, ${level.bg}, rgba(255,255,255,0.02))` : 'linear-gradient(135deg, rgba(212,168,67,0.15), rgba(212,168,67,0.03))',
-                          border: `1px solid ${level ? level.border : 'rgba(212,168,67,0.2)'}`,
+                          background: level ? `linear-gradient(135deg, ${level.bg}, rgba(255,255,255,0.02))` : 'linear-gradient(135deg, rgba(224, 164, 58,0.15), rgba(224, 164, 58,0.03))',
+                          border: `1px solid ${level ? level.border : 'rgba(224, 164, 58,0.2)'}`,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.8rem',
+                          fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.8rem',
                           color: level ? level.color : 'var(--accent)',
                         }}>
                           {(profile?.display_name || trader.shortAddr).slice(0, 2).toUpperCase()}
@@ -3990,7 +3389,7 @@ function App() {
                           <span style={{ fontSize: '0.85rem', fontWeight: 700 }}>{profile?.display_name || trader.shortAddr}</span>
                           {level && (
                             <span style={{
-                              fontSize: '0.5rem', fontWeight: 700, padding: '1px 6px', borderRadius: '20px',
+                              fontSize: '0.5rem', fontWeight: 700, padding: '1px 6px', borderRadius: '8px',
                               background: level.bg, color: level.color, border: `1px solid ${level.border}`,
                               letterSpacing: '0.03em',
                             }}>
@@ -4000,11 +3399,11 @@ function App() {
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
                           {profile?.display_name && <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)' }}>{trader.shortAddr}</span>}
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', fontWeight: 700, color: '#8B5CF6' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.65rem', fontWeight: 700, color: 'var(--violet)' }}>
                             <Users size={10} /> {trader.followers}
                           </span>
                           {isFollowing && (
-                            <span style={{ fontSize: '0.55rem', fontWeight: 700, padding: '1px 6px', borderRadius: '20px', background: 'rgba(52,211,153,0.12)', color: 'var(--success)', border: '1px solid rgba(52,211,153,0.25)' }}>
+                            <span style={{ fontSize: '0.55rem', fontWeight: 700, padding: '1px 6px', borderRadius: '8px', background: 'rgba(62,158,110,0.12)', color: 'var(--success)', border: '1px solid rgba(62,158,110,0.25)' }}>
                               FOLLOWING
                             </span>
                           )}
@@ -4013,7 +3412,7 @@ function App() {
                     </div>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{
-                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 800,
+                        fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 800,
                         color: trader.totalPnlPct >= 0 ? 'var(--success)' : 'var(--danger)',
                       }}>
                         {trader.totalPnlPct >= 0 ? '+' : ''}{trader.totalPnlPct.toFixed(1)}%
@@ -4029,11 +3428,11 @@ function App() {
                     {[
                       { label: 'WIN RATE', value: `${trader.winRate}%`, color: trader.winRate >= 70 ? 'var(--success)' : trader.winRate >= 50 ? 'var(--accent)' : 'var(--danger)' },
                       { label: 'TRADES', value: trader.totalTrades, color: 'var(--text-primary)' },
-                      { label: 'FOLLOWERS', value: trader.followers, color: '#8B5CF6' },
+                      { label: 'FOLLOWERS', value: trader.followers, color: 'var(--violet)' },
                       { label: 'VOLUME', value: `$${trader.totalVolume >= 1000 ? `${(trader.totalVolume / 1000).toFixed(1)}k` : Math.round(trader.totalVolume)}`, color: 'var(--accent)' },
                     ].map(s => (
                       <div key={s.label} style={{ background: 'rgba(255,255,255,0.02)', borderRadius: '8px', padding: '7px 4px', textAlign: 'center' }}>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.85rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '0.85rem', fontWeight: 700, color: s.color }}>{s.value}</div>
                         <div style={{ fontSize: '0.45rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>{s.label}</div>
                       </div>
                     ))}
@@ -4042,16 +3441,16 @@ function App() {
                   {/* Active trade with live PnL */}
                   {trader.activeSignal && (
                     <div style={{
-                      borderRadius: '10px', padding: '10px', marginBottom: '12px',
-                      background: 'rgba(212,168,67,0.04)', border: '1px solid rgba(212,168,67,0.12)',
+                      borderRadius: '12px', padding: '10px', marginBottom: '12px',
+                      background: 'rgba(224, 164, 58,0.04)', border: '1px solid rgba(224, 164, 58,0.12)',
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <span className="pulse-dot" style={{ width: 6, height: 6 }} />
                           <span style={{ fontSize: '0.7rem', fontWeight: 700 }}>Active Trade</span>
                           <span style={{
-                            padding: '2px 6px', borderRadius: '10px', fontSize: '0.55rem', fontWeight: 700,
-                            background: trader.activeSignal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                            padding: '2px 6px', borderRadius: '12px', fontSize: '0.55rem', fontWeight: 700,
+                            background: trader.activeSignal.long ? 'rgba(62,158,110,0.12)' : 'rgba(196,84,78,0.12)',
                             color: trader.activeSignal.long ? 'var(--success)' : 'var(--danger)',
                           }}>
                             {trader.activeSignal.long ? 'LONG' : 'SHORT'} {Number(trader.activeSignal.leverage) / 1000}x
@@ -4075,34 +3474,33 @@ function App() {
                         return (
                           <div>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
-                              <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.9rem' }}>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.9rem' }}>
                                 ${livePrice.toFixed(2)}
                               </span>
                               <span style={{
-                                fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.9rem',
+                                fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.9rem',
                                 color: isProfit ? 'var(--success)' : 'var(--danger)',
                               }}>
                                 {isProfit ? '+' : ''}{pnl.toFixed(2)}%
                               </span>
                             </div>
-                            <div style={{ position: 'relative', height: '3px', borderRadius: '2px', background: 'rgba(255,255,255,0.08)' }}>
+                            <div style={{ position: 'relative', height: '3px', borderRadius: '8px', background: 'rgba(255,255,255,0.08)' }}>
                               <div style={{
                                 position: 'absolute', left: 0, top: 0, height: '100%', borderRadius: '2px 0 0 2px',
-                                width: '50%', background: 'rgba(248,113,113,0.15)',
+                                width: '50%', background: 'rgba(196,84,78,0.15)',
                               }} />
                               <div style={{
                                 position: 'absolute', right: 0, top: 0, height: '100%', borderRadius: '0 2px 2px 0',
-                                width: '50%', background: 'rgba(52,211,153,0.15)',
+                                width: '50%', background: 'rgba(62,158,110,0.15)',
                               }} />
                               <div style={{
                                 position: 'absolute', top: '-3px', left: `${progress}%`, transform: 'translateX(-50%)',
                                 width: '9px', height: '9px', borderRadius: '50%',
                                 background: isProfit ? 'var(--success)' : 'var(--danger)',
-                                boxShadow: `0 0 6px ${isProfit ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)'}`,
                                 transition: 'left 0.5s ease',
                               }} />
                             </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.5rem', fontFamily: "'Space Grotesk', sans-serif" }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '4px', fontSize: '0.5rem', fontFamily: 'var(--font-mono)' }}>
                               <span style={{ color: 'var(--danger)' }}>SL</span>
                               <span style={{ color: 'var(--text-secondary)' }}>Entry ${entry.toFixed(0)}</span>
                               <span style={{ color: 'var(--success)' }}>TP</span>
@@ -4123,17 +3521,17 @@ function App() {
                             flex: 1, borderRadius: '3px 3px 0 0',
                             height: `${Math.min(100, Math.abs(r) * 2.5 + 15)}%`,
                             background: r >= 0
-                              ? 'linear-gradient(to top, rgba(52,211,153,0.25), rgba(52,211,153,0.7))'
-                              : 'linear-gradient(to top, rgba(248,113,113,0.2), rgba(248,113,113,0.5))',
+                              ? 'linear-gradient(to top, rgba(62,158,110,0.25), rgba(62,158,110,0.7))'
+                              : 'linear-gradient(to top, rgba(196,84,78,0.2), rgba(196,84,78,0.5))',
                           }} />
                         ))}
                       </div>
                       <div style={{ display: 'flex', gap: '3px' }}>
                         {trader.recent.map((r, i) => (
                           <span key={i} style={{
-                            flex: 1, textAlign: 'center', padding: '2px 0', borderRadius: '4px', fontSize: '0.55rem',
-                            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
-                            background: r >= 0 ? 'rgba(52,211,153,0.06)' : 'rgba(248,113,113,0.06)',
+                            flex: 1, textAlign: 'center', padding: '2px 0', borderRadius: '8px', fontSize: '0.55rem',
+                            fontFamily: 'var(--font-mono)', fontWeight: 700,
+                            background: r >= 0 ? 'rgba(62,158,110,0.06)' : 'rgba(196,84,78,0.06)',
                             color: r >= 0 ? 'var(--success)' : 'var(--danger)',
                           }}>
                             {r >= 0 ? '+' : ''}{r.toFixed(1)}%
@@ -4148,8 +3546,8 @@ function App() {
                     <div style={{ display: 'flex', gap: '6px' }}>
                       <div style={{
                         flex: 1, padding: '8px', fontSize: '0.7rem', textAlign: 'center',
-                        background: 'rgba(52,211,153,0.06)', borderRadius: '10px', color: 'var(--success)',
-                        fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600,
+                        background: 'rgba(62,158,110,0.06)', borderRadius: '12px', color: 'var(--success)',
+                        fontFamily: 'var(--font-mono)', fontWeight: 600,
                       }}>
                         ${followInfo.amount}/trade
                       </div>
@@ -4165,7 +3563,7 @@ function App() {
                   ) : account && account.toLowerCase() === trader.address.toLowerCase() ? (
                     <div style={{
                       width: '100%', padding: '10px', fontSize: '0.75rem', textAlign: 'center',
-                      background: 'rgba(212,168,67,0.06)', borderRadius: '10px', color: 'var(--accent)',
+                      background: 'rgba(224, 164, 58,0.06)', borderRadius: '12px', color: 'var(--accent)',
                       fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                     }}>
                       <Crown size={14} /> Your Strategy
@@ -4197,7 +3595,7 @@ function App() {
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
                 onClick={e => e.stopPropagation()}
-                style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', maxWidth: '380px', width: '100%', border: '1px solid var(--border)' }}
+                style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '28px', maxWidth: '380px', width: '100%', border: '1px solid var(--border)' }}
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: '1.1rem' }}>Follow Provider</h3>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 20px' }}>
@@ -4210,9 +3608,9 @@ function App() {
                   onChange={e => setFollowAmount(e.target.value)}
                   min="5"
                   style={{
-                    width: '100%', padding: '12px', borderRadius: '10px', fontSize: '1rem',
+                    width: '100%', padding: '12px', borderRadius: '12px', fontSize: '1rem',
                     background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
-                    color: 'var(--text-primary)', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                    color: 'var(--text-primary)', fontFamily: 'var(--font-mono)', fontWeight: 700,
                     outline: 'none', marginBottom: '6px', boxSizing: 'border-box',
                   }}
                 />
@@ -4268,7 +3666,7 @@ function App() {
               return `${x},${y}`;
             }).join(' ');
             const lastPnl = equityCurve[equityCurve.length - 1];
-            const lineColor = lastPnl >= 0 ? '#34D399' : '#F87171';
+            const lineColor = lastPnl >= 0 ? 'var(--success)' : 'var(--danger)';
             const fillPoints = `${chartPad},${chartH / 2} ${points} ${chartW - chartPad},${chartH / 2}`;
 
             return (
@@ -4280,7 +3678,7 @@ function App() {
                 <motion.div
                   initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
                   onClick={e => e.stopPropagation()}
-                  style={{ background: 'var(--bg-card)', borderRadius: '20px', maxWidth: '560px', width: '100%', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto' }}
+                  style={{ background: 'var(--bg-card)', borderRadius: '8px', maxWidth: '560px', width: '100%', border: '1px solid var(--border)', maxHeight: '90vh', overflowY: 'auto' }}
                 >
                   {/* Modal header */}
                   {(() => {
@@ -4290,14 +3688,14 @@ function App() {
                   <div style={{ padding: '24px 24px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                       {mProfile?.avatar_url ? (
-                        <img src={mProfile.avatar_url} alt="" style={{ width: 48, height: 48, borderRadius: '14px', objectFit: 'cover', border: '1px solid rgba(212,168,67,0.25)' }} />
+                        <img src={mProfile.avatar_url} alt={`${mProfile.display_name || 'Trader'} avatar`} loading="lazy" decoding="async" width={48} height={48} style={{ width: 48, height: 48, borderRadius: '12px', objectFit: 'cover', border: '1px solid rgba(224, 164, 58,0.25)' }} />
                       ) : (
                         <div style={{
-                          width: 48, height: 48, borderRadius: '14px',
-                          background: mLevel ? `linear-gradient(135deg, ${mLevel.bg}, rgba(255,255,255,0.02))` : 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
-                          border: `1px solid ${mLevel ? mLevel.border : 'rgba(212,168,67,0.25)'}`,
+                          width: 48, height: 48, borderRadius: '12px',
+                          background: mLevel ? `linear-gradient(135deg, ${mLevel.bg}, rgba(255,255,255,0.02))` : 'linear-gradient(135deg, rgba(224, 164, 58,0.2), rgba(224, 164, 58,0.05))',
+                          border: `1px solid ${mLevel ? mLevel.border : 'rgba(224, 164, 58,0.25)'}`,
                           display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1rem', color: mLevel ? mLevel.color : 'var(--accent)',
+                          fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1rem', color: mLevel ? mLevel.color : 'var(--accent)',
                         }}>
                           {(mProfile?.display_name || t.shortAddr).slice(0, 2).toUpperCase()}
                         </div>
@@ -4306,25 +3704,25 @@ function App() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                           <span style={{ fontSize: '1rem', fontWeight: 700 }}>{mProfile?.display_name || t.shortAddr}</span>
                           {mLevel && (
-                            <span style={{ fontSize: '0.55rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: mLevel.bg, color: mLevel.color, border: `1px solid ${mLevel.border}` }}>
+                            <span style={{ fontSize: '0.55rem', fontWeight: 700, padding: '2px 8px', borderRadius: '8px', background: mLevel.bg, color: mLevel.color, border: `1px solid ${mLevel.border}` }}>
                               {mLevel.label}
                             </span>
                           )}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '3px' }}>
                           {mProfile?.display_name && <span style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>{t.shortAddr}</span>}
-                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.7rem', fontWeight: 700, color: '#8B5CF6' }}>
+                          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '3px', fontSize: '0.7rem', fontWeight: 700, color: 'var(--violet)' }}>
                             <Users size={12} /> {t.followers} followers
                           </span>
                           {isFollowing && (
-                            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: 'rgba(52,211,153,0.12)', color: 'var(--success)', border: '1px solid rgba(52,211,153,0.2)' }}>
+                            <span style={{ fontSize: '0.6rem', fontWeight: 700, padding: '2px 8px', borderRadius: '8px', background: 'rgba(62,158,110,0.12)', color: 'var(--success)', border: '1px solid rgba(62,158,110,0.2)' }}>
                               FOLLOWING
                             </span>
                           )}
                         </div>
                       </div>
                     </div>
-                    <button onClick={() => setSelectedProvider(null)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px' }}>
+                    <button onClick={() => setSelectedProvider(null)} aria-label="Close strategy details" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: '4px' }}>
                       <X size={20} />
                     </button>
                   </div>
@@ -4364,8 +3762,8 @@ function App() {
                       if (dd > maxDD) maxDD = dd;
                     }
 
-                    const statStyle = { background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '10px 6px', textAlign: 'center' };
-                    const valStyle = { fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.95rem', fontWeight: 800 };
+                    const statStyle = { background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '10px 6px', textAlign: 'center' };
+                    const valStyle = { fontFamily: 'var(--font-mono)', fontSize: '0.95rem', fontWeight: 800 };
                     const lblStyle = { fontSize: '0.5rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginTop: '2px' };
 
                     return (
@@ -4438,7 +3836,7 @@ function App() {
                       <div style={{ padding: '0 24px 8px' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '10px' }}>
                           <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>TRADE RESULTS</span>
-                          <span style={{ fontSize: '0.8rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, color: lineColor }}>
+                          <span style={{ fontSize: '0.8rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: lineColor }}>
                             {lastPnl >= 0 ? '+' : ''}{lastPnl.toFixed(1)}% total
                           </span>
                         </div>
@@ -4450,7 +3848,7 @@ function App() {
                               <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'center', gap: '0' }}>
                                 {/* PnL label */}
                                 <div style={{
-                                  fontSize: '0.55rem', fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                                  fontSize: '0.55rem', fontFamily: 'var(--font-mono)', fontWeight: 700,
                                   color: isWin ? 'var(--success)' : 'var(--danger)',
                                   marginBottom: isWin ? 'auto' : '2px', marginTop: isWin ? '2px' : 'auto',
                                   order: isWin ? -1 : 1,
@@ -4463,11 +3861,8 @@ function App() {
                                   height: `${height}%`,
                                   borderRadius: isWin ? '4px 4px 1px 1px' : '1px 1px 4px 4px',
                                   background: isWin
-                                    ? 'linear-gradient(to top, rgba(52,211,153,0.3), rgba(52,211,153,0.8))'
-                                    : 'linear-gradient(to bottom, rgba(248,113,113,0.3), rgba(248,113,113,0.7))',
-                                  boxShadow: isWin
-                                    ? '0 -2px 8px rgba(52,211,153,0.15)'
-                                    : '0 2px 8px rgba(248,113,113,0.15)',
+                                    ? 'linear-gradient(to top, rgba(62,158,110,0.3), rgba(62,158,110,0.8))'
+                                    : 'linear-gradient(to bottom, rgba(196,84,78,0.3), rgba(196,84,78,0.7))',
                                   transition: 'height 0.5s ease',
                                 }} />
                                 {/* Trade number */}
@@ -4488,15 +3883,15 @@ function App() {
                       <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', letterSpacing: '0.05em' }}>ACTIVE TRADE</div>
                       <div style={{
                         borderRadius: '12px', padding: '14px',
-                        background: 'rgba(212,168,67,0.04)', border: '1px solid rgba(212,168,67,0.12)',
+                        background: 'rgba(224, 164, 58,0.04)', border: '1px solid rgba(224, 164, 58,0.12)',
                       }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <span className="pulse-dot" style={{ width: 7, height: 7 }} />
-                            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.95rem' }}>XAU/USD</span>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.95rem' }}>XAU/USD</span>
                             <span style={{
                               padding: '3px 8px', borderRadius: '12px', fontSize: '0.6rem', fontWeight: 700,
-                              background: t.activeSignal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                              background: t.activeSignal.long ? 'rgba(62,158,110,0.12)' : 'rgba(196,84,78,0.12)',
                               color: t.activeSignal.long ? 'var(--success)' : 'var(--danger)',
                             }}>
                               {t.activeSignal.long ? 'LONG' : 'SHORT'} {Number(t.activeSignal.leverage) / 1000}x
@@ -4522,11 +3917,11 @@ function App() {
                               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '10px' }}>
                                 <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
                                   <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>LIVE PRICE</div>
-                                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.2rem' }}>${livePrice.toFixed(2)}</div>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '1.2rem' }}>${livePrice.toFixed(2)}</div>
                                 </div>
                                 <div style={{ textAlign: 'center', padding: '8px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px' }}>
                                   <div style={{ fontSize: '0.55rem', color: 'var(--text-secondary)', marginBottom: '3px' }}>PNL</div>
-                                  <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1.2rem', color: isProfit ? 'var(--success)' : 'var(--danger)' }}>
+                                  <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '1.2rem', color: isProfit ? 'var(--success)' : 'var(--danger)' }}>
                                     {isProfit ? '+' : ''}{pnl.toFixed(2)}%
                                   </div>
                                 </div>
@@ -4550,10 +3945,10 @@ function App() {
                             padding: '8px 10px', borderRadius: '8px', background: 'rgba(255,255,255,0.02)',
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>#{trade.id}</span>
+                              <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>#{trade.id}</span>
                               <span style={{
                                 padding: '2px 6px', borderRadius: '8px', fontSize: '0.55rem', fontWeight: 700,
-                                background: trade.long ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
+                                background: trade.long ? 'rgba(62,158,110,0.1)' : 'rgba(196,84,78,0.1)',
                                 color: trade.long ? 'var(--success)' : 'var(--danger)',
                               }}>
                                 {trade.long ? 'LONG' : 'SHORT'} {trade.leverage}x
@@ -4563,7 +3958,7 @@ function App() {
                               </span>
                             </div>
                             <span style={{
-                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.8rem',
+                              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.8rem',
                               color: trade.pnl >= 0 ? 'var(--success)' : 'var(--danger)',
                             }}>
                               {trade.pnl >= 0 ? '+' : ''}{trade.pnl.toFixed(1)}%
@@ -4580,7 +3975,7 @@ function App() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                         <div style={{
                           width: '100%', padding: '12px', fontSize: '0.8rem', textAlign: 'center',
-                          background: 'rgba(212,168,67,0.06)', borderRadius: '12px', color: 'var(--accent)',
+                          background: 'rgba(224, 164, 58,0.06)', borderRadius: '12px', color: 'var(--accent)',
                           fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                         }}>
                           <Crown size={16} /> This is your strategy
@@ -4603,8 +3998,8 @@ function App() {
                       <div style={{ display: 'flex', gap: '8px' }}>
                         <div style={{
                           flex: 1, padding: '12px', fontSize: '0.8rem', textAlign: 'center',
-                          background: 'rgba(52,211,153,0.06)', borderRadius: '12px', color: 'var(--success)',
-                          fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700,
+                          background: 'rgba(62,158,110,0.06)', borderRadius: '12px', color: 'var(--success)',
+                          fontFamily: 'var(--font-mono)', fontWeight: 700,
                         }}>
                           Following — ${followInfo.amount}/trade
                         </div>
@@ -4642,18 +4037,18 @@ function App() {
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
               {[
-                { num: '1', icon: <Wallet size={22} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.2)', title: 'Connect Wallet', desc: 'Connect your Arbitrum wallet to browse the strategy marketplace.' },
-                { num: '2', icon: <UserPlus size={22} />, color: 'var(--accent)', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.2)', title: 'Follow a Trader', desc: 'Analyze track records and set your copy amount per trade.' },
-                { num: '3', icon: <Coins size={22} />, color: 'var(--success)', bg: 'rgba(52,211,153,0.12)', border: 'rgba(52,211,153,0.2)', title: 'Earn Automatically', desc: 'Trades are copied automatically on-chain. Claim profits anytime.' },
+                { num: '1', icon: <Wallet size={22} />, color: 'var(--violet)', bg: 'rgba(122,133,139,0.12)', border: 'rgba(122,133,139,0.2)', title: 'Connect Wallet', desc: 'Connect your Arbitrum wallet to browse the strategy marketplace.' },
+                { num: '2', icon: <UserPlus size={22} />, color: 'var(--accent)', bg: 'rgba(224, 164, 58,0.12)', border: 'rgba(224, 164, 58,0.2)', title: 'Follow a Trader', desc: 'Analyze track records and set your copy amount per trade.' },
+                { num: '3', icon: <Coins size={22} />, color: 'var(--success)', bg: 'rgba(62,158,110,0.12)', border: 'rgba(62,158,110,0.2)', title: 'Earn Automatically', desc: 'Trades are copied automatically on-chain. Claim profits anytime.' },
               ].map(step => (
                 <motion.div key={step.num} variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
-                  style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px 20px', border: `1px solid ${step.border}`, textAlign: 'center', position: 'relative' }}
+                  style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '24px 20px', border: `1px solid ${step.border}`, textAlign: 'center', position: 'relative' }}
                 >
                   <div style={{
                     position: 'absolute', top: '-10px', left: '50%', transform: 'translateX(-50%)',
                     width: 24, height: 24, borderRadius: '50%', background: step.bg, border: `1px solid ${step.border}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '0.7rem', color: step.color,
+                    fontFamily: 'var(--font-mono)', fontWeight: 800, fontSize: '0.7rem', color: step.color,
                   }}>{step.num}</div>
                   <div style={{ width: 44, height: 44, borderRadius: '12px', margin: '8px auto 12px', background: step.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <span style={{ color: step.color }}>{step.icon}</span>
@@ -4677,7 +4072,7 @@ function App() {
               <motion.div
                 initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
                 onClick={e => e.stopPropagation()}
-                style={{ background: 'var(--bg-card)', borderRadius: '20px', padding: '28px', maxWidth: '380px', width: '100%', border: '1px solid var(--border)' }}
+                style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '28px', maxWidth: '380px', width: '100%', border: '1px solid var(--border)' }}
               >
                 <h3 style={{ margin: '0 0 6px', fontSize: '1.1rem' }}>Edit Profile</h3>
                 <p style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', margin: '0 0 20px' }}>
@@ -4688,7 +4083,7 @@ function App() {
                   type="text" value={editProfileName} onChange={e => setEditProfileName(e.target.value)}
                   placeholder="e.g. GoldMaster" maxLength={20}
                   style={{
-                    width: '100%', padding: '12px', borderRadius: '10px', fontSize: '0.9rem',
+                    width: '100%', padding: '12px', borderRadius: '12px', fontSize: '0.9rem',
                     background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
                     color: 'var(--text-primary)', outline: 'none', marginBottom: '14px', boxSizing: 'border-box',
                   }}
@@ -4698,7 +4093,7 @@ function App() {
                   type="url" value={editProfileAvatar} onChange={e => setEditProfileAvatar(e.target.value)}
                   placeholder="https://..."
                   style={{
-                    width: '100%', padding: '12px', borderRadius: '10px', fontSize: '0.9rem',
+                    width: '100%', padding: '12px', borderRadius: '12px', fontSize: '0.9rem',
                     background: 'rgba(255,255,255,0.03)', border: '1px solid var(--border)',
                     color: 'var(--text-primary)', outline: 'none', marginBottom: '6px', boxSizing: 'border-box',
                   }}
@@ -4708,7 +4103,7 @@ function App() {
                 </div>
                 {editProfileAvatar && (
                   <div style={{ textAlign: 'center', marginBottom: '16px' }}>
-                    <img src={editProfileAvatar} alt="Preview" style={{ width: 60, height: 60, borderRadius: '14px', objectFit: 'cover', border: '1px solid var(--border)' }} onError={e => { e.target.style.display = 'none'; }} />
+                    <img src={editProfileAvatar} alt="Preview" style={{ width: 60, height: 60, borderRadius: '12px', objectFit: 'cover', border: '1px solid var(--border)' }} onError={e => { e.target.style.display = 'none'; }} />
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: '8px' }}>
@@ -4729,15 +4124,15 @@ function App() {
           <div style={{ maxWidth: '700px', margin: '0 auto' }}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px' }}>
               {[
-                { icon: <Shield size={20} />, color: 'var(--success)', bg: 'rgba(52,211,153,0.1)', title: 'Fully Transparent', desc: 'All trades are on-chain. Verify every result on Arbiscan.' },
-                { icon: <Zap size={20} />, color: 'var(--accent)', bg: 'rgba(212,168,67,0.1)', title: 'Instant Copy', desc: 'Auto-copy or choose per signal. Your funds, your control.' },
-                { icon: <Users size={20} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.1)', title: 'Open to Everyone', desc: 'Anyone can become a strategy provider. Just connect and trade.' },
+                { icon: <Shield size={20} />, color: 'var(--success)', bg: 'rgba(62,158,110,0.1)', title: 'Fully Transparent', desc: 'All trades are on-chain. Verify every result on Arbiscan.' },
+                { icon: <Zap size={20} />, color: 'var(--accent)', bg: 'rgba(224, 164, 58,0.1)', title: 'Instant Copy', desc: 'Auto-copy or choose per signal. Your funds, your control.' },
+                { icon: <Users size={20} />, color: 'var(--violet)', bg: 'rgba(122,133,139,0.1)', title: 'Open to Everyone', desc: 'Anyone can become a strategy provider. Just connect and trade.' },
               ].map(item => (
                 <motion.div
                   key={item.title}
                   variants={fadeUp} initial="hidden" whileInView="visible" viewport={{ once: true }}
                   style={{
-                    background: 'var(--bg-card)', borderRadius: '16px', padding: '24px 20px',
+                    background: 'var(--bg-card)', borderRadius: '8px', padding: '24px 20px',
                     border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center',
                   }}
                 >
@@ -4768,9 +4163,9 @@ function App() {
         {/* Hero */}
         <motion.section className="section" style={{ paddingTop: '3rem', paddingBottom: '2rem' }}>
           <motion.div className="section-header" variants={staggerContainer} initial="hidden" animate="visible">
-            <motion.div className="section-badge" variants={fadeUp} style={{ background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.2)' }}>
-              <Share2 size={14} style={{ color: '#8B5CF6' }} />
-              <span style={{ color: '#8B5CF6' }}>Referral Program</span>
+            <motion.div className="section-badge" variants={fadeUp} style={{ background: 'rgba(122,133,139,0.1)', border: '1px solid rgba(122,133,139,0.2)' }}>
+              <Share2 size={14} style={{ color: 'var(--violet)' }} />
+              <span style={{ color: 'var(--violet)' }}>Referral Program</span>
             </motion.div>
             <motion.h2 className="section-title" variants={fadeUp}>
               Invite Friends,{' '}
@@ -4789,9 +4184,9 @@ function App() {
             maxWidth: '900px', margin: '0 auto',
           }}>
             {[
-              { num: '1', icon: <Share2 size={22} />, color: '#8B5CF6', bg: 'rgba(139,92,246,0.12)', border: 'rgba(139,92,246,0.2)', title: 'Share Your Link', desc: 'Connect your wallet and copy your unique referral link. Share it with friends, on social media, or in communities.' },
-              { num: '2', icon: <Copy size={22} />, color: 'var(--accent)', bg: 'rgba(212,168,67,0.12)', border: 'rgba(212,168,67,0.2)', title: 'Friend Copies a Trade', desc: 'When someone opens your link and copies a trade, the referral is permanently saved on-chain.' },
-              { num: '3', icon: <Coins size={22} />, color: 'var(--success)', bg: 'rgba(52,211,153,0.12)', border: 'rgba(52,211,153,0.2)', title: 'Earn 50% of Fees', desc: 'When their trade closes profitably, you automatically receive 50% of the platform fee as USDC.' },
+              { num: '1', icon: <Share2 size={22} />, color: 'var(--violet)', bg: 'rgba(122,133,139,0.12)', border: 'rgba(122,133,139,0.2)', title: 'Share Your Link', desc: 'Connect your wallet and copy your unique referral link. Share it with friends, on social media, or in communities.' },
+              { num: '2', icon: <Copy size={22} />, color: 'var(--accent)', bg: 'rgba(224, 164, 58,0.12)', border: 'rgba(224, 164, 58,0.2)', title: 'Friend Copies a Trade', desc: 'When someone opens your link and copies a trade, the referral is permanently saved on-chain.' },
+              { num: '3', icon: <Coins size={22} />, color: 'var(--success)', bg: 'rgba(62,158,110,0.12)', border: 'rgba(62,158,110,0.2)', title: 'Earn 50% of Fees', desc: 'When their trade closes profitably, you automatically receive 50% of the platform fee as USDC.' },
             ].map((step, i) => (
               <motion.div
                 key={step.num}
@@ -4800,19 +4195,18 @@ function App() {
                 whileInView="visible"
                 viewport={{ once: true }}
                 custom={i}
-                style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden' }}
+                style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden' }}
               >
                 <div style={{
-                  position: 'absolute', inset: '-1px', borderRadius: '20px',
-                  background: `conic-gradient(from ${120 * i}deg, transparent, ${step.border}, transparent)`,
-                  animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+                  position: 'absolute', inset: '-1px', borderRadius: '8px',
+                  background: 'var(--border)',
                 }} />
                 <div style={{
-                  position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-                  borderRadius: '20px', padding: '28px 24px', textAlign: 'center', height: '100%',
+                  position: 'relative', zIndex: 1, background: 'var(--bg-card)',
+                  borderRadius: '8px', padding: '28px 24px', textAlign: 'center', height: '100%',
                 }}>
                   <div style={{
-                    width: 52, height: 52, borderRadius: '16px', margin: '0 auto 16px',
+                    width: 52, height: 52, borderRadius: '8px', margin: '0 auto 16px',
                     background: step.bg, border: `1px solid ${step.border}`,
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
@@ -4821,7 +4215,7 @@ function App() {
                   <div style={{
                     position: 'absolute', top: '12px', left: '16px',
                     fontSize: '0.6rem', fontWeight: 700, color: step.color, opacity: 0.5,
-                    fontFamily: "'Space Grotesk', sans-serif",
+                    fontFamily: 'var(--font-mono)',
                   }}>STEP {step.num}</div>
                   <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '8px' }}>{step.title}</h3>
                   <p style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', lineHeight: 1.6, margin: 0 }}>{step.desc}</p>
@@ -4838,19 +4232,18 @@ function App() {
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
-            style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '700px', margin: '0 auto' }}
+            style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', maxWidth: '700px', margin: '0 auto' }}
           >
             <div style={{
-              position: 'absolute', inset: '-1px', borderRadius: '20px',
-              background: 'conic-gradient(from 200deg, transparent, rgba(139,92,246,0.25), transparent, rgba(212,168,67,0.2), transparent)',
-              animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+              position: 'absolute', inset: '-1px', borderRadius: '8px',
+              background: 'var(--border)',
             }} />
             <div style={{
-              position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-              borderRadius: '20px', padding: '32px',
+              position: 'relative', zIndex: 1, background: 'var(--bg-card)',
+              borderRadius: '8px', padding: '32px',
             }}>
               <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-                <div style={{ fontSize: '0.65rem', color: '#8B5CF6', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px' }}>
+                <div style={{ fontSize: '0.65rem', color: 'var(--violet)', fontWeight: 700, letterSpacing: '0.1em', textTransform: 'uppercase', marginBottom: '8px' }}>
                   Reward Example
                 </div>
                 <h3 style={{ fontSize: '1.2rem', fontWeight: 700, margin: 0 }}>How Your Rewards Are Calculated</h3>
@@ -4859,16 +4252,16 @@ function App() {
                 {[
                   { label: 'Friend profits', value: '$100', sub: 'on a trade', color: 'var(--text-primary)' },
                   { label: 'Platform fee', value: `${(feePercent / 100).toFixed(0)}%`, sub: `= $${(100 * feePercent / 10000).toFixed(0)}`, color: 'var(--accent)' },
-                  { label: 'Your reward', value: '50%', sub: `= $${(100 * feePercent / 10000 * 0.5).toFixed(0)} USDC`, color: '#8B5CF6' },
+                  { label: 'Your reward', value: '50%', sub: `= $${(100 * feePercent / 10000 * 0.5).toFixed(0)} USDC`, color: 'var(--violet)' },
                 ].map((item, i) => (
                   <React.Fragment key={item.label}>
                     {i > 0 && <ArrowRight size={18} style={{ color: 'var(--text-secondary)', opacity: 0.3 }} />}
                     <div style={{
-                      background: 'rgba(255,255,255,0.03)', borderRadius: '14px', padding: '16px 24px',
+                      background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '16px 24px',
                       border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center', minWidth: '130px',
                     }}>
                       <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginBottom: '6px', textTransform: 'uppercase' }}>{item.label}</div>
-                      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.6rem', fontWeight: 700, color: item.color }}>{item.value}</div>
+                      <div style={{ fontFamily: 'var(--font-sans)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em', fontSize: '1.6rem', fontWeight: 700, color: item.color }}>{item.value}</div>
                       <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{item.sub}</div>
                     </div>
                   </React.Fragment>
@@ -4885,16 +4278,15 @@ function App() {
             initial="hidden"
             whileInView="visible"
             viewport={{ once: true }}
-            style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', maxWidth: '700px', margin: '0 auto' }}
+            style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', maxWidth: '700px', margin: '0 auto' }}
           >
             <div style={{
-              position: 'absolute', inset: '-1px', borderRadius: '20px',
-              background: 'conic-gradient(from 100deg, transparent, rgba(52,211,153,0.2), transparent, rgba(139,92,246,0.2), transparent)',
-              animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+              position: 'absolute', inset: '-1px', borderRadius: '8px',
+              background: 'var(--border)',
             }} />
             <div style={{
-              position: 'relative', zIndex: 1, background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-              borderRadius: '20px', padding: '32px',
+              position: 'relative', zIndex: 1, background: 'var(--bg-card)',
+              borderRadius: '8px', padding: '32px',
             }}>
               {account ? (
                 <>
@@ -4907,15 +4299,15 @@ function App() {
                   {/* Stats */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '12px', marginBottom: '20px' }}>
                     {[
-                      { label: 'Referrals', value: referralStats.count, color: '#8B5CF6', prefix: '' },
+                      { label: 'Referrals', value: referralStats.count, color: 'var(--violet)', prefix: '' },
                       { label: 'Volume', value: referralStats.volume, color: 'var(--accent)', prefix: '$' },
                       { label: 'Rewards Earned', value: rewardsEarned, color: 'var(--success)', prefix: '$' },
                     ].map(stat => (
                       <div key={stat.label} style={{
-                        background: 'rgba(255,255,255,0.03)', borderRadius: '14px', padding: '16px',
+                        background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '16px',
                         border: '1px solid rgba(255,255,255,0.06)', textAlign: 'center',
                       }}>
-                        <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.4rem', fontWeight: 700, color: stat.color }}>
+                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.4rem', fontWeight: 700, color: stat.color }}>
                           {stat.prefix}<CountUp end={stat.value} duration={1.5} decimals={stat.prefix === '$' ? 2 : 0} separator="," />
                         </div>
                         <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em', marginTop: '4px', textTransform: 'uppercase' }}>{stat.label}</div>
@@ -4926,12 +4318,12 @@ function App() {
                   {/* Referral link */}
                   <div style={{
                     display: 'flex', alignItems: 'center', gap: '10px',
-                    padding: '12px 16px', borderRadius: '14px',
+                    padding: '12px 16px', borderRadius: '12px',
                     background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)',
                   }}>
                     <div style={{
                       fontSize: '0.7rem', color: 'var(--text-secondary)',
-                      fontFamily: "'Space Grotesk', sans-serif",
+                      fontFamily: 'var(--font-mono)',
                       overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                       marginBottom: '10px',
                     }}>
@@ -4953,11 +4345,11 @@ function App() {
               ) : (
                 <div style={{ textAlign: 'center', padding: '20px 0' }}>
                   <div style={{
-                    width: 56, height: 56, borderRadius: '16px', margin: '0 auto 16px',
-                    background: 'rgba(139,92,246,0.1)', border: '1px solid rgba(139,92,246,0.15)',
+                    width: 56, height: 56, borderRadius: '8px', margin: '0 auto 16px',
+                    background: 'rgba(122,133,139,0.1)', border: '1px solid rgba(122,133,139,0.15)',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    <Wallet size={24} style={{ color: '#8B5CF6' }} />
+                    <Wallet size={24} style={{ color: 'var(--violet)' }} />
                   </div>
                   <h3 style={{ fontSize: '1.1rem', fontWeight: 700, marginBottom: '8px' }}>Connect Wallet to Start</h3>
                   <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginBottom: '20px' }}>
@@ -4977,11 +4369,11 @@ function App() {
           <motion.section className="section" style={{ paddingTop: 0, paddingBottom: '1.5rem' }}>
             <div style={{ maxWidth: '700px', margin: '0 auto' }}>
               <div style={{
-                background: 'var(--bg-card)', borderRadius: '16px', padding: '20px 24px',
+                background: 'var(--bg-card)', borderRadius: '8px', padding: '20px 24px',
                 border: '1px solid var(--border)',
               }}>
                 <h3 style={{ fontSize: '1rem', fontWeight: 700, marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <TrendingUp size={16} style={{ color: '#8B5CF6' }} />
+                  <TrendingUp size={16} style={{ color: 'var(--violet)' }} />
                   Your Referrals
                 </h3>
 
@@ -4991,11 +4383,11 @@ function App() {
                     return (
                       <div key={i} style={{
                         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                        padding: '12px 14px', borderRadius: '10px',
+                        padding: '12px 14px', borderRadius: '12px',
                         background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
                       }}>
                         <div>
-                          <div style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: "'Space Grotesk', sans-serif" }}>
+                          <div style={{ fontSize: '0.8rem', fontWeight: 600, fontFamily: 'var(--font-mono)' }}>
                             {r.referred?.slice(0, 6)}...{r.referred?.slice(-4)}
                           </div>
                           <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
@@ -5005,7 +4397,7 @@ function App() {
                         <div style={{ textAlign: 'right' }}>
                           {r.reward_paid ? (
                             <div>
-                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--success)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                              <div style={{ fontSize: '0.8rem', fontWeight: 700, color: 'var(--success)', fontFamily: 'var(--font-mono)' }}>
                                 +${Number(r.reward_amount || 0).toFixed(2)}
                               </div>
                               <div style={{ fontSize: '0.6rem', color: 'var(--success)' }}>Paid</div>
@@ -5022,12 +4414,12 @@ function App() {
                 </div>
 
                 <div style={{
-                  marginTop: '14px', padding: '10px 14px', borderRadius: '10px',
-                  background: 'rgba(139,92,246,0.06)', border: '1px solid rgba(139,92,246,0.12)',
+                  marginTop: '14px', padding: '10px 14px', borderRadius: '12px',
+                  background: 'rgba(122,133,139,0.06)', border: '1px solid rgba(122,133,139,0.12)',
                   display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                 }}>
-                  <span style={{ fontSize: '0.75rem', color: '#8B5CF6', fontWeight: 600 }}>Total Rewards</span>
-                  <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#8B5CF6', fontFamily: "'Space Grotesk', sans-serif" }}>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--violet)', fontWeight: 600 }}>Total Rewards</span>
+                  <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--violet)', fontFamily: 'var(--font-mono)' }}>
                     ${referralStats.referrals.reduce((sum, r) => sum + (r.reward_paid ? Number(r.reward_amount || 0) : 0), 0).toFixed(2)} earned
                   </span>
                 </div>
@@ -5058,7 +4450,7 @@ function App() {
                   viewport={{ once: true }}
                   custom={i}
                   style={{
-                    background: 'var(--bg-card)', borderRadius: '14px', padding: '18px 22px',
+                    background: 'var(--bg-card)', borderRadius: '12px', padding: '18px 22px',
                     border: '1px solid rgba(255,255,255,0.06)',
                   }}
                 >
@@ -5086,9 +4478,9 @@ function App() {
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
           style={{
-            background: 'linear-gradient(135deg, rgba(243, 186, 47, 0.12), rgba(212, 168, 67, 0.08))',
+            background: 'linear-gradient(135deg, rgba(243, 186, 47, 0.12), rgba(224, 164, 58, 0.08))',
             border: '1px solid rgba(243, 186, 47, 0.3)',
-            borderRadius: '14px',
+            borderRadius: '12px',
             padding: '16px 20px',
             marginBottom: '16px',
             display: 'flex',
@@ -5131,30 +4523,29 @@ function App() {
         variants={fadeUp}
         initial="hidden"
         animate="visible"
-        style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}
+        style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}
       >
         {/* Animated glow border */}
         <div style={{
-          position: 'absolute', inset: '-1px', borderRadius: '20px',
+          position: 'absolute', inset: '-1px', borderRadius: '8px',
           background: activeSignal
-            ? `conic-gradient(from 200deg, transparent, ${activeSignal.long ? 'rgba(52,211,153,0.35)' : 'rgba(248,113,113,0.35)'}, transparent, rgba(212,168,67,0.2), transparent)`
-            : 'conic-gradient(from 200deg, transparent, rgba(255,255,255,0.08), transparent, rgba(212,168,67,0.1), transparent)',
-          animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+            ? 'var(--border)'
+            : 'var(--border)',
         }} />
 
         <div style={{
           position: 'relative', zIndex: 1,
-          background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-          borderRadius: '20px', padding: '24px 28px',
+          background: 'var(--bg-card)',
+          borderRadius: '8px', padding: '24px 28px',
         }}>
           {activeSignal ? (
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: '14px',
-                  background: `linear-gradient(135deg, ${activeSignal.long ? 'rgba(52,211,153,0.2), rgba(52,211,153,0.05)' : 'rgba(248,113,113,0.2), rgba(248,113,113,0.05)'})`,
+                  width: 48, height: 48, borderRadius: '12px',
+                  background: `linear-gradient(135deg, ${activeSignal.long ? 'rgba(62,158,110,0.2), rgba(62,158,110,0.05)' : 'rgba(196,84,78,0.2), rgba(196,84,78,0.05)'})`,
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  border: `1px solid ${activeSignal.long ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)'}`,
+                  border: `1px solid ${activeSignal.long ? 'rgba(62,158,110,0.15)' : 'rgba(196,84,78,0.15)'}`,
                 }}>
                   {activeSignal.long ? <TrendingUp size={22} style={{ color: 'var(--success)' }} /> : <ArrowDownRight size={22} style={{ color: 'var(--danger)' }} />}
                 </div>
@@ -5168,10 +4559,10 @@ function App() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span style={{
                       padding: '3px 10px', borderRadius: '8px', fontSize: '0.65rem', fontWeight: 700,
-                      background: activeSignal.long ? 'rgba(52,211,153,0.12)' : 'rgba(248,113,113,0.12)',
+                      background: activeSignal.long ? 'rgba(62,158,110,0.12)' : 'rgba(196,84,78,0.12)',
                       color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
                     }}>{activeSignal.long ? 'LONG' : 'SHORT'}</span>
-                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif" }}>
+                    <span style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
                       XAU/USD &middot; {formatLeverage(activeSignal.leverage)}x{(isAdmin || (activeSignal && userPositions[Number(activeSignal.id)])) ? ` · Entry $${formatGTradePrice(activeSignal.entryPrice)}` : ''}
                     </span>
                   </div>
@@ -5190,7 +4581,7 @@ function App() {
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '8px',
                   padding: '10px 16px', borderRadius: '12px',
-                  background: 'rgba(212,168,67,0.08)', border: '1px solid rgba(212,168,67,0.15)',
+                  background: 'rgba(224, 164, 58,0.08)', border: '1px solid rgba(224, 164, 58,0.15)',
                 }}>
                   <CheckCircle2 size={16} style={{ color: 'var(--accent)' }} />
                   <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--accent)' }}>
@@ -5203,7 +4594,7 @@ function App() {
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: '14px',
+                  width: 48, height: 48, borderRadius: '12px',
                   background: 'linear-gradient(135deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
                   border: '1px solid rgba(255,255,255,0.06)',
@@ -5229,7 +4620,7 @@ function App() {
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <div style={{
-                  padding: '8px 14px', borderRadius: '10px',
+                  padding: '8px 14px', borderRadius: '12px',
                   background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
                   display: 'flex', alignItems: 'center', gap: '6px',
                 }}>
@@ -5279,24 +4670,18 @@ function App() {
         </motion.div>
 
         {/* Compact stat row */}
-        <motion.div variants={fadeUp} custom={1} style={{
-          display: 'flex', flexDirection: 'column', gap: '8px',
-        }}>
+        <motion.div variants={fadeUp} custom={1} className="dash-figure-stack">
           {[
             { icon: <BarChart3 size={14} />, label: 'Signals', value: signalCount, color: 'var(--text-primary)' },
             { icon: <Copy size={14} />, label: 'My Trades', value: Object.keys(userPositions).length, color: 'var(--accent)' },
             { icon: <Coins size={14} />, label: 'Fee', value: `${(feePercent / 100).toFixed(0)}%`, color: 'var(--text-primary)' },
           ].map(s => (
-            <div key={s.label} style={{
-              flex: 1, display: 'flex', alignItems: 'center', gap: '10px',
-              padding: '12px 16px', borderRadius: '12px',
-              background: 'rgba(12,15,21,0.7)', border: '1px solid var(--border)',
-            }}>
+            <div key={s.label} className="dash-figure-row">
               <span style={{ color: 'var(--accent)', opacity: 0.7 }}>{s.icon}</span>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: '0.7rem', color: 'var(--text-primary)', fontWeight: 600 }}>{s.label}</div>
               </div>
-              <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
+              <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700, color: s.color }}>{s.value}</div>
             </div>
           ))}
         </motion.div>
@@ -5308,31 +4693,30 @@ function App() {
         initial="hidden"
         animate="visible"
         className="autocopy-banner"
-        style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginBottom: '16px' }}
+        style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginBottom: '16px' }}
       >
         {/* Animated glow border */}
         <div style={{
-          position: 'absolute', inset: '-1px', borderRadius: '20px',
+          position: 'absolute', inset: '-1px', borderRadius: '8px',
           background: autoCopyConfig.enabled
-            ? 'conic-gradient(from 200deg, transparent, rgba(52,211,153,0.3), transparent, rgba(52,211,153,0.15), transparent)'
-            : 'conic-gradient(from 200deg, transparent, rgba(212,168,67,0.25), transparent, rgba(139,92,246,0.15), transparent)',
-          animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.6,
+            ? 'var(--border)'
+            : 'var(--border)',
         }} />
 
         {/* Inner content */}
         <div style={{
           position: 'relative', zIndex: 1,
-          background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-          borderRadius: '20px', padding: '24px 28px',
+          background: 'var(--bg-card)',
+          borderRadius: '8px', padding: '24px 28px',
         }}>
           {autoCopyConfig.enabled ? (
             <div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '14px' }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: '14px',
-                  background: 'linear-gradient(135deg, rgba(52,211,153,0.2), rgba(52,211,153,0.05))',
+                  width: 48, height: 48, borderRadius: '12px',
+                  background: 'linear-gradient(135deg, rgba(62,158,110,0.2), rgba(62,158,110,0.05))',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  border: '1px solid rgba(52,211,153,0.15)',
+                  border: '1px solid rgba(62,158,110,0.15)',
                 }}>
                   <BrainCircuit size={22} style={{ color: 'var(--success)' }} />
                 </div>
@@ -5342,7 +4726,7 @@ function App() {
                     <span className="pulse-dot" style={{ width: 8, height: 8 }} />
                   </div>
                   <span style={{
-                    fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.2rem', fontWeight: 700,
+                    fontFamily: 'var(--font-mono)', fontSize: '1.2rem', fontWeight: 700,
                     color: 'var(--accent-light)',
                   }}>
                     ${autoCopyConfig.amount.toFixed(2)}
@@ -5357,7 +4741,7 @@ function App() {
                   background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.2)',
                   display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap',
                 }}>
-                  <AlertTriangle size={16} style={{ color: '#F59E0B', flexShrink: 0 }} />
+                  <AlertTriangle size={16} style={{ color: 'var(--accent)', flexShrink: 0 }} />
                   <span style={{ fontSize: '0.8rem', color: 'rgba(255,255,255,0.8)', flex: 1 }}>
                     Balance <b>${arbUsdcBalance.toFixed(2)}</b> is below your auto-copy of <b>${autoCopyConfig.amount.toFixed(0)}</b>. Top up your wallet or you'll miss the next trade.
                   </span>
@@ -5366,7 +4750,7 @@ function App() {
                       onClick={() => { setCopyAmount(Math.floor(arbUsdcBalance).toString()); setShowCopyModal(true); }}
                       style={{
                         padding: '6px 14px', borderRadius: '8px', fontSize: '0.75rem', fontWeight: 600,
-                        background: 'rgba(245,158,11,0.15)', color: '#F59E0B', border: '1px solid rgba(245,158,11,0.3)',
+                        background: 'rgba(245,158,11,0.15)', color: 'var(--accent)', border: '1px solid rgba(245,158,11,0.3)',
                         cursor: 'pointer', whiteSpace: 'nowrap',
                       }}
                     >
@@ -5377,8 +4761,8 @@ function App() {
               )}
               <div style={{ display: 'flex', gap: '8px' }}>
                 <div style={{
-                  flex: 1, padding: '10px 14px', borderRadius: '10px',
-                  background: 'rgba(52,211,153,0.06)', border: '1px solid rgba(52,211,153,0.1)',
+                  flex: 1, padding: '10px 14px', borderRadius: '12px',
+                  background: 'rgba(62,158,110,0.06)', border: '1px solid rgba(62,158,110,0.1)',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                 }}>
                   <CheckCircle2 size={13} style={{ color: 'var(--success)' }} />
@@ -5401,10 +4785,10 @@ function App() {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
                   <div style={{
-                    width: 48, height: 48, borderRadius: '14px',
-                    background: 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.05))',
+                    width: 48, height: 48, borderRadius: '12px',
+                    background: 'linear-gradient(135deg, rgba(224, 164, 58,0.2), rgba(224, 164, 58,0.05))',
                     display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                    border: '1px solid rgba(212,168,67,0.15)',
+                    border: '1px solid rgba(224, 164, 58,0.15)',
                   }}>
                     <BrainCircuit size={22} style={{ color: 'var(--accent)' }} />
                   </div>
@@ -5419,7 +4803,7 @@ function App() {
                 </div>
                 <div style={{
                   display: 'flex', alignItems: 'center', gap: '6px',
-                  padding: '5px 12px', borderRadius: '20px',
+                  padding: '5px 12px', borderRadius: '8px',
                   background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
                 }}>
                   <Lock size={10} style={{ color: 'var(--text-secondary)' }} />
@@ -5429,7 +4813,7 @@ function App() {
 
               {/* Bottom: amount selection + enable */}
               <div style={{
-                padding: '14px 16px', borderRadius: '14px',
+                padding: '14px 16px', borderRadius: '12px',
                 background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)',
               }}>
                 <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontWeight: 600, display: 'block', marginBottom: '10px' }}>
@@ -5441,12 +4825,12 @@ function App() {
                       key={amt}
                       onClick={() => setAutoCopyAmount(String(amt))}
                       style={{
-                        padding: '7px 16px', borderRadius: '10px', fontSize: '0.75rem',
-                        fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                        padding: '7px 16px', borderRadius: '12px', fontSize: '0.75rem',
+                        fontWeight: 700, fontFamily: 'var(--font-mono)',
                         background: autoCopyAmount === String(amt)
-                          ? 'linear-gradient(135deg, rgba(212,168,67,0.2), rgba(212,168,67,0.08))'
+                          ? 'linear-gradient(135deg, rgba(224, 164, 58,0.2), rgba(224, 164, 58,0.08))'
                           : 'rgba(255,255,255,0.03)',
-                        border: `1px solid ${autoCopyAmount === String(amt) ? 'rgba(212,168,67,0.35)' : 'rgba(255,255,255,0.06)'}`,
+                        border: `1px solid ${autoCopyAmount === String(amt) ? 'rgba(224, 164, 58,0.35)' : 'rgba(255,255,255,0.06)'}`,
                         color: autoCopyAmount === String(amt) ? 'var(--accent)' : 'var(--text-secondary)',
                         cursor: 'pointer', transition: 'all 0.2s ease',
                       }}
@@ -5458,7 +4842,7 @@ function App() {
                     <span style={{
                       position: 'absolute', left: '11px', top: '50%', transform: 'translateY(-50%)',
                       fontSize: '0.8rem', color: 'var(--accent)', fontWeight: 700,
-                      fontFamily: "'Space Grotesk', sans-serif", pointerEvents: 'none',
+                      fontFamily: 'var(--font-mono)', pointerEvents: 'none',
                     }}>$</span>
                     <input
                       type="number"
@@ -5468,13 +4852,14 @@ function App() {
                       value={autoCopyAmount}
                       onChange={(e) => setAutoCopyAmount(e.target.value)}
                       style={{
-                        width: '80px', padding: '7px 10px 7px 24px',
-                        borderRadius: '10px', border: '1px solid rgba(255,255,255,0.08)',
+                        /* Mono runs wider than the old face — 80px clipped "Custom". */
+                        width: '112px', padding: '7px 10px 7px 24px',
+                        borderRadius: '12px', border: '1px solid rgba(255,255,255,0.08)',
                         background: 'rgba(255,255,255,0.03)', color: 'var(--text-primary)',
-                        fontSize: '0.8rem', fontFamily: "'Space Grotesk', sans-serif",
+                        fontSize: '0.8rem', fontFamily: 'var(--font-mono)',
                         fontWeight: 600, outline: 'none', transition: 'border-color 0.2s ease',
                       }}
-                      onFocus={(e) => e.target.style.borderColor = 'rgba(212,168,67,0.4)'}
+                      onFocus={(e) => e.target.style.borderColor = 'rgba(224, 164, 58,0.4)'}
                       onBlur={(e) => e.target.style.borderColor = 'rgba(255,255,255,0.08)'}
                     />
                   </div>
@@ -5513,7 +4898,7 @@ function App() {
         {/* Platform Performance */}
         <div style={{
           background: 'var(--bg-card)',
-          borderRadius: '16px',
+          borderRadius: '8px',
           padding: '24px',
           border: '1px solid var(--border)',
         }}>
@@ -5528,7 +4913,7 @@ function App() {
               display: 'flex', alignItems: 'center', justifyContent: 'space-between',
               padding: '14px 16px', borderRadius: '12px', marginBottom: '12px',
               background: performanceStats.platform.today.totalCopied > 0
-                ? 'linear-gradient(135deg, rgba(52,211,153,0.06) 0%, rgba(52,211,153,0.02) 100%)'
+                ? 'linear-gradient(135deg, rgba(62,158,110,0.06) 0%, rgba(62,158,110,0.02) 100%)'
                 : 'rgba(255,255,255,0.02)',
               border: '1px solid rgba(255,255,255,0.06)',
             }}>
@@ -5548,7 +4933,7 @@ function App() {
                   todaySignals.forEach(s => { todayPnl += s.tradePct; });
                   return (
                     <div style={{
-                      fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.5rem', fontWeight: 800,
+                      fontFamily: 'var(--font-sans)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em', fontSize: '1.5rem', fontWeight: 800,
                       color: todayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
                     }}>
                       {todayPnl >= 0 ? '+' : ''}{todayPnl.toFixed(1)}%
@@ -5559,35 +4944,26 @@ function App() {
             </div>
           )}
 
-          <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+          <div className="dash-stats-grid">
             {[
               { label: 'Today', data: performanceStats.platform.today },
               { label: '7 Days', data: performanceStats.platform.week },
               { label: '30 Days', data: performanceStats.platform.month },
               { label: 'All Time', data: performanceStats.platform.all },
             ].map(({ label, data }) => {
-              // Calculate total PnL for this period
-              const cutoff = label === 'Today' ? 86400 : label === '7 Days' ? 7 * 86400 : label === '30 Days' ? 30 * 86400 : 0;
-              const now = Math.floor(Date.now() / 1000);
-              const startOfDay = new Date(); startOfDay.setHours(0,0,0,0);
-              const todayCutoff = Math.floor(startOfDay.getTime() / 1000);
-              const periodCutoff = label === 'Today' ? todayCutoff : label === '7 Days' ? now - 7 * 86400 : label === '30 Days' ? now - 30 * 86400 : 0;
-              const periodSignals = signalHistory.filter(s => s.closed && Number(s.resultPct) !== 0 && (periodCutoff === 0 || Number(s.closedAt) >= periodCutoff));
-              let periodPct = 0;
-              periodSignals.forEach(s => { periodPct += s.tradePct; });
+              // performanceStats already computed this against the same period
+              // cutoffs. Recomputing here drifted: this block used local
+              // midnight while performanceStats uses UTC, so "Today" could
+              // disagree with the W/L count printed underneath it.
+              const periodPct = data.returnPct;
 
               return (
-                <div key={label} style={{
-                  background: 'rgba(255,255,255,0.02)',
-                  borderRadius: '10px',
-                  padding: '12px',
-                  textAlign: 'center',
-                }}>
+                <div key={label} className="dash-stat-tile">
                   <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
                     {label}
                   </div>
                   <div style={{
-                    fontSize: '1.1rem', fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif", marginBottom: '4px',
+                    fontSize: '1.1rem', fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: '4px',
                     color: periodPct > 0 ? 'var(--success)' : periodPct < 0 ? 'var(--danger)' : 'var(--text-primary)',
                   }}>
                     {data.trades > 0 ? `${periodPct >= 0 ? '+' : ''}${periodPct.toFixed(1)}%` : '-'}
@@ -5595,6 +4971,11 @@ function App() {
                   <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)' }}>
                     {data.trades} trades · {data.wins}W / {data.losses}L
                   </div>
+                  {data.trades > 0 && (
+                    <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                      {data.netUsdc >= 0 ? '+' : '−'}${Math.abs(data.netUsdc).toFixed(2)} on ${data.deposited.toFixed(0)}
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -5604,7 +4985,7 @@ function App() {
         {/* My PnL */}
         <div style={{
           background: 'var(--bg-card)',
-          borderRadius: '16px',
+          borderRadius: '8px',
           padding: '24px',
           border: '1px solid var(--border)',
         }}>
@@ -5613,26 +4994,21 @@ function App() {
             <h3 style={{ margin: 0, fontSize: '1rem', color: 'var(--text-primary)' }}>My PnL</h3>
           </div>
 
-          <div className="dash-stats-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: '8px' }}>
+          <div className="dash-stats-grid">
             {[
               { label: 'Today', data: performanceStats.my.today },
               { label: '7 Days', data: performanceStats.my.week },
               { label: '30 Days', data: performanceStats.my.month },
               { label: 'All Time', data: performanceStats.my.all },
             ].map(({ label, data }) => (
-              <div key={label} style={{
-                background: 'rgba(255,255,255,0.02)',
-                borderRadius: '10px',
-                padding: '12px',
-                textAlign: 'center',
-              }}>
+              <div key={label} className="dash-stat-tile">
                 <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
                   {label}
                 </div>
                 <div style={{
                   fontSize: '1.1rem',
                   fontWeight: 700,
-                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontFamily: 'var(--font-mono)',
                   color: data.pnl >= 0 ? (data.pnl > 0 ? 'var(--success)' : 'var(--text-primary)') : 'var(--danger)',
                   marginBottom: '4px',
                 }}>
@@ -5659,8 +5035,8 @@ function App() {
               {activeSignal && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <span style={{
-                    fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
-                    padding: '3px 10px', borderRadius: '20px',
+                    fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)',
+                    padding: '3px 10px', borderRadius: '8px',
                     background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)',
                   }}>
                     #{Number(activeSignal.id)}
@@ -5676,27 +5052,27 @@ function App() {
                 {/* Header */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
                     <span className="pulse-dot" style={{ width: 8, height: 8 }} />
-                    <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1.1rem', fontWeight: 700 }}>XAU/USD</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.1rem', fontWeight: 700 }}>XAU/USD</span>
                     <span style={{
                       padding: '3px 10px',
-                      borderRadius: '20px',
+                      borderRadius: '8px',
                       fontSize: '0.65rem',
                       fontWeight: 700,
                       letterSpacing: '0.05em',
-                      background: activeSignal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                      background: activeSignal.long ? 'rgba(62, 158, 110, 0.15)' : 'rgba(196, 84, 78, 0.15)',
                       color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
-                      border: `1px solid ${activeSignal.long ? 'rgba(52, 211, 153, 0.3)' : 'rgba(248, 113, 113, 0.3)'}`
+                      border: `1px solid ${activeSignal.long ? 'rgba(62, 158, 110, 0.3)' : 'rgba(196, 84, 78, 0.3)'}`
                     }}>
                       {activeSignal.long ? 'LONG' : 'SHORT'}
                     </span>
                     <span style={{
                       padding: '3px 10px',
-                      borderRadius: '20px',
+                      borderRadius: '8px',
                       fontSize: '0.65rem',
                       fontWeight: 600,
-                      background: 'rgba(212, 168, 67, 0.1)',
+                      background: 'rgba(224, 164, 58, 0.1)',
                       color: 'var(--accent)',
-                      border: '1px solid rgba(212, 168, 67, 0.2)',
+                      border: '1px solid rgba(224, 164, 58, 0.2)',
                     }}>
                       {formatLeverage(activeSignal.leverage)}x
                     </span>
@@ -5725,17 +5101,17 @@ function App() {
                         marginBottom: '12px', textAlign: 'center', overflow: 'hidden',
                         background: hasPrice
                           ? isProfit
-                            ? 'linear-gradient(135deg, rgba(52,211,153,0.08) 0%, rgba(52,211,153,0.02) 100%)'
-                            : 'linear-gradient(135deg, rgba(248,113,113,0.08) 0%, rgba(248,113,113,0.02) 100%)'
+                            ? 'linear-gradient(135deg, rgba(62,158,110,0.08) 0%, rgba(62,158,110,0.02) 100%)'
+                            : 'linear-gradient(135deg, rgba(196,84,78,0.08) 0%, rgba(196,84,78,0.02) 100%)'
                           : 'rgba(255,255,255,0.03)',
-                        border: `1px solid ${hasPrice ? (isProfit ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'rgba(255,255,255,0.06)'}`,
+                        border: `1px solid ${hasPrice ? (isProfit ? 'rgba(62,158,110,0.15)' : 'rgba(196,84,78,0.15)') : 'rgba(255,255,255,0.06)'}`,
                       }}>
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                           <div style={{ textAlign: 'center', padding: '4px 0' }}>
                             <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: '6px' }}>
                               Live Price
                             </div>
-                            <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '1.5rem', lineHeight: 1 }}>
+                            <div style={{ fontFamily: 'var(--font-sans)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em', fontWeight: 700, fontSize: '1.5rem', lineHeight: 1 }}>
                               {hasPrice ? `$${livePrice.toFixed(2)}` : '—'}
                             </div>
                           </div>
@@ -5747,7 +5123,7 @@ function App() {
                               PnL
                             </div>
                             <div style={{
-                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: '1.5rem', lineHeight: 1,
+                              fontFamily: 'var(--font-sans)', fontVariantNumeric: 'tabular-nums', letterSpacing: '-0.03em', fontWeight: 800, fontSize: '1.5rem', lineHeight: 1,
                               color: hasPrice ? (isProfit ? 'var(--success)' : 'var(--danger)') : 'var(--text-secondary)',
                             }}>
                               {hasPrice ? `${isProfit ? '+' : ''}${livePnl.toFixed(2)}%` : '—'}
@@ -5757,7 +5133,7 @@ function App() {
                               const pnlUSD = col * livePnl / 100;
                               return (
                                 <div style={{
-                                  fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.75rem', fontWeight: 600, marginTop: '4px',
+                                  fontFamily: 'var(--font-mono)', fontSize: '0.75rem', fontWeight: 600, marginTop: '4px',
                                   color: pnlUSD >= 0 ? 'var(--success)' : 'var(--danger)', opacity: 0.8,
                                 }}>
                                   {pnlUSD >= 0 ? '+' : '-'}${Math.abs(pnlUSD).toFixed(2)}
@@ -5780,7 +5156,7 @@ function App() {
                   <div style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                     padding: '10px', borderRadius: '8px',
-                    background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.2)',
+                    background: 'rgba(224, 164, 58, 0.08)', border: '1px solid rgba(224, 164, 58, 0.2)',
                     fontSize: '0.75rem', color: 'var(--accent)',
                   }}>
                     <CheckCircle2 size={14} />
@@ -5821,14 +5197,14 @@ function App() {
         <motion.div className="dash-action-panel" variants={slideInRight} initial="hidden" whileInView="visible" viewport={{ once: true }} style={{ maxHeight: '520px', display: 'flex', flexDirection: 'column' }}>
           <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', overflow: 'hidden', flex: 1 }}>
             {/* Tab switcher */}
-            <div style={{ display: 'flex', gap: '0', marginBottom: '16px', borderRadius: '10px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <div style={{ display: 'flex', gap: '0', marginBottom: '16px', borderRadius: '12px', overflow: 'hidden', border: '1px solid rgba(255,255,255,0.06)' }}>
               {[
                 { key: 'positions', label: 'My Positions' },
                 { key: 'journal', label: 'Journal' },
               ].map(t => (
                 <button key={t.key} onClick={() => setPositionsTab(t.key)} style={{
                   flex: 1, padding: '8px', fontSize: '0.75rem', fontWeight: 600,
-                  background: positionsTab === t.key ? 'rgba(212,168,67,0.1)' : 'transparent',
+                  background: positionsTab === t.key ? 'rgba(224, 164, 58,0.1)' : 'transparent',
                   color: positionsTab === t.key ? 'var(--accent)' : 'var(--text-secondary)',
                   border: 'none', cursor: 'pointer',
                   borderRight: t.key === 'positions' ? '1px solid rgba(255,255,255,0.06)' : 'none',
@@ -5875,7 +5251,7 @@ function App() {
                       background: 'rgba(255,255,255,0.02)',
                       borderRadius: '12px',
                       padding: '16px',
-                      border: `1px solid ${isClosed ? (result >= 0 ? 'rgba(52,211,153,0.15)' : 'rgba(248,113,113,0.15)') : 'var(--border)'}`,
+                      border: `1px solid ${isClosed ? (result >= 0 ? 'rgba(62,158,110,0.15)' : 'rgba(196,84,78,0.15)') : 'var(--border)'}`,
                     }}>
                       {/* Header: direction + status */}
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
@@ -5885,7 +5261,7 @@ function App() {
                             borderRadius: '12px',
                             fontSize: '0.65rem',
                             fontWeight: 700,
-                            background: signal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                            background: signal.long ? 'rgba(62, 158, 110, 0.15)' : 'rgba(196, 84, 78, 0.15)',
                             color: signal.long ? 'var(--success)' : 'var(--danger)',
                           }}>
                             {signal.long ? 'LONG' : 'SHORT'}
@@ -5898,7 +5274,7 @@ function App() {
                           padding: '2px 10px',
                           borderRadius: '12px',
                           fontWeight: 600,
-                          background: (isClosed || livePrice) ? (pnlPct >= 0 ? 'rgba(52, 211, 153, 0.1)' : 'rgba(248, 113, 113, 0.1)') : 'rgba(212, 168, 67, 0.1)',
+                          background: (isClosed || livePrice) ? (pnlPct >= 0 ? 'rgba(62, 158, 110, 0.1)' : 'rgba(196, 84, 78, 0.1)') : 'rgba(224, 164, 58, 0.1)',
                           color: (isClosed || livePrice) ? (pnlPct >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
                         }}>
                           {(isClosed || livePrice) ? `${pnlPct >= 0 ? '+' : ''}${pnlPct.toFixed(2)}%` : 'OPEN'}
@@ -5909,12 +5285,12 @@ function App() {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
                         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
                           <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Invested</div>
-                          <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: '0.85rem' }}>${collateral.toFixed(2)}</div>
+                          <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, fontSize: '0.85rem' }}>${collateral.toFixed(2)}</div>
                         </div>
                         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
                           <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>PnL</div>
                           <div style={{
-                            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.85rem',
+                            fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.85rem',
                             color: (isClosed || livePrice) ? (pnlUSDC >= 0 ? 'var(--success)' : 'var(--danger)') : 'var(--accent)',
                           }}>
                             {(isClosed || livePrice) ? `${pnlUSDC >= 0 ? '+' : '-'}$${Math.abs(pnlUSDC).toFixed(2)}` : 'Pending'}
@@ -5923,7 +5299,7 @@ function App() {
                         <div style={{ background: 'rgba(255,255,255,0.03)', borderRadius: '8px', padding: '8px 10px', textAlign: 'center' }}>
                           <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', marginBottom: '3px', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{isClosed ? 'Payout' : 'Value'}</div>
                           <div style={{
-                            fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.85rem',
+                            fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.85rem',
                             color: (isClosed || livePrice) ? (payout > collateral ? 'var(--success)' : payout < collateral ? 'var(--danger)' : 'var(--text-primary)') : 'var(--accent)',
                           }}>
                             {(isClosed || livePrice) ? `$${payout.toFixed(2)}` : 'Pending'}
@@ -5951,7 +5327,7 @@ function App() {
                           <div style={{
                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px',
                             marginTop: '10px', padding: '10px', borderRadius: '8px', fontSize: '0.75rem',
-                            background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.15)',
+                            background: 'rgba(224, 164, 58, 0.08)', border: '1px solid rgba(224, 164, 58, 0.15)',
                             color: 'var(--accent)',
                           }}>
                             <Lock size={14} /> Claimable after active trade closes
@@ -6023,12 +5399,12 @@ function App() {
                     {/* Total summary */}
                     <div style={{
                       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                      padding: '10px 12px', borderRadius: '10px', marginBottom: '10px',
+                      padding: '10px 12px', borderRadius: '12px', marginBottom: '10px',
                       background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.04)',
                     }}>
                       <span style={{ fontSize: '0.65rem', color: 'var(--text-secondary)' }}>{claimed.length} trades claimed</span>
                       <span style={{
-                        fontFamily: "'Space Grotesk', sans-serif", fontSize: '0.9rem', fontWeight: 800,
+                        fontFamily: 'var(--font-mono)', fontSize: '0.9rem', fontWeight: 800,
                         color: totalPnl >= 0 ? 'var(--success)' : 'var(--danger)',
                       }}>
                         {totalPnl >= 0 ? '+' : '-'}${Math.abs(totalPnl).toFixed(2)}
@@ -6047,7 +5423,7 @@ function App() {
                         <div key={date} style={{ marginBottom: '6px' }}>
                           <div style={{
                             display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                            padding: '6px 8px', borderRadius: '6px',
+                            padding: '6px 8px', borderRadius: '8px',
                             background: 'rgba(255,255,255,0.02)',
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -6065,7 +5441,7 @@ function App() {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                               <span style={{ fontSize: '0.55rem', color: 'var(--text-secondary)' }}>{signals.length} trade{signals.length !== 1 ? 's' : ''}</span>
                               <span style={{
-                                fontSize: '0.7rem', fontWeight: 700, fontFamily: "'Space Grotesk', sans-serif",
+                                fontSize: '0.7rem', fontWeight: 700, fontFamily: 'var(--font-mono)',
                                 color: dayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
                               }}>
                                 {dayPnl >= 0 ? '+' : '-'}${Math.abs(dayPnl).toFixed(2)}
@@ -6083,12 +5459,12 @@ function App() {
                                 padding: '4px 8px 4px 16px', fontSize: '0.6rem',
                               }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-secondary)' }}>
-                                  <span style={{ width: '3px', height: '12px', borderRadius: '2px', background: pnlPct >= 0 ? 'rgba(52,211,153,0.5)' : 'rgba(248,113,113,0.5)' }} />
+                                  <span style={{ width: '3px', height: '12px', borderRadius: '8px', background: pnlPct >= 0 ? 'rgba(62,158,110,0.5)' : 'rgba(196,84,78,0.5)' }} />
                                   <span>#{Number(signal.id)}</span>
                                   <span style={{ color: signal.long ? 'var(--success)' : 'var(--danger)', fontWeight: 600 }}>{signal.long ? 'L' : 'S'}</span>
                                   <span>${col.toFixed(0)}</span>
                                 </div>
-                                <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, color: pnlPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
+                                <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: pnlPct >= 0 ? 'var(--success)' : 'var(--danger)' }}>
                                   {pnlUSD >= 0 ? '+' : '-'}${Math.abs(pnlUSD).toFixed(2)}
                                 </span>
                               </div>
@@ -6113,27 +5489,26 @@ function App() {
           initial="hidden"
           whileInView="visible"
           viewport={{ once: true }}
-          style={{ position: 'relative', borderRadius: '20px', overflow: 'hidden', marginTop: '16px' }}
+          style={{ position: 'relative', borderRadius: '8px', overflow: 'hidden', marginTop: '16px' }}
         >
           <div style={{
-            position: 'absolute', inset: '-1px', borderRadius: '20px',
-            background: 'conic-gradient(from 200deg, transparent, rgba(139,92,246,0.25), transparent, rgba(212,168,67,0.2), transparent)',
-            animation: 'spin 10s linear infinite', filter: 'blur(2px)', opacity: 0.5,
+            position: 'absolute', inset: '-1px', borderRadius: '8px',
+            background: 'var(--border)',
           }} />
           <div style={{
             position: 'relative', zIndex: 1,
-            background: 'var(--bg-card)', backdropFilter: 'blur(24px)',
-            borderRadius: '20px', padding: '24px 28px',
+            background: 'var(--bg-card)',
+            borderRadius: '8px', padding: '24px 28px',
           }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '20px', flexWrap: 'wrap' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                 <div style={{
-                  width: 48, height: 48, borderRadius: '14px',
-                  background: 'linear-gradient(135deg, rgba(139,92,246,0.2), rgba(212,168,67,0.1))',
+                  width: 48, height: 48, borderRadius: '12px',
+                  background: 'linear-gradient(135deg, rgba(122,133,139,0.2), rgba(224, 164, 58,0.1))',
                   display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-                  border: '1px solid rgba(139,92,246,0.15)',
+                  border: '1px solid rgba(122,133,139,0.15)',
                 }}>
-                  <Share2 size={22} style={{ color: '#8B5CF6' }} />
+                  <Share2 size={22} style={{ color: 'var(--violet)' }} />
                 </div>
                 <div>
                   <div style={{ fontSize: '1.05rem', fontWeight: 700, letterSpacing: '-0.01em', marginBottom: '4px' }}>
@@ -6153,14 +5528,14 @@ function App() {
                   marginBottom: '10px',
                 }}>
                   <div style={{ textAlign: 'center', flex: 1 }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: '#8B5CF6' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--violet)' }}>
                       {referralStats.count}
                     </div>
                     <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>REFERRALS</div>
                   </div>
                   <div style={{ width: 1, background: 'rgba(255,255,255,0.06)' }} />
                   <div style={{ textAlign: 'center', flex: 1 }}>
-                    <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: 'var(--accent)' }}>
                       ${referralStats.volume.toFixed(0)}
                     </div>
                     <div style={{ fontSize: '0.6rem', color: 'var(--text-secondary)', letterSpacing: '0.05em' }}>VOLUME</div>
@@ -6172,7 +5547,7 @@ function App() {
                   padding: '10px 12px', borderRadius: '12px',
                   background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)',
                   fontSize: '0.7rem', color: 'var(--text-secondary)',
-                  fontFamily: "'Space Grotesk', sans-serif",
+                  fontFamily: 'var(--font-mono)',
                   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
                   marginBottom: '10px',
                 }}>
@@ -6204,7 +5579,7 @@ function App() {
             { label: 'Pair', value: 'XAU/USD', color: 'var(--accent-light)' },
             { label: 'Platform', value: 'gTrade', color: 'var(--text-primary)' },
             { label: 'Fee', value: `${(feePercent / 100).toFixed(0)}% on profit`, color: 'var(--text-primary)' },
-            { label: 'Network', value: 'Arbitrum', color: '#28A0F0' },
+            { label: 'Network', value: 'Arbitrum', color: 'var(--text-primary)' },
             { label: 'Collateral', value: 'USDC', color: 'var(--blue)' },
             { label: 'Signals', value: `${signalCount}`, color: 'var(--accent-light)' },
           ].map((item, i) => (
@@ -6232,9 +5607,9 @@ function App() {
                 { key: 'all', label: 'All' },
               ].map(p => (
                 <button key={p.key} onClick={() => setTradeLogPeriod(p.key)} style={{
-                  padding: '3px 8px', borderRadius: '6px', fontSize: '0.6rem', fontWeight: 600,
-                  background: tradeLogPeriod === p.key ? 'rgba(212,168,67,0.12)' : 'rgba(255,255,255,0.03)',
-                  border: `1px solid ${tradeLogPeriod === p.key ? 'rgba(212,168,67,0.25)' : 'rgba(255,255,255,0.06)'}`,
+                  padding: '3px 8px', borderRadius: '8px', fontSize: '0.6rem', fontWeight: 600,
+                  background: tradeLogPeriod === p.key ? 'rgba(224, 164, 58,0.12)' : 'rgba(255,255,255,0.03)',
+                  border: `1px solid ${tradeLogPeriod === p.key ? 'rgba(224, 164, 58,0.25)' : 'rgba(255,255,255,0.06)'}`,
                   color: tradeLogPeriod === p.key ? 'var(--accent)' : 'var(--text-secondary)',
                   cursor: 'pointer',
                 }}>
@@ -6288,7 +5663,7 @@ function App() {
                       <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--text-primary)' }}>{date}</span>
                       {(group.wins > 0 || group.losses > 0) && (
                         <span style={{
-                          fontSize: '0.55rem', padding: '2px 6px', borderRadius: '4px',
+                          fontSize: '0.55rem', padding: '2px 6px', borderRadius: '8px',
                           background: 'rgba(255,255,255,0.04)', color: 'var(--text-secondary)',
                         }}>
                           {group.signals.length} trades
@@ -6307,7 +5682,7 @@ function App() {
                           ))}
                         </div>
                         <span style={{
-                          fontSize: '0.75rem', fontWeight: 800, fontFamily: "'Space Grotesk', sans-serif",
+                          fontSize: '0.75rem', fontWeight: 800, fontFamily: 'var(--font-mono)',
                           color: group.dayPnl >= 0 ? 'var(--success)' : 'var(--danger)',
                         }}>
                           {group.dayPnl >= 0 ? '+' : ''}{group.dayPnl.toFixed(1)}%
@@ -6337,13 +5712,13 @@ function App() {
                         style={{
                           display: 'flex', alignItems: 'center', gap: '12px',
                           padding: '10px 1.75rem',
-                          borderLeft: `3px solid ${isClosed ? (isWin ? 'rgba(52,211,153,0.4)' : 'rgba(248,113,113,0.4)') : 'rgba(212,168,67,0.4)'}`,
+                          borderLeft: `3px solid ${isClosed ? (isWin ? 'rgba(62,158,110,0.4)' : 'rgba(196,84,78,0.4)') : 'rgba(224, 164, 58,0.4)'}`,
                           borderBottom: '1px solid rgba(255,255,255,0.02)',
                         }}
                       >
                         {/* Signal # */}
                         <span style={{
-                          fontSize: '0.6rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif",
+                          fontSize: '0.6rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)',
                           minWidth: '24px',
                         }}>
                           #{Number(signal.id)}
@@ -6351,8 +5726,8 @@ function App() {
 
                         {/* Direction badge */}
                         <span style={{
-                          padding: '2px 6px', borderRadius: '4px', fontSize: '0.55rem', fontWeight: 700,
-                          background: signal.long ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
+                          padding: '2px 6px', borderRadius: '8px', fontSize: '0.55rem', fontWeight: 700,
+                          background: signal.long ? 'rgba(62,158,110,0.1)' : 'rgba(196,84,78,0.1)',
                           color: signal.long ? 'var(--success)' : 'var(--danger)',
                           minWidth: '36px', textAlign: 'center',
                         }}>
@@ -6360,7 +5735,7 @@ function App() {
                         </span>
 
                         {/* Entry price */}
-                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontFamily: "'Space Grotesk', sans-serif", flex: 1 }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)', flex: 1 }}>
                           ${formatGTradePrice(signal.entryPrice)}
                         </span>
 
@@ -6372,10 +5747,10 @@ function App() {
                         {/* Copied badge */}
                         {account && (
                           <span style={{
-                            padding: '2px 5px', borderRadius: '4px', fontSize: '0.5rem', fontWeight: 600,
-                            background: userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.1)' : 'rgba(255,255,255,0.04)',
+                            padding: '2px 5px', borderRadius: '8px', fontSize: '0.5rem', fontWeight: 600,
+                            background: userPositions[Number(signal.id)] ? 'rgba(62,158,110,0.1)' : 'rgba(255,255,255,0.04)',
                             color: userPositions[Number(signal.id)] ? 'var(--success)' : 'var(--text-secondary)',
-                            border: `1px solid ${userPositions[Number(signal.id)] ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
+                            border: `1px solid ${userPositions[Number(signal.id)] ? 'rgba(62,158,110,0.2)' : 'rgba(255,255,255,0.06)'}`,
                           }}>
                             {userPositions[Number(signal.id)] ? 'COPIED' : 'NOT COPIED'}
                           </span>
@@ -6385,14 +5760,14 @@ function App() {
                         <div style={{ textAlign: 'right', minWidth: '55px' }}>
                           {isClosed ? (
                             <span style={{
-                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.8rem',
+                              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.8rem',
                               color: isWin ? 'var(--success)' : 'var(--danger)',
                             }}>
                               {isWin ? '+' : ''}{pnl.toFixed(1)}%
                             </span>
                           ) : livePnlVal !== null ? (
                             <span style={{
-                              fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: '0.8rem',
+                              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: '0.8rem',
                               color: livePnlVal >= 0 ? 'var(--success)' : 'var(--danger)',
                             }}>
                               {livePnlVal >= 0 ? '+' : ''}{livePnlVal.toFixed(1)}%
@@ -6438,7 +5813,7 @@ function App() {
                 style={{ overflow: 'hidden' }}
               >
                 {/* Quick Signal Generator — one click trade */}
-                <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid rgba(212,168,67,0.2)', marginBottom: '16px' }}>
+                <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '24px', border: '1px solid rgba(224, 164, 58,0.2)', marginBottom: '16px' }}>
                   <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Quick Trade</h3>
                   <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
                     <div className="input-container" style={{ flex: 1 }}>
@@ -6462,7 +5837,7 @@ function App() {
                         disabled={isLoading || activeSignal}
                         className="btn"
                         style={{
-                          flex: 1, padding: '14px', fontSize: '1rem', fontWeight: 800, border: 'none', borderRadius: '10px', cursor: 'pointer',
+                          flex: 1, padding: '14px', fontSize: '1rem', fontWeight: 800, border: 'none', borderRadius: '12px', cursor: 'pointer',
                           background: isLong ? 'linear-gradient(135deg, var(--accent), var(--accent-light))' : 'var(--danger)',
                           color: isLong ? 'var(--bg-primary)' : '#fff',
                           opacity: (isLoading || activeSignal) ? 0.5 : 1,
@@ -6471,9 +5846,7 @@ function App() {
                           if (!isAdmin || !contractRef.current) return;
                           try {
                             setIsLoading(true);
-                            const res = await fetch('https://hermes.pyth.network/v2/updates/price/latest?ids[]=0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2');
-                            const d = await res.json();
-                            const price = Number(d.parsed[0].price.price) * Math.pow(10, Number(d.parsed[0].price.expo));
+                            const price = await fetchGoldPrice();
                             const entry = Math.round(price);
                             const tpDist = Number(signalGen.tpDistance) || 20;
                             const slDist = Number(signalGen.slDistance) || 30;
@@ -6507,7 +5880,7 @@ function App() {
 
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   {/* Post Signal */}
-                  <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '24px', border: '1px solid var(--border)' }}>
                     <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Post Signal</h3>
                     <form onSubmit={handlePostSignal}>
                       <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
@@ -6541,6 +5914,39 @@ function App() {
                         <input type="number" step="1" className="input-field" placeholder="Leverage (e.g. 28)" value={signalForm.leverage} onChange={(e) => setSignalForm(prev => ({ ...prev, leverage: e.target.value }))} />
                         <div className="input-suffix">{signalForm.leverage}x</div>
                       </div>
+                      {/* Live risk/reward readout — the decision belongs here,
+                          in front of the button, not in an alert after it. */}
+                      {(() => {
+                        const rr = evaluateSignalRR(signalForm);
+                        if (!rr) return null;
+                        if (rr.invalid) {
+                          return (
+                            <div style={{ marginBottom: '12px', padding: '10px 12px', border: '1px solid var(--danger)', borderRadius: 'var(--r-md)', background: 'var(--neg-a10)', fontSize: '0.75rem', color: 'var(--danger)' }}>
+                              {rr.reason}
+                            </div>
+                          );
+                        }
+                        const tone = rr.blocked ? 'var(--danger)' : rr.thin ? 'var(--accent)' : 'var(--success)';
+                        const bg = rr.blocked ? 'var(--neg-a10)' : rr.thin ? 'var(--gold-a08)' : 'var(--pos-a10)';
+                        const verdict = rr.blocked ? 'Below break-even — blocked' : rr.thin ? `Thin — under the ${RR_TARGET} target` : 'Clears the target';
+                        return (
+                          <div style={{ marginBottom: '12px', padding: '10px 12px', border: `1px solid ${tone}`, borderRadius: 'var(--r-md)', background: bg }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '6px' }}>
+                              <span style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-secondary)' }}>R:R net of fees</span>
+                              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1rem', fontWeight: 700, color: tone }}>{rr.netRR.toFixed(2)}</span>
+                            </div>
+                            <div style={{ fontSize: '0.68rem', color: tone, marginBottom: '4px' }}>{verdict}</div>
+                            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                              gross {rr.grossRR.toFixed(2)} · needs {rr.breakEvenWinRate.toFixed(0)}% win rate · fees are {rr.feeDragPct.toFixed(0)}% of stop
+                            </div>
+                            {rr.feeDragPct > 15 && (
+                              <div style={{ fontSize: '0.65rem', color: 'var(--accent)', marginTop: '4px' }}>
+                                Stop is too tight for the fee. Around {(GTRADE_ROUNDTRIP_FEE / 0.15 * parseFloat(signalForm.entryPrice || 0)).toFixed(0)} points would keep fees under 15% of risk.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
                       <button type="submit" className="btn btn-primary btn-glow" style={{ width: '100%' }} disabled={isLoading}>
                         <Zap size={16} /> {isLoading ? 'Loading...' : 'Post Signal'}
                       </button>
@@ -6548,7 +5954,7 @@ function App() {
                   </div>
 
                   {/* Settle Signal */}
-                  <div style={{ background: 'var(--bg-card)', borderRadius: '16px', padding: '24px', border: '1px solid var(--border)' }}>
+                  <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '24px', border: '1px solid var(--border)' }}>
                     <h3 style={{ marginBottom: '16px', fontSize: '1rem' }}>Settle Signal</h3>
                     <form onSubmit={handleCloseSignal}>
                       <div className="input-container" style={{ marginBottom: '12px' }}>
@@ -6600,7 +6006,7 @@ function App() {
             onClick={() => setShowBridgeModal(false)}
             style={{
               position: 'fixed', inset: 0, zIndex: 1000,
-              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+              background: 'rgba(6,8,9,0.86)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: '20px',
             }}
@@ -6610,32 +6016,11 @@ function App() {
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.95 }}
               onClick={(e) => e.stopPropagation()}
-              style={{ maxWidth: '420px', width: '100%', borderRadius: '16px', overflow: 'hidden' }}
+              style={{ maxWidth: '420px', width: '100%', borderRadius: '8px', overflow: 'hidden' }}
             >
-              <QueryClientProvider client={queryClient}>
-                <LiFiWidget
-                  integrator="smart-goldbot"
-                  config={{
-                    appearance: 'dark',
-                    variant: 'compact',
-                    fromChain: 56,
-                    toChain: 42161,
-                    toToken: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
-                    hiddenUI: ['poweredBy', 'language', 'appearance'],
-                    theme: {
-                      container: {
-                        borderRadius: '16px',
-                        boxShadow: '0 0 60px rgba(0,0,0,0.6)',
-                      },
-                      palette: {
-                        primary: { main: '#D4A843' },
-                        secondary: { main: '#1a1a2e' },
-                        background: { default: '#0d0d1a', paper: '#1a1a2e' },
-                      },
-                    },
-                  }}
-                />
-              </QueryClientProvider>
+              <React.Suspense fallback={<BridgeWidgetSkeleton />}>
+                <BridgeWidget />
+              </React.Suspense>
             </motion.div>
           </motion.div>
         )}
@@ -6652,7 +6037,7 @@ function App() {
             onClick={() => { if (!bridgeLoading) setShowBridgeModal(false); }}
             style={{
               position: 'fixed', inset: 0, zIndex: 1000,
-              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+              background: 'rgba(6,8,9,0.86)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: '20px'
             }}
@@ -6663,7 +6048,7 @@ function App() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               onClick={(e) => e.stopPropagation()}
               style={{
-                background: 'var(--bg-secondary)', borderRadius: '20px',
+                background: 'var(--bg-secondary)', borderRadius: '8px',
                 padding: '28px', maxWidth: '440px', width: '100%',
                 border: '1px solid var(--border)'
               }}
@@ -6674,13 +6059,13 @@ function App() {
                   <ArrowLeftRight size={20} style={{ color: 'var(--accent)' }} />
                   <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Bridge</h3>
                 </div>
-                <button onClick={() => { if (!bridgeLoading) setShowBridgeModal(false); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
+                <button onClick={() => { if (!bridgeLoading) setShowBridgeModal(false); }} aria-label="Close bridge" style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}>
                   <X size={20} />
                 </button>
               </div>
 
               {/* Direction toggle */}
-              <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '10px', padding: '4px' }}>
+              <div style={{ display: 'flex', gap: '6px', marginBottom: '16px', background: 'rgba(255,255,255,0.03)', borderRadius: '12px', padding: '4px' }}>
                 <button
                   className={`btn ${bridgeDirection === 'toArbitrum' ? 'btn-primary' : 'btn-glass'}`}
                   style={{ flex: 1, padding: '8px', fontSize: '0.75rem' }}
@@ -6743,7 +6128,7 @@ function App() {
                   }}>
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>FROM</div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: bridgeDirection === 'toArbitrum' ? '#F3BA2F' : '#28A0F0' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: bridgeDirection === 'toArbitrum' ? '#F3BA2F' : 'var(--text-primary)' }}>
                         {bridgeDirection === 'toArbitrum' ? 'BNB Chain' : 'Arbitrum'}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
@@ -6753,7 +6138,7 @@ function App() {
                     <ArrowRight size={20} style={{ color: 'var(--accent)' }} />
                     <div style={{ textAlign: 'center' }}>
                       <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>TO</div>
-                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: bridgeDirection === 'toArbitrum' ? '#28A0F0' : '#F3BA2F' }}>
+                      <div style={{ fontSize: '0.85rem', fontWeight: 600, color: bridgeDirection === 'toArbitrum' ? 'var(--text-primary)' : '#F3BA2F' }}>
                         {bridgeDirection === 'toArbitrum' ? 'Arbitrum' : 'BNB Chain'}
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
@@ -6829,7 +6214,7 @@ function App() {
                   {/* Quote result */}
                   {bridgeQuote && (
                     <div style={{
-                      background: 'rgba(52, 211, 153, 0.06)', border: '1px solid rgba(52, 211, 153, 0.2)',
+                      background: 'rgba(62, 158, 110, 0.06)', border: '1px solid rgba(62, 158, 110, 0.2)',
                       borderRadius: '12px', padding: '14px', marginBottom: '16px'
                     }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
@@ -6854,8 +6239,8 @@ function App() {
                   {/* Error */}
                   {bridgeError && (
                     <div style={{
-                      background: 'rgba(248, 113, 113, 0.08)', border: '1px solid rgba(248, 113, 113, 0.2)',
-                      borderRadius: '10px', padding: '12px', marginBottom: '16px',
+                      background: 'rgba(196, 84, 78, 0.08)', border: '1px solid rgba(196, 84, 78, 0.2)',
+                      borderRadius: '12px', padding: '12px', marginBottom: '16px',
                       fontSize: '0.8rem', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '8px'
                     }}>
                       <AlertTriangle size={16} />
@@ -6866,8 +6251,8 @@ function App() {
                   {/* Status indicator */}
                   {bridgeStatus && bridgeStatus !== "error" && (
                     <div style={{
-                      background: 'rgba(212, 168, 67, 0.08)', border: '1px solid rgba(212, 168, 67, 0.2)',
-                      borderRadius: '10px', padding: '12px', marginBottom: '16px',
+                      background: 'rgba(224, 164, 58, 0.08)', border: '1px solid rgba(224, 164, 58, 0.2)',
+                      borderRadius: '12px', padding: '12px', marginBottom: '16px',
                       fontSize: '0.8rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px'
                     }}>
                       <Loader2 size={16} className="spin" />
@@ -6954,7 +6339,7 @@ function App() {
             onClick={() => setShowCopyModal(false)}
             style={{
               position: 'fixed', inset: 0, zIndex: 1000,
-              background: 'rgba(0,0,0,0.7)', backdropFilter: 'blur(8px)',
+              background: 'rgba(6,8,9,0.86)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: '20px'
             }}
@@ -6965,7 +6350,7 @@ function App() {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               onClick={(e) => e.stopPropagation()}
               style={{
-                background: 'var(--bg-secondary)', borderRadius: '20px',
+                background: 'var(--bg-secondary)', borderRadius: '8px',
                 padding: '28px', maxWidth: '420px', width: '100%',
                 border: '1px solid var(--border)'
               }}
@@ -6983,7 +6368,7 @@ function App() {
                   <span style={{ fontWeight: 600 }}>XAU/USD</span>
                   <span style={{
                     padding: '2px 10px', borderRadius: '12px', fontSize: '0.7rem', fontWeight: 700,
-                    background: activeSignal.long ? 'rgba(52, 211, 153, 0.15)' : 'rgba(248, 113, 113, 0.15)',
+                    background: activeSignal.long ? 'rgba(62, 158, 110, 0.15)' : 'rgba(196, 84, 78, 0.15)',
                     color: activeSignal.long ? 'var(--success)' : 'var(--danger)',
                   }}>
                     {activeSignal.long ? 'LONG' : 'SHORT'} {formatLeverage(activeSignal.leverage)}x
@@ -7025,7 +6410,7 @@ function App() {
                   ))}
                 </div>
 
-                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: 1.6, background: 'rgba(255,255,255,0.02)', borderRadius: '10px', padding: '10px 12px' }}>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', marginBottom: '14px', lineHeight: 1.6, background: 'rgba(255,255,255,0.02)', borderRadius: '12px', padding: '10px 12px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', marginBottom: '4px' }}>
                     <AlertTriangle size={12} />
                     <strong>How it works:</strong>
@@ -7049,29 +6434,23 @@ function App() {
 
   return (
     <>
-      {/* ===== BACKGROUND ===== */}
+      {/* ===== BACKGROUND =====
+          The top wash and the fold rule mark the hero on the landing page.
+          On an app screen they are meaningless — a lighter band and a stray
+          hairline cutting across the panels — so only the grid carries over. */}
       <div className="bg-system">
-        <div className="bg-hero-image" style={{ backgroundImage: "url('/hero-bg.png')" }} />
-        <div className="bg-hero-fade" />
-        <div className="bg-mesh" />
-        <div className="bg-orb bg-orb-1" />
-        <div className="bg-orb bg-orb-2" />
-        <div className="bg-orb bg-orb-3" />
-        <div className="bg-orb bg-orb-4" />
-        <div className="bg-dots" />
-        <div className="bg-noise" />
-        <div className="bg-vignette" />
+        <div className="bg-grid" />
       </div>
 
       <div className="app-container">
         {/* Navigation */}
         <nav className={`navbar ${scrolled ? 'navbar-scrolled' : ''}`}>
           <div className="brand">
-            <img src="/logo.png" alt="Smart Trading Club" className="brand-logo" />
+            <img src="/logo-mark.webp" alt="Smart Trading Club" className="brand-logo" width="38" height="38" />
             <span className="brand-text">Smart <span className="text-gold-gradient">Trading</span> Club</span>
           </div>
 
-          <div className={`nav-links ${mobileMenuOpen ? 'nav-links-open' : ''}`}>
+          <div id="primary-nav" className={`nav-links ${mobileMenuOpen ? 'nav-links-open' : ''}`}>
             {[
               { key: 'invest', label: 'Copy Trading' },
               { key: 'dashboard', label: 'Dashboard' },
@@ -7100,7 +6479,13 @@ function App() {
                 ? `${account.substring(0, 6)}...${account.substring(account.length - 4)}`
                 : (isConnecting ? "Connecting..." : "Connect")}
             </button>
-            <button className="mobile-menu-btn" onClick={() => setMobileMenuOpen(!mobileMenuOpen)} aria-label="Menu">
+            <button
+              className="mobile-menu-btn"
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={mobileMenuOpen}
+              aria-controls="primary-nav"
+            >
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
           </div>
@@ -7111,9 +6496,9 @@ function App() {
           {/* Legacy claim banner — visible on all tabs for this specific wallet */}
           {account && account.toLowerCase() === '0x52de1ec42554cd0867fe7d8a7eb105d09912afb3' && !legacyClaimed && (
             <div style={{
-              background: 'linear-gradient(135deg, rgba(212,168,67,0.1), rgba(212,168,67,0.05))',
-              border: '1px solid rgba(212,168,67,0.25)',
-              borderRadius: '16px', padding: '20px 24px', marginBottom: '16px',
+              background: 'linear-gradient(135deg, rgba(224, 164, 58,0.1), rgba(224, 164, 58,0.05))',
+              border: '1px solid rgba(224, 164, 58,0.25)',
+              borderRadius: '8px', padding: '20px 24px', marginBottom: '16px',
               display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px',
             }}>
               <div>
@@ -7187,7 +6572,7 @@ function App() {
 
         {/* Disclaimer */}
         <footer style={{
-          padding: '24px 16px', textAlign: 'center', fontSize: '0.65rem', color: 'rgba(255,255,255,0.25)',
+          padding: '32px 16px 40px', textAlign: 'center', fontSize: '0.75rem', color: 'var(--text-secondary)', opacity: 0.75,
           lineHeight: 1.6, maxWidth: '700px', margin: '0 auto',
           borderTop: '1px solid rgba(255,255,255,0.04)',
         }}>
