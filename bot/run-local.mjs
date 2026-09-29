@@ -21,10 +21,13 @@ function start() {
     if (fs.statSync(logFile).size > 20 * 1024 * 1024) fs.renameSync(logFile, `${logFile}.1`);
   } catch {}
   note("starting bot");
-  const out = fs.openSync(logFile, "a");
-  const child = spawn(process.execPath, ["close-watcher.js"], { cwd: dir, stdio: ["ignore", out, out] });
+  // Piped and appended here: handing the child a file descriptor left the log
+  // empty under a headless conhost.
+  const child = spawn(process.execPath, ["close-watcher.js"], { cwd: dir, stdio: ["ignore", "pipe", "pipe"] });
+  const append = (chunk) => { try { fs.appendFileSync(logFile, chunk); } catch {} };
+  child.stdout.on("data", append);
+  child.stderr.on("data", append);
   child.on("exit", (code, signal) => {
-    fs.closeSync(out);
     note(`bot exited (${code ?? signal}), restarting in 15s`);
     setTimeout(start, 15_000);
   });
