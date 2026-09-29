@@ -13,6 +13,7 @@
 import { ethers } from "ethers";
 import { createClient } from "@supabase/supabase-js";
 import { fetchGoldPrice } from "./gold-price.js";
+import { makeProvider } from "./rpc.js";
 
 const RPC = process.env.ARBITRUM_RPC_HTTPS;
 const COPY_TRADER = process.env.GOLD_COPY_TRADER_ADDRESS;
@@ -60,7 +61,7 @@ function getContract() {
     throw new Error("Missing env: ARBITRUM_RPC_HTTPS, GOLD_COPY_TRADER_ADDRESS, or ADMIN_PRIVATE_KEY");
   }
   if (!_contract) {
-    _provider = new ethers.JsonRpcProvider(RPC);
+    _provider = makeProvider(RPC);
     _wallet = new ethers.Wallet(ADMIN_KEY, _provider);
     _contract = new ethers.Contract(COPY_TRADER, COPY_TRADER_ABI, _wallet);
   }

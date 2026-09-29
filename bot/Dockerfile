@@ -11,5 +11,6 @@ COPY poll-state.js .
 COPY live-pnl.js .
 COPY signal-actions.js .
 COPY gold-price.js .
+COPY rpc.js .
 COPY autopilot.js .
 CMD ["node", "close-watcher.js"]

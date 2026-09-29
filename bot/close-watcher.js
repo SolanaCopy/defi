@@ -15,6 +15,7 @@ import { startTelegramAI, stopTelegramAI } from "./telegram-ai.js";
 import { startNewsAlerts, stopNewsAlerts } from "./news-alerts.js";
 import { startLivePnl, stopLivePnl, resumeLivePnl } from "./live-pnl.js";
 import { startAutopilot, stopAutopilot, dmAdmin } from "./autopilot.js";
+import { makeProvider } from "./rpc.js";
 
 // ===== CONFIG =====
 const {
@@ -406,15 +407,8 @@ class CloseWatcher {
     log(`Private key length: ${key?.length}, starts with 0x: ${key?.startsWith("0x")}, has spaces: ${key !== ADMIN_PRIVATE_KEY}`);
 
     // Set up HTTP provider for transactions (always needed)
-    const httpRpc = ARBITRUM_RPC_HTTPS || "https://arb1.arbitrum.io/rpc";
-    this.httpProvider = new ethers.JsonRpcProvider(httpRpc, undefined, {
-      staticNetwork: true,
-      pollingInterval: 30_000, // 30s instead of default 4s — prevents Infura rate limits
-      // One request per call. Public nodes (publicnode) mishandle ethers'
-      // JSON-RPC batches: a batched call could wait forever, which froze the
-      // trade monitor on its very first activeSignalId() read.
-      batchMaxCount: 1,
-    });
+    // One node or a comma-separated list spread over a FallbackProvider (rpc.js)
+    this.httpProvider = makeProvider(ARBITRUM_RPC_HTTPS);
     // Use same provider for logs — limit block range to 10 for Alchemy free tier
     this.wallet = new ethers.Wallet(key, this.httpProvider);
     this.copyTrader = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, this.wallet);
@@ -438,8 +432,12 @@ class CloseWatcher {
       log("Telegram not configured — notifications disabled");
     }
 
-    // Listen for contract events (deposits, claims, signals)
-    this.listenContractEvents();
+    // Contract events (deposits, claims, signals). Over HTTP, ethers polls
+    // eth_getLogs for each of the eight listeners; public nodes refuse those
+    // ("archive requests require a token") and the retries flooded the log and
+    // tripped every rate limit. With a WebSocket the node pushes the events,
+    // so connectWebSocket() registers them there instead.
+    if (!ARBITRUM_RPC_WSS) this.listenContractEvents();
 
     // Resume any live-PnL loops that were running before a restart
     resumeLivePnl({
@@ -503,8 +501,14 @@ class CloseWatcher {
 
   // ===== CONTRACT EVENT LISTENER =====
   listenContractEvents() {
+    // Re-run on every WebSocket reconnect: drop the listeners of the old socket
+    // first so each event is handled once.
+    if (this.eventContract) {
+      try { this.eventContract.removeAllListeners(); } catch {}
+    }
     const provider = this.wsProvider || this.httpProvider;
     const contract = new ethers.Contract(GOLD_COPY_TRADER_ADDRESS, COPY_TRADER_ABI, provider);
+    this.eventContract = contract;
 
     // Buttons defined at module level
 
@@ -1367,6 +1371,7 @@ class CloseWatcher {
       log("Connecting WebSocket...");
       this.wsProvider = new ethers.WebSocketProvider(ARBITRUM_RPC_WSS);
       this.gTradeDiamond = new ethers.Contract(GTRADE_DIAMOND, GTRADE_ABI, this.wsProvider);
+      this.listenContractEvents();
 
       // Filter: only events where user == our contract
       const contractAddr = GOLD_COPY_TRADER_ADDRESS;
