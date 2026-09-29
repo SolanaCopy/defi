@@ -8,7 +8,9 @@
 //
 // Guards, all configurable by env:
 //   AUTOPILOT                     "on" to start enabled (default off)
-//   AUTOPILOT_DRY_RUN             "1" logs the decision, sends nothing
+//   AUTOPILOT_DRY_RUN             "1" = paper trading: nothing goes on-chain or to
+//                                 the group; each signal is followed on gTrade's
+//                                 candles and its would-be result sent to the admin
 //   AUTOPILOT_LEVERAGE            leverage for every auto signal (default 25)
 //   AUTOPILOT_MIN_CONFIDENCE      minimum Scalp AI confidence (default 75)
 //   AUTOPILOT_MAX_TRADES_PER_DAY  executed trades per UTC day (default 4)
@@ -22,6 +24,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import { ethers } from "ethers";
 import { postSignalFromAnalysis, loadAnalysisRow, describePosted, DEFAULT_LEVERAGE } from "./signal-actions.js";
+import { fetchGoldBarsSince } from "./gold-price.js";
 
 const SITE = "https://www.smarttradingclub.io";
 const TICK_MS = 5 * 60_000;
@@ -45,7 +48,8 @@ const STATE_FILE = path.join(
 function loadState() {
   try { return JSON.parse(fs.readFileSync(STATE_FILE, "utf8")); } catch { return {}; }
 }
-const state = { enabled: process.env.AUTOPILOT === "on", handledRowId: null, lastRefresh: 0, ...loadState() };
+const state = { enabled: process.env.AUTOPILOT === "on", handledRowId: null, lastRefresh: 0, paper: { open: null, closed: [] }, ...loadState() };
+state.paper ||= { open: null, closed: [] };
 function saveState() {
   try { fs.writeFileSync(STATE_FILE, JSON.stringify(state)); } catch (e) { console.error("[AUTOPILOT] save failed:", e.message); }
 }
@@ -125,6 +129,71 @@ export async function fundedPool(provider, address) {
   return Number(total) / 1e6;
 }
 
+// ---------- paper trading ----------
+// Same cost model as research/backtest.py: gTrade XAU 0.035% each way plus
+// 0.01% slippage each way, 0.001%/h borrowing + funding, 20% fee on winners.
+const PAPER_COST_RT = 0.0009;
+const PAPER_HOLD_H = 0.00001;
+const PAPER_PERF_FEE = 0.2;
+const PAPER_TIME_STOP_H = 24;
+
+function paperToday(now = new Date()) {
+  const dayStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const today = state.paper.closed.filter((t) => t.openedAt >= dayStart);
+  const losses = today.filter((t) => t.result < 0);
+  return {
+    trades: today.length + (state.paper.open ? 1 : 0),
+    losses: losses.length,
+    lastLossAt: losses.length ? Math.max(...losses.map((t) => t.closedAt)) / 1000 : 0,
+  };
+}
+
+export function paperTally() {
+  const c = state.paper.closed;
+  const total = c.reduce((a, t) => a + t.result, 0);
+  const wins = c.filter((t) => t.result > 0).length;
+  return { trades: c.length, wins, total, open: state.paper.open };
+}
+
+// Walk 5-minute candles since entry. Stop and target in the same candle count
+// as the stop, as in the backtest.
+export async function resolvePaper() {
+  const t = state.paper.open;
+  if (!t) return;
+  const bars = await fetchGoldBarsSince(t.openedAt / 1000, 5);
+  let exit = null, reason = null, at = null;
+  for (const b of bars) {
+    if (b.t < t.openedAt) continue;
+    const hitSl = t.isLong ? b.l <= t.sl : b.h >= t.sl;
+    const hitTp = t.isLong ? b.h >= t.tp : b.l <= t.tp;
+    if (hitSl) { exit = t.sl; reason = "stop-loss"; at = b.t; break; }
+    if (hitTp) { exit = t.tp; reason = "take-profit"; at = b.t; break; }
+  }
+  const ageH = (Date.now() - t.openedAt) / 3.6e6;
+  if (exit == null && ageH >= PAPER_TIME_STOP_H && bars.length) {
+    exit = bars[bars.length - 1].c; reason = "24h time stop"; at = Date.now();
+  }
+  if (exit == null) return;
+
+  const hours = Math.max(1, (at - t.openedAt) / 3.6e6);
+  const move = ((exit - t.entry) / t.entry) * (t.isLong ? 1 : -1);
+  let result = Math.max((move - PAPER_COST_RT - PAPER_HOLD_H * hours) * t.leverage, -1);
+  if (result > 0) result *= 1 - PAPER_PERF_FEE;
+  state.paper.closed.push({ ...t, exit, reason, closedAt: at, result });
+  state.paper.open = null;
+  saveState();
+
+  const tally = paperTally();
+  await dmAdmin([
+    `📄 <b>PAPER TRADE CLOSED</b> — ${reason}`,
+    ``,
+    `${t.isLong ? "LONG" : "SHORT"} XAU/USD · entry $${t.entry.toFixed(2)} → exit $${exit.toFixed(2)}`,
+    `Result for a copier: <b>${result >= 0 ? "+" : ""}${(result * 100).toFixed(1)}%</b> of the amount copied (${t.leverage}x, after fees)`,
+    ``,
+    `Paper record: ${tally.trades} trades, ${tally.wins} won, total ${tally.total >= 0 ? "+" : ""}${(tally.total * 100).toFixed(1)}% of one stake`,
+  ].join("\n"));
+}
+
 // ---------- the loop ----------
 let timer = null;
 let provider = null;
@@ -132,6 +201,10 @@ let provider = null;
 async function tick() {
   try {
     if (!state.enabled) return;
+    if (cfg.dryRun) {
+      try { await resolvePaper(); } catch (e) { log(`paper resolve failed: ${e.message}`); }
+      if (state.paper.open) return; // one paper position at a time
+    }
     if (!goldMarketOpen()) return;
 
     // Keep the analysis fresh; the site only regenerates for an authorized caller.
@@ -158,13 +231,13 @@ async function tick() {
     if (s.id === state.handledRowId) return;
     if (Number(s.confidence) < cfg.minConfidence) return;
 
-    const rec = await todaysRecord(provider, process.env.GOLD_COPY_TRADER_ADDRESS);
+    const rec = cfg.dryRun ? paperToday() : await todaysRecord(provider, process.env.GOLD_COPY_TRADER_ADDRESS);
     if (rec.trades >= cfg.maxTradesPerDay) return log(`skip row ${s.id}: ${rec.trades} trades today (max ${cfg.maxTradesPerDay})`);
     if (rec.losses >= cfg.maxLossesPerDay) return log(`skip row ${s.id}: ${rec.losses} losses today — done for the day`);
     const sinceLoss = (Date.now() / 1000 - rec.lastLossAt) / 60;
     if (rec.lastLossAt && sinceLoss < cfg.cooldownMin) return log(`skip row ${s.id}: cooling down, last loss ${sinceLoss.toFixed(0)}m ago`);
 
-    const pool = await fundedPool(provider, process.env.GOLD_COPY_TRADER_ADDRESS);
+    const pool = cfg.dryRun ? Infinity : await fundedPool(provider, process.env.GOLD_COPY_TRADER_ADDRESS);
     if (pool * cfg.leverage < MIN_POSITION_USD) {
       return log(`skip row ${s.id}: funded auto-copy pool $${pool.toFixed(0)} × ${cfg.leverage}x is under gTrade's $${MIN_POSITION_USD} minimum`);
     }
@@ -177,9 +250,12 @@ async function tick() {
       return log(`row ${s.id} not posted: ${res.detail}`);
     }
     state.handledRowId = s.id;
+    if (cfg.dryRun) {
+      state.paper.open = { rowId: s.id, isLong: res.isLong, entry: res.entry, sl: res.sl, tp: res.tp, leverage: res.leverage, openedAt: Date.now() };
+    }
     saveState();
     await dmAdmin([
-      `🤖 <b>AUTOPILOT ${cfg.dryRun ? "(dry run) " : ""}POSTED</b>`,
+      cfg.dryRun ? `📄 <b>PAPER TRADE OPENED</b> — not on-chain, not in the group` : `🤖 <b>AUTOPILOT POSTED</b>`,
       ``,
       describePosted(res, row),
       ``,
@@ -217,8 +293,13 @@ export async function handleAutopilotCommand(arg) {
     today += `
 Funded auto-copy pool: $${pool.toFixed(2)} (needs $${(MIN_POSITION_USD / cfg.leverage).toFixed(0)}+ to trade)`;
   } catch {}
+  if (cfg.dryRun) {
+    const p = paperTally();
+    today += `\nPaper record: ${p.trades} trades, ${p.wins} won, total ${p.total >= 0 ? "+" : ""}${(p.total * 100).toFixed(1)}% of one stake` +
+      (p.open ? `\nOpen: ${p.open.isLong ? "LONG" : "SHORT"} from $${p.open.entry.toFixed(2)} (SL $${p.open.sl.toFixed(2)}, TP $${p.open.tp.toFixed(2)})` : "");
+  }
   return [
-    `🤖 Autopilot is <b>${state.enabled ? "ON" : "OFF"}</b>${cfg.dryRun ? " (dry run — nothing is sent)" : ""}`,
+    `🤖 Autopilot is <b>${state.enabled ? "ON" : "OFF"}</b>${cfg.dryRun ? " — PAPER mode (nothing on-chain, nothing in the group)" : " — LIVE"}`,
     `Market ${goldMarketOpen() ? "open" : "closed"} · leverage ${cfg.leverage}x · min confidence ${cfg.minConfidence}%`,
     `Cooldown after a loss: ${cfg.cooldownMin}m${today}`,
   ].join("\n");
