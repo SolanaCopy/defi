@@ -45,6 +45,11 @@ const MIN_POSITION_USD = 800;
 // A signal that has not opened this long after posting will not open: cancel it
 // and refund, or it blocks every signal after it (postSignal needs no active one).
 const STALE_COLLECTING_MIN = 30;
+// GROUP_QUIET=1 keeps the bot out of the public group: no polls, news, summaries,
+// milestones or trade posts. Admin DMs and replies to members still go out.
+// Meant for stretches with nothing to announce (paper trading, relaunch prep).
+const GROUP_QUIET = process.env.GROUP_QUIET === "1";
+
 const RECONNECT_DELAY = 5_000;
 const ARBISCAN_TX = "https://arbiscan.io/tx/";
 const ARBISCAN_ADDR = "https://arbiscan.io/address/";
@@ -130,6 +135,7 @@ function logError(msg, err) {
 // ===== TELEGRAM =====
 async function sendTelegram(text, buttons = []) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  if (GROUP_QUIET) { log(`[quiet] group message skipped: ${text.split("\n")[0].slice(0, 80)}`); return; }
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
     const body = {
@@ -158,6 +164,7 @@ async function sendTelegram(text, buttons = []) {
 
 async function sendTelegramPhoto(pngBuffer, caption = "", buttons = []) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return null;
+  if (GROUP_QUIET) { log(`[quiet] group photo skipped: ${caption.split("\n")[0].slice(0, 80)}`); return null; }
   try {
     const url = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`;
     const file = new File([pngBuffer], "notification.png", { type: "image/png" });
@@ -459,6 +466,9 @@ class CloseWatcher {
 
     // Trade monitor: checks gTrade every 30s when signal active (replaces heavy event polling)
     this.startTradeMonitor();
+
+    // Daily/weekly summaries + milestone tracking (once, not per reconnect)
+    this.startSchedulers();
 
     // Autopilot: posts Scalp AI signals on its own (off unless AUTOPILOT=on or /autopilot on)
     startAutopilot(this.httpProvider);
@@ -955,8 +965,14 @@ class CloseWatcher {
     });
 
     log("Contract event listeners active");
+  }
 
-    // Start daily/weekly summary + milestone tracking
+  // Once per process. These used to start at the end of listenContractEvents();
+  // since that re-runs on every WebSocket reconnect, each reconnect stacked
+  // another daily-summary timer and another milestone tracker.
+  startSchedulers() {
+    if (this.schedulersStarted) return;
+    this.schedulersStarted = true;
     this.startDailySummary();
     this.startWeeklySummary();
     this.startMilestoneTracker();
@@ -1190,6 +1206,17 @@ class CloseWatcher {
   }
 
   async startMilestoneTracker() {
+    await this.initMilestones();
+    // Until the baseline is known, keep trying to read it instead of checking:
+    // a zero baseline made every past milestone look new and posted them all.
+    setInterval(async () => {
+      if (!this.milestonesReady) await this.initMilestones();
+      else await this.checkMilestones();
+    }, 3600_000); // every hour
+    log("Milestone tracker started");
+  }
+
+  async initMilestones() {
     // Read current state so we don't re-fire milestones on restart
     try {
       const contract = this.copyTrader;
@@ -1219,16 +1246,12 @@ class CloseWatcher {
       this.lastCopierMilestone = copierCount;
       this.lastTradeMilestone = total;
       this.lastProfitMilestone = initProfit;
+      this.milestonesReady = true;
       log(`Milestones initialized: vol=$${totalVolume.toFixed(0)}, copiers=${copierCount}, trades=${total}, profit=$${initProfit.toFixed(0)}`);
     } catch (err) {
-      this.lastVolumeMilestone = 0;
-      this.lastCopierMilestone = 0;
-      this.lastTradeMilestone = 0;
-      this.lastProfitMilestone = 0;
-      log(`Milestone init error: ${err.message}`);
+      this.milestonesReady = false;
+      log(`Milestone init error (retrying in 1h, no milestones posted meanwhile): ${err.message?.slice(0, 120)}`);
     }
-    setInterval(() => this.checkMilestones(), 3600_000); // check every 1 hour (was 5 min)
-    log("Milestone tracker started");
   }
 
   async checkMilestones() {

@@ -20,6 +20,11 @@ const ALERT_AFTER = 60;  // No-trade zone 60 minutes after
 let alertedEvents = new Map(); // Track eventKey -> timestamp of when we alerted
 let polling = false;
 
+// GROUP_QUIET=1 keeps the bot out of the public group: no polls, news, summaries,
+// milestones or trade posts. Admin DMs and replies to members still go out.
+// Meant for stretches with nothing to announce (paper trading, relaunch prep).
+const GROUP_QUIET = process.env.GROUP_QUIET === "1";
+
 async function sendTelegram(text, buttons = []) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
   try {
@@ -352,19 +357,23 @@ export async function startNewsAlerts() {
   }
   console.log(`[NEWS] Pre-populated ${alertedEvents.size} events to prevent duplicate alerts`);
 
+  if (GROUP_QUIET) console.log("[NEWS] GROUP_QUIET — news, polls and leaderboards stay out of the group; admin signal DMs continue");
+
   // Initial check
-  await checkNews();
+  if (!GROUP_QUIET) await checkNews();
 
   // Poll loop
   const loop = async () => {
     if (!polling) return;
-    await checkNews();
-    await checkWeekendClose();
-    await checkSundayOpen();
-    await checkDailyPoll();
-    await checkWeeklyPollWinner();
-    await checkReferralLeaderboard();
-    await checkActiveSignal();
+    if (!GROUP_QUIET) {
+      await checkNews();
+      await checkWeekendClose();
+      await checkSundayOpen();
+      await checkDailyPoll();
+      await checkWeeklyPollWinner();
+      await checkReferralLeaderboard();
+    }
+    await checkActiveSignal(); // admin DM only
     setTimeout(loop, CHECK_INTERVAL);
   };
   setTimeout(loop, CHECK_INTERVAL);
